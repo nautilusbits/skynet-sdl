@@ -1,0 +1,77 @@
+# Native AOT builds for Linux and macOS (the Windows build and the APK are made locally).
+# A pushed tag v* or a manual run with a tag attaches the archives to that release.
+#   tag v1.2.3 ─► test ─► publish game + editor ─► licences ─► smoke run ─► archive ─► release asset
+name: Release builds
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to attach the archives to (empty: artifacts only)'
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 22.04: an older glibc, so the binary runs on more distributions.
+          - { os: ubuntu-22.04, rid: linux-x64 }
+          - { os: macos-15, rid: osx-arm64 }
+          - { os: macos-15-intel, rid: osx-x64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: AOT prerequisites (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
+
+      - name: Tests (no game data: those needing it skip)
+        run: dotnet test -c Release
+
+      - name: Publish
+        shell: bash
+        run: |
+          ver=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' Directory.Build.props | head -1)
+          eng=$(sed -n 's:.*<RetroEngVersion>\(.*\)</RetroEngVersion>.*:\1:p' Directory.Build.props | head -1)
+          name=skynet-sdl-$ver-${{ matrix.rid }}
+          out=dist/$name
+          dotnet publish src/SkyNet.App/SkyNet.App.csproj -c Release -r ${{ matrix.rid }} -o $out
+          dotnet publish src/SkyNet.Edit/SkyNet.Edit.csproj -c Release -r ${{ matrix.rid }} -o $out
+          rm -rf $out/*.dbg $out/*.dSYM $out/SkyNet.Verify*
+
+          # The licences every copy carries (the engine's licence asks for its text and notices).
+          pkg=$HOME/.nuget/packages/retroeng.core/$eng
+          cp LICENSE THIRD-PARTY-NOTICES.txt README.md CHANGELOG.md $out/
+          cp $pkg/LICENSE-RetroEng.txt $out/
+          cp $pkg/THIRD-PARTY-NOTICES.txt $out/THIRD-PARTY-NOTICES-RetroEng.txt
+          mkdir -p $out/config && cp config/*.sample* $out/config/
+
+          # Smoke run: the binary and its libraries load.
+          $out/skynet-sdl --help | head -3
+
+          tar -C dist -czf dist/$name.tar.gz $name
+          echo "ARCHIVE=dist/$name.tar.gz" >> $GITHUB_ENV
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.rid }}
+          path: ${{ env.ARCHIVE }}
+
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/') || inputs.tag != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ inputs.tag || github.ref_name }}" "$ARCHIVE" --clobber
