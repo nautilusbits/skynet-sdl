@@ -1,0 +1,14 @@
+{
+  "table": "impact_pieces",
+  "address": "0x3844B",
+  "source": "SKYNET.EXE v1.01",
+  "sourceMd5": "5d1d3d82471cb515db091b4a9045479d",
+  "tool": "SkyNet.Tables 2",
+  "rows": [
+    {"type": 1, "sprite": 24577, "life": 105, "speed": 200, "spread": 70000, "flags": 460},
+    {"type": 2, "sprite": 24576, "life": 35, "speed": 125, "spread": 50000, "flags": 332},
+    {"type": 3, "sprite": 24578, "life": 60, "speed": 175, "spread": 90000, "flags": 332},
+    {"type": 4, "sprite": 24576, "life": 105, "speed": 200, "spread": 50000, "flags": 332},
+    {"type": 5, "sprite": 24578, "life": 35, "speed": -400, "spread": 30000, "flags": 328}
+  ]
+}

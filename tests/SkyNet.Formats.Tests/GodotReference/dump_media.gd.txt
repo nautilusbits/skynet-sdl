@@ -1,0 +1,89 @@
+## Regenerates godot_dump_media.txt: the Godot port's decode of every IMG and CFA in the
+## SkyNET archives (MDMDIMGS/MDMDHRES/MDMDBRIF and any other .BSA in the folder) and every
+## HMI (loose files), as sizes and MD5s. Run it against a scratch Godot project holding copies
+## of the port's scripts/loaders/{bsa_reader,img_file,cfa_file,hmi_file}.gd:
+##   SKYNET_DATA=<game data folder> DUMP_OUT=<file> godot --headless --path <scratch project> --script res://dump.gd
+## Pixels go through a grey palette whose red channel is the palette index, so the hashed
+## bytes are palette indices. HMI events are hashed in a canonical (fully sorted) order,
+## because the port's sort_custom is not stable at equal keys.
+extends SceneTree
+
+const BSAReader := preload("res://scripts/loaders/bsa_reader.gd")
+const ImgFile := preload("res://scripts/loaders/img_file.gd")
+const CfaFile := preload("res://scripts/loaders/cfa_file.gd")
+const HmiFile := preload("res://scripts/loaders/hmi_file.gd")
+
+func _md5(b: PackedByteArray) -> String:
+	var ctx := HashingContext.new()
+	ctx.start(HashingContext.HASH_MD5)
+	if not b.is_empty():
+		ctx.update(b)
+	return ctx.finish().hex_encode()
+
+func _indices(img: Image) -> PackedByteArray:
+	var d: PackedByteArray = img.get_data()
+	var out := PackedByteArray()
+	out.resize(d.size() / 4)
+	for i in out.size():
+		out[i] = d[i * 4]
+	return out
+
+func _init() -> void:
+	var data: String = OS.get_environment("SKYNET_DATA")
+	var out: String = OS.get_environment("DUMP_OUT")
+	var lines: PackedStringArray = []
+	var pal := PackedColorArray()
+	for i in 256:
+		var c := Color((i + 0.5) / 255.0, 0, 0)
+		if int(c.r * 255.0) != i:
+			push_error("grey palette not exact at %d" % i)
+		pal.append(c)
+	var names := DirAccess.get_files_at(data)
+	names.sort()
+	for arc in names:
+		if not arc.to_upper().ends_with(".BSA"):
+			continue
+		var b = BSAReader.new()
+		if not b.open(data + "/" + arc, 2):
+			continue
+		for en in b.entries():
+			var nm: String = en.name
+			var ext := nm.get_extension().to_upper()
+			if ext != "IMG" and ext != "CFA":
+				continue
+			var bytes: PackedByteArray = b.read(nm)
+			if ext == "IMG":
+				var t = ImgFile.parse(bytes, pal)
+				if t == null:
+					lines.append("IMG %s %s null" % [arc, nm])
+					continue
+				var img: Image = t.get_image()
+				lines.append("IMG %s %s %d %d %s" % [arc, nm, img.get_width(), img.get_height(), _md5(_indices(img))])
+			else:
+				var fr: Array = CfaFile.parse(bytes, pal, true)
+				if fr.is_empty():
+					lines.append("CFA %s %s null" % [arc, nm])
+					continue
+				var all := PackedByteArray()
+				for im in fr:
+					all.append_array(_indices(im))
+				var im0: Image = fr[0]
+				lines.append("CFA %s %s %d %d %d %d %s" % [arc, nm, int(CfaFile.is_hires(bytes)), im0.get_width(), im0.get_height(), fr.size(), _md5(all)])
+		b.close()
+	for nm in names:
+		if nm.to_upper().get_extension() != "HMI":
+			continue
+		var song: Dictionary = HmiFile.parse(FileAccess.get_file_as_bytes(data + "/" + nm))
+		if song.is_empty():
+			lines.append("HMI %s null" % nm)
+			continue
+		var ev: PackedInt32Array = song["events"]
+		var recs: Array = []
+		for i in ev.size() / 5:
+			recs.append("%d,%d,%d,%d,%d" % [ev[i * 5], ev[i * 5 + 1], ev[i * 5 + 2], ev[i * 5 + 3], ev[i * 5 + 4]])
+		recs.sort()
+		lines.append("HMI %s %d %d %d %d %s" % [nm, song["division"], song["rate"], song["length"], recs.size(), _md5("|".join(recs).to_utf8_buffer())])
+	var f := FileAccess.open(out, FileAccess.WRITE)
+	f.store_string("\n".join(lines) + "\n")
+	f.close()
+	quit()

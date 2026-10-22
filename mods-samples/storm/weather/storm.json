@@ -1,0 +1,9 @@
+{
+  "comment": "docs/modding.md, Weather. interval: mean seconds between strikes; distance: [near, far] metres.",
+  "kind": "storm",
+  "on": true,
+  "interval": 18,
+  "brightness": 1.0,
+  "distance": [800, 6000],
+  "thunderVolume": 0.8
+}

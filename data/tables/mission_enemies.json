@@ -1,0 +1,8 @@
+{
+  "table": "mission_enemies",
+  "address": "0x53520 0x53400",
+  "source": "SKYNET.EXE v1.01",
+  "sourceMd5": "5d1d3d82471cb515db091b4a9045479d",
+  "tool": "SkyNet.Tables 2",
+  "rows": {"skyNet": [130, 82, 136, 91, 76, 67, 73, 300], "futureShock": [133, 133, 154, 150, 94, 98, 203, 130, 108, 61, 134, 200, 140, 153, 100, 56, 244]}
+}

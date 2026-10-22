@@ -1,0 +1,19 @@
+{
+  "table": "drop_lists",
+  "address": "0x42C7E",
+  "source": "SKYNET.EXE v1.01",
+  "sourceMd5": "5d1d3d82471cb515db091b4a9045479d",
+  "tool": "SkyNet.Tables 2",
+  "rows": [
+    {"index": 0, "sprites": [0, 27264, 27265, 27266, 27267, 27268, 27269, 27021, 27022, 27023]},
+    {"index": 1, "sprites": [27662, 27661, 27660, 27659]},
+    {"index": 2, "sprites": [27904, 27905, 27906, 27906, 27907, 27907]},
+    {"index": 3, "sprites": [0, 25602, 25602, 25602, 25602, 25601, 25734, 25735, 25735, 25607, 25605]},
+    {"index": 4, "sprites": [0, 27392, 27393, 27402, 27402, 27401, 27401, 27400]},
+    {"index": 5, "sprites": [26133]},
+    {"index": 6, "sprites": []},
+    {"index": 7, "sprites": []},
+    {"index": 8, "sprites": []},
+    {"index": 9, "sprites": []}
+  ]
+}

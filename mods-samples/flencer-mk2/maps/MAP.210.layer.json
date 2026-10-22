@@ -1,0 +1,9 @@
+{
+  "format": "skynet-layer",
+  "version": 1,
+  "base": "MAP.210",
+  "edits": [
+    { "op": "set", "key": 50926, "enemy": 200 }
+  ],
+  "names": []
+}

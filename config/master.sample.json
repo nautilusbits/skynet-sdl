@@ -1,0 +1,22 @@
+// master.json - the master server's settings (docs/multiplayer.md "Master server").
+//   SkyNet.Master [--config master.json] [--port N] [--bind IP] [--quit-after S]
+// Copy this file to master.json beside SkyNet.Master. Every key is optional: the values below are the
+// defaults. Comments (//) and trailing commas are allowed; an unknown key or a wrong value stops the
+// master with the JSON path, the line and the column.
+{
+  "bind": "",                        // an IP address to serve on; "" = every interface
+  "port": 27900,                     // UDP, open to the internet; 0 = any free port
+  "max_servers": 4096,               // listed servers at most, 1-1000000
+  "max_servers_per_address": 8,      // several servers behind one NAT, 1-10000
+  "heartbeat_seconds": 60,           // what the master asks servers for, 10-3600
+  "missed_beats": 3,                 // an entry goes after this many missed beats (plus 10 s), 1-100
+  "challenge_seconds": 10,           // how long a server has to answer the direct check, 2-600
+  "query_rate": 4,                   // list pages a second per address
+  "query_burst": 16,
+  "heartbeat_rate": 0.5,             // heartbeats a second per address
+  "heartbeat_burst": 8,
+  "introduce_rate": 1,               // NAT introductions a second per address
+  "introduce_burst": 5,
+  "games": [],                       // the game ids listed; [] = any (e.g. ["skynet", "shock"])
+  "log_file": "",                    // relative to this file, e.g. "logs/master.log"; "" = none (the last five kept)
+}

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The master server (docs/multiplayer.md "Master server"): a small UDP service that lists public
+       game servers, checks that they answer, and introduces players to servers behind a NAT. Its
+       logic is RetroEng.Net.Master (game-agnostic); this is the console program around it, with no
+       SDL, window or sound. Publishing: see docs/multiplayer.md "Master server". -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>SkyNet.Master</RootNamespace>
+    <AssemblyName>SkyNet.Master</AssemblyName>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+  <ItemGroup>
+    <RetroEngReference Include="RetroEng.Core" />
+    <RetroEngReference Include="RetroEng.Net" />
+  </ItemGroup>
+</Project>

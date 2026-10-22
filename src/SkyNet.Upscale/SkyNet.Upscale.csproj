@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>SkyNet.Upscale</RootNamespace>
+    <IsRidAgnostic>false</IsRidAgnostic>
+  </PropertyGroup>
+  <ItemGroup>
+    <RetroEngReference Include="RetroEng.Platform" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,3 @@
+data/tables/*.json text eol=lf
+native/sdl3/*.patch -text
+tests/RetroEng.Core.Tests/Data/** binary

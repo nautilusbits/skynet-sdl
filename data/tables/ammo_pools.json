@@ -1,0 +1,22 @@
+{
+  "table": "ammo_pools",
+  "address": "0x440EC",
+  "source": "SKYNET.EXE v1.01",
+  "sourceMd5": "5d1d3d82471cb515db091b4a9045479d",
+  "tool": "SkyNet.Tables 2",
+  "rows": [
+    {"index": 0, "current": 0, "initial": 500, "max": 750},
+    {"index": 1, "current": 0, "initial": 50, "max": 200},
+    {"index": 2, "current": 0, "initial": 0, "max": 99},
+    {"index": 3, "current": 0, "initial": 0, "max": 99},
+    {"index": 4, "current": 0, "initial": 500, "max": 800},
+    {"index": 5, "current": 0, "initial": 25, "max": 99},
+    {"index": 6, "current": 0, "initial": 20, "max": 99},
+    {"index": 7, "current": 0, "initial": 0, "max": 99},
+    {"index": 8, "current": 0, "initial": 2, "max": 99},
+    {"index": 9, "current": 0, "initial": 1, "max": 99},
+    {"index": 10, "current": 0, "initial": 1000, "max": 2000},
+    {"index": 11, "current": 0, "initial": 40, "max": 40},
+    {"index": 12, "current": 0, "initial": 9999, "max": 9999}
+  ]
+}

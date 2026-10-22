@@ -1,0 +1,69 @@
+## Regenerates godot_dump_wldfit.txt: the Godot port's heightmap fit (LevelLoader._best_fit_wld,
+## copied below verbatim apart from returning the counts) for every outdoor map of a data folder,
+## SkyNET's and Future Shock's. Run it against a scratch Godot project holding copies of the port's
+## scripts/loaders/{bsa_reader,map_file,wld_terrain}.gd (wld_terrain.gd's one `Render.style(...)`
+## call replaced by `pass`):
+##   DATA_DIR=<data folder> ARCHIVE=<MDMDMAP2.BSA|MDMDMAPS.BSA> KEY=<2|other key> DUMP_OUT=<file> \
+##     godot --headless --path <scratch project> --script res://dump.gd
+extends SceneTree
+
+const BSAReader := preload("res://scripts/loaders/bsa_reader.gd")
+const MapFile := preload("res://scripts/loaders/map_file.gd")
+const WldTerrain := preload("res://scripts/loaders/wld_terrain.gd")
+const WLD_FIT_STEP: float = 60.0
+const WLD_FIT_MIN: float = 0.33
+
+func _fit(map, dir: String, wlds: Array) -> String:
+	var pts: Array = []
+	for e in map.entities:
+		if (e.flags & 3) == 3 and e.marker_type >= 0:
+			pts.append(Vector3(float(e.x), -float(e.y + 0x10), float(e.z)))
+	if pts.size() < 8:
+		for e in map.entities:
+			if (e.flags & 3) == 1:
+				pts.append(Vector3(float(e.x), -float(e.y), float(e.z)))
+	if pts.size() < 8:
+		return "- 0 %d" % pts.size()
+	var best: String = ""
+	var best_on: int = 0
+	for f in wlds:
+		var w = WldTerrain.parse(FileAccess.get_file_as_bytes("%s/%s" % [dir, f]))
+		if w == null:
+			continue
+		var on: int = 0
+		for p in pts:
+			if absf(p.y - WldTerrain.height_at_world(w, p.x, p.z)) <= WLD_FIT_STEP:
+				on += 1
+		if on > best_on:
+			best_on = on
+			best = f.substr(4)
+	if float(best_on) < float(pts.size()) * WLD_FIT_MIN:
+		return "- %d %d" % [best_on, pts.size()]
+	return "%s %d %d" % [best, best_on, pts.size()]
+
+func _init() -> void:
+	var dir: String = OS.get_environment("DATA_DIR")
+	var wlds: Array = []
+	for f in DirAccess.open(dir).get_files():
+		if f.to_upper().begins_with("WLD."):
+			wlds.append(f)
+	wlds.sort()
+	var lines: PackedStringArray = []
+	var bsa = BSAReader.new()
+	bsa.open(dir + "/" + OS.get_environment("ARCHIVE"), int(OS.get_environment("KEY")))
+	for en in bsa.entries():
+		var nm: String = en.name
+		if not nm.begins_with("MAP.") or not nm.get_extension().is_valid_int():
+			continue
+		var bytes: PackedByteArray = bsa.read(nm)
+		var m = MapFile.parse(bytes)
+		if m == null or bytes.decode_u32(9028) != 1:
+			continue
+		lines.append("FIT %s %s %s" % [OS.get_environment("ARCHIVE"), nm, _fit(m, dir, wlds)])
+	bsa.close()
+	var out: String = OS.get_environment("DUMP_OUT")
+	var f := FileAccess.open(out, FileAccess.READ_WRITE) if FileAccess.file_exists(out) else FileAccess.open(out, FileAccess.WRITE)
+	f.seek_end()
+	f.store_string("\n".join(lines) + "\n")
+	f.close()
+	quit()

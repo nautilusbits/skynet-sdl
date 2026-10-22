@@ -1,0 +1,80 @@
+## Regenerates godot_dump_ais.txt: the Godot port's enemy AI data (scripts/enemy_ai_data.gd,
+## generated from the executable) as one MD5 per enemy type, per type script and per ammo type.
+## Scripts are written in a build-independent order (breadth first from the script start, an
+## IF's fall-through before its target, jumps as indices in that order), so the v1.00-derived
+## port data compares with a v1.01 decode. Run it against a scratch Godot project holding a copy
+## of scripts/enemy_ai_data.gd at res://enemy_ai_data.gd:
+##   DUMP_OUT=<file> godot --headless --path <scratch project> --script res://dump.gd
+extends SceneTree
+
+const D := preload("res://enemy_ai_data.gd")
+
+func _md5(s: String) -> String:
+	var ctx := HashingContext.new()
+	ctx.start(HashingContext.HASH_MD5)
+	ctx.update(s.to_utf8_buffer())
+	return ctx.finish().hex_encode()
+
+func _v(t: Dictionary, k: String) -> String:
+	return str(t[k]) if t.has(k) else "-"
+
+func _list(a) -> String:
+	return ",".join(Array(a).map(func(x): return str(x)))
+
+func _type_line(t: Dictionary) -> String:
+	var parts: PackedStringArray = [t.n, str(t.st), str(t.hp)]
+	for k in ["speed", "near", "turn", "axis", "amin", "amax", "range", "alt", "vaccel", "avoid", "fspeed", "engine"]:
+		parts.append(_v(t, k))
+	parts.append(_list(t.fire) if t.has("fire") and not t.fire.is_empty() else "-")
+	parts.append(_list(t.events) if t.has("events") else "")
+	parts.append("|".join(Array(t.death).map(func(d): return _list(d))))
+	return " ".join(parts)
+
+func _pred(p: String) -> String:
+	return "unknown" if p.begins_with("unknown") else p
+
+func _script(start: int) -> String:
+	var order: Array = [start]
+	var index := {start: 0}
+	var i := 0
+	while i < order.size():
+		var op: Array = D.OPS[order[i]]
+		var nxt: Array = []
+		match op[0]:
+			"if": nxt = [order[i] + 16, op[4]]
+			"goto": nxt = [op[1]]
+			"end": nxt = []
+			_: nxt = [order[i] + 16]
+		for n in nxt:
+			if not index.has(n):
+				index[n] = order.size()
+				order.append(n)
+		i += 1
+	var out: PackedStringArray = []
+	for va in order:
+		var op: Array = D.OPS[va]
+		match op[0]:
+			"if": out.append("if %s %s %d %d" % [_pred(op[1]), op[2], op[3], index[op[4]]])
+			"goto": out.append("goto %d" % index[op[1]])
+			"wait": out.append("wait %d %d" % [op[1], op[2]])
+			"anim":
+				var a: Array = D.ANIMS[op[1]]
+				out.append("anim %d %d %s" % [a[0], a[1], _list(a[2])])
+			"sound": out.append("sound %d" % op[1])
+			"set", "add": out.append("%s %d %d" % [op[0], op[1], op[2]])
+			"setfn": out.append("setfn %d %s" % [op[1], _pred(op[2])])
+			_: out.append("end")
+	return "\n".join(out)
+
+func _init() -> void:
+	var lines: PackedStringArray = []
+	for i in D.TYPES.size():
+		var t: Dictionary = D.TYPES[i]
+		lines.append("AIS %d %s %s" % [i, _md5(_type_line(t)), _md5(_script(t.script)) if t.has("script") else "-"])
+	for i in D.AMMO.size():
+		lines.append("AMMO %d %s" % [i, _md5(" ".join(Array(D.AMMO[i]).map(func(x): return str(x))))])
+	lines.append("COUNT %d %d %d" % [D.TYPES.size(), D.OPS.size(), D.ANIMS.size()])
+	var f := FileAccess.open(OS.get_environment("DUMP_OUT"), FileAccess.WRITE)
+	f.store_string("\n".join(lines) + "\n")
+	f.close()
+	quit()

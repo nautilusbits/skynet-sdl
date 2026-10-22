@@ -1,0 +1,7 @@
+{
+  "name": "Storm",
+  "version": "1.0",
+  "author": "SkyNET C# port",
+  "description": "Lightning and thunder over the outdoor maps. ENHANCED look only; play is unchanged.",
+  "comment": "weather/storm.json: docs/modding.md, Weather"
+}

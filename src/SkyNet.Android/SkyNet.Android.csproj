@@ -1,0 +1,55 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The game on Android (build-android.bat): an APK for arm64-v8a and x86_64 (emulators), Mono
+       runtime. SDL3's Java activity and libSDL3.so come from the ppy.SDL3-CS package (its android
+       assets: the same SDL revision as native/sdl3 in the retroeng repo; the patch there is Direct3D 12 only), drawn by
+       SDL_GPU's Vulkan backend with the SPIR-V the shader build embeds. The game's sources are
+       SkyNet.App's (linked, not referenced: that project is a desktop exe); its GameMain runs
+       on SDL's main thread (GameActivity). Not in SkyNet.slnx: it needs the .NET android workload. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-android</TargetFramework>
+    <SupportedOSPlatformVersion>26</SupportedOSPlatformVersion>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>SkyNet.Android</RootNamespace>
+    <AssemblyName>SkyNet</AssemblyName>
+    <ApplicationId>net.skynetport.skynet</ApplicationId>
+    <ApplicationTitle>@string/app_name</ApplicationTitle>
+    <!-- Android's version code must grow with every release: major*10000 + minor*100 + patch (0.9.0 = 900). -->
+    <ApplicationVersion>$([MSBuild]::Add($([MSBuild]::Add($([MSBuild]::Multiply($([System.Version]::Parse($(Version)).Major), 10000)), $([MSBuild]::Multiply($([System.Version]::Parse($(Version)).Minor), 100)))), $([System.Version]::Parse($(Version)).Build)))</ApplicationVersion>
+    <ApplicationDisplayVersion>$(Version)</ApplicationDisplayVersion>
+    <RuntimeIdentifiers>android-arm64;android-x64</RuntimeIdentifiers>
+    <AndroidPackageFormat>apk</AndroidPackageFormat>
+    <EmbedAssembliesIntoApk>true</EmbedAssembliesIntoApk>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- The game's code is trim- and AOT-clean (the desktop build is NativeAOT). -->
+    <TrimMode>partial</TrimMode>
+    <!-- RE0001: SkyNet.App's sources use the engine's experimental APIs (VR/stereo). -->
+    <NoWarn>$(NoWarn);CA1416;XA4211;RE0001</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\SkyNet.App\*.cs" Exclude="..\SkyNet.App\Program.cs" Link="App\%(Filename)%(Extension)" />
+  </ItemGroup>
+  <!-- The libraries build once, for net10.0 without a runtime (they ask for the program's runtime:
+       IsRidAgnostic false; the android RIDs have no net10.0 assets). -->
+  <ItemDefinitionGroup>
+    <ProjectReference>
+      <UndefineProperties>%(UndefineProperties);RuntimeIdentifier;SelfContained</UndefineProperties>
+    </ProjectReference>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <RetroEngReference Include="RetroEng.Core" />
+    <RetroEngReference Include="RetroEng.Platform" />
+    <RetroEngReference Include="RetroEng.Render" />
+    <ProjectReference Include="..\SkyNet.Game\SkyNet.Game.csproj" />
+    <PackageReference Include="ppy.SDL3-CS" Version="$(Sdl3Version)" />
+  </ItemGroup>
+  <!-- The licences ship inside the APK (assets/licences/): the engine's licence asks for its text and
+       its notices with every copy. -->
+  <ItemGroup>
+    <AndroidAsset Include="..\..\LICENSE" Link="Assets\licences\LICENSE.txt" />
+    <AndroidAsset Include="..\..\THIRD-PARTY-NOTICES.txt" Link="Assets\licences\THIRD-PARTY-NOTICES.txt" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseLocalRetroEng)' != 'true'">
+    <AndroidAsset Include="$(NuGetPackageRoot)retroeng.core\$(RetroEngVersion)\LICENSE-RetroEng.txt" Link="Assets\licences\LICENSE-RetroEng.txt" />
+    <AndroidAsset Include="$(NuGetPackageRoot)retroeng.core\$(RetroEngVersion)\THIRD-PARTY-NOTICES.txt" Link="Assets\licences\THIRD-PARTY-NOTICES-RetroEng.txt" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,24 @@
+# Mission 1 through the game session (docs/missions.md; the Godot port's mission spec):
+# MAP.210's bunker gate -> 214 -> 215 (the floor pad, the lift button) -> 217 and the last
+# objective, then MISSION COMPLETE and mission 2's first map.
+mission 1
+expect map 210
+expect left 3
+use 0x07fcb          # the bunker gate: exit 214/0
+expect map 214
+use 0x02f4e          # exit 215/0
+expect map 215
+stand 0x032cb        # the floor pad: objective 1
+expect left 2
+use 0x02f8f          # the lift button: objective 2, the lifts rise
+expect left 1
+use 0x04130          # exit 217/15
+expect map 217
+use 0x0ba48          # objective 3: the counter runs out
+expect left 0
+wait 3
+expect phase complete
+wait 6.5
+expect mission 2
+expect map 220
+expect phase playing

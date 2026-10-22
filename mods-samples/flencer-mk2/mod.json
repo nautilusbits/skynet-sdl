@@ -1,0 +1,7 @@
+{
+  "name": "Flencer Mk2",
+  "version": "1.0",
+  "author": "SkyNET C# port",
+  "description": "A new robot type: a flencer with more armour, twice the speed and twice the fire rate. It stands in for a globe on the first map. Not DOS: changes play.",
+  "comment": "robots/flencer-mk2.json and maps/MAP.210.layer.json: docs/modding.md, Robots"
+}

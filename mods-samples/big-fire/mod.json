@@ -1,0 +1,7 @@
+{
+  "name": "Big Fire",
+  "version": "1.0",
+  "author": "SkyNET C# port",
+  "description": "ENHANCED look: fires burn half again as big and blue-white, with more, bluer embers.",
+  "comment": "tables/effects.json: docs/modding.md, Effects"
+}

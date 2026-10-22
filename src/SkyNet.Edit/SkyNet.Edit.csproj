@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The mission editor's executable (SkyNetEdit): the game's libraries and Dear ImGui (RetroEng.Editor),
+       so the game's own exe stays free of ImGui and cimgui (docs/plans/editor-vr-menus.md, section 5). -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <ApplicationIcon>../../assets/icons/skynetedit.ico</ApplicationIcon>
+    <RootNamespace>SkyNet.Edit</RootNamespace>
+    <AssemblyName>SkyNetEdit</AssemblyName>
+    <PublishAot>true</PublishAot>
+    <!-- The verifier (a tool exe) supplies the trigger graph; it is compiled in like a library. -->
+    <ValidateExecutableReferencesMatchSelfContained>false</ValidateExecutableReferencesMatchSelfContained>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <OptimizationPreference>Size</OptimizationPreference>
+    <NativeDebugSymbols>false</NativeDebugSymbols>
+    <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
+    <!-- Uses the engine's experimental APIs (VR/stereo, editor core). -->
+    <NoWarn>$(NoWarn);RE0001</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <RetroEngReference Include="RetroEng.Core" />
+    <RetroEngReference Include="RetroEng.Platform" />
+    <RetroEngReference Include="RetroEng.Render" />
+    <RetroEngReference Include="RetroEng.Editor" />
+    <ProjectReference Include="..\SkyNet.Game\SkyNet.Game.csproj" />
+    <!-- E10: the validation panel diffs the verifier's static trigger graph. -->
+    <ProjectReference Include="..\..\tools\SkyNet.Verify\SkyNet.Verify.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,13 @@
+{
+  "comment": "docs/modding.md, Weather. amount, streaks and peak 0-1; colour: sRGB 0-1; height, size and rise: metres; interval and duration: seconds.",
+  "kind": "dust",
+  "amount": 0.15,
+  "colour": [0.42, 0.36, 0.28],
+  "height": 3,
+  "streaks": 0.7,
+  "interval": 40,
+  "duration": 24,
+  "peak": 0.85,
+  "size": 45,
+  "rise": 10
+}

@@ -1,0 +1,8 @@
+{
+  "table": "start_weapons",
+  "address": "0x4356C 0x43538",
+  "source": "SKYNET.EXE v1.01",
+  "sourceMd5": "5d1d3d82471cb515db091b4a9045479d",
+  "tool": "SkyNet.Tables 2",
+  "rows": {"skyNet": [0, 1, 2, 4, 7, 14, 15, 16, 18, 19, 20, 21, 22, 23, 24, 25], "futureShock": [0, 14, 15, 16, 18, 19, 20, 21, 22, 23, 24, 25]}
+}

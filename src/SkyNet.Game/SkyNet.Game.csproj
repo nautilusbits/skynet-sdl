@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The game's world on the renderer: a level built from MAP.NNN and WLD.NNN, drawn in the
+       original palette look. No window code: the app owns the window and the loop. -->
+  <PropertyGroup>
+    <RootNamespace>SkyNet.Game</RootNamespace>
+    <IsRidAgnostic>false</IsRidAgnostic>
+    <!-- Uses the engine's experimental APIs (VR/stereo, editor core). -->
+    <NoWarn>$(NoWarn);RE0001</NoWarn>
+  </PropertyGroup>
+  <!-- The game's ENHANCED materials per texture (Mods/Materials.cs; drafted by SkyNet gen-materials). -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\data\materials\skynet.json" LogicalName="materials/skynet.json" />
+    <EmbeddedResource Include="..\..\data\materials\futureshock.json" LogicalName="materials/futureshock.json" />
+    <!-- The enhanced night's moon: the LRO near side, 128 x 128 grey (NASA SVS 4720, public domain; THIRD-PARTY-NOTICES.txt). -->
+    <EmbeddedResource Include="..\..\data\sky\moon_near_side.gray" LogicalName="sky/moon.gray" />
+  </ItemGroup>
+  <ItemGroup>
+    <RetroEngReference Include="RetroEng.Render" />
+    <RetroEngReference Include="RetroEng.Audio" />
+    <RetroEngReference Include="RetroEng.Physics" />
+    <RetroEngReference Include="RetroEng.Net" />
+    <ProjectReference Include="..\SkyNet.Upscale\SkyNet.Upscale.csproj" />
+    <ProjectReference Include="..\SkyNet.Formats\SkyNet.Formats.csproj" />
+    <ProjectReference Include="..\SkyNet.Data\SkyNet.Data.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="SkyNet.Game.Tests" />
+  </ItemGroup>
+  <!-- Navigation/NavRecast.cs: the bots' nav mesh (Recast and Detour, zlib). -->
+  <ItemGroup>
+    <PackageReference Include="DotRecast.Detour" Version="2026.3.1" />
+    <PackageReference Include="DotRecast.Recast" Version="2026.3.1" />
+  </ItemGroup>
+</Project>

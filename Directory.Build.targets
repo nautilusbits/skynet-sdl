@@ -1,0 +1,31 @@
+<Project>
+  <!-- The engine: each RetroEngReference (e.g. RetroEng.Render) becomes a PackageReference of version
+       RetroEngVersion, or with UseLocalRetroEng=true a ProjectReference into RetroEngRoot's src/.
+         packages:  RetroEngReference RetroEng.X ─► PackageReference RetroEng.X $(RetroEngVersion)
+         local:     RetroEngReference RetroEng.X ─► $(RetroEngRoot)src/RetroEng.X/RetroEng.X.csproj -->
+  <ItemGroup Condition="'$(UseLocalRetroEng)' == 'true'">
+    <ProjectReference Include="@(RetroEngReference->'$(RetroEngRoot)src/%(Identity)/%(Identity).csproj')" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseLocalRetroEng)' != 'true'">
+    <PackageReference Include="@(RetroEngReference)" Version="$(RetroEngVersion)" />
+  </ItemGroup>
+
+  <!-- Local engine only (the RetroEng.Native package does this itself): Windows x64 takes the engine
+       checkout's SDL3.dll (SDL with the D3D12 descriptor-heap fix) in place of the ppy.SDL3-CS
+       package's, in every output: bin (runtimes/win-x64/native/), dotnet publish -r win-x64 (beside
+       the exe) and the tests. The package's item keeps its metadata (destination, deps.json path);
+       only its source file changes. -->
+  <PropertyGroup>
+    <PatchedSdl3Dll>$(RetroEngRoot)native/sdl3/bin/win-x64/SDL3.dll</PatchedSdl3Dll>
+  </PropertyGroup>
+  <Target Name="UsePatchedSdl3" AfterTargets="ResolvePackageAssets" Condition="'$(UseLocalRetroEng)' == 'true' and Exists('$(PatchedSdl3Dll)')">
+    <ItemGroup>
+      <_PackageSdl3 Include="@(RuntimeTargetsCopyLocalItems)" Condition="'%(Filename)%(Extension)' == 'SDL3.dll' and '%(RuntimeTargetsCopyLocalItems.RuntimeIdentifier)' == 'win-x64'" />
+      <RuntimeTargetsCopyLocalItems Remove="@(_PackageSdl3)" />
+      <RuntimeTargetsCopyLocalItems Include="@(_PackageSdl3->'$(PatchedSdl3Dll)')" />
+      <_PackageSdl3Native Include="@(NativeCopyLocalItems)" Condition="'%(Filename)%(Extension)' == 'SDL3.dll' and '$(RuntimeIdentifier)' == 'win-x64'" />
+      <NativeCopyLocalItems Remove="@(_PackageSdl3Native)" />
+      <NativeCopyLocalItems Include="@(_PackageSdl3Native->'$(PatchedSdl3Dll)')" />
+    </ItemGroup>
+  </Target>
+</Project>

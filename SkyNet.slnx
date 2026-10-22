@@ -1,0 +1,20 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SkyNet.Upscale/SkyNet.Upscale.csproj" />
+    <Project Path="src/SkyNet.Data/SkyNet.Data.csproj" />
+    <Project Path="src/SkyNet.Formats/SkyNet.Formats.csproj" />
+    <Project Path="src/SkyNet.Game/SkyNet.Game.csproj" />
+    <Project Path="src/SkyNet.App/SkyNet.App.csproj" />
+    <Project Path="src/SkyNet.Edit/SkyNet.Edit.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/SkyNet.Tables/SkyNet.Tables.csproj" />
+    <Project Path="tools/SkyNet.Master/SkyNet.Master.csproj" />
+    <Project Path="tools/SkyNet.Verify/SkyNet.Verify.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SkyNet.Edit.Tests/SkyNet.Edit.Tests.csproj" />
+    <Project Path="tests/SkyNet.Game.Tests/SkyNet.Game.Tests.csproj" />
+    <Project Path="tests/SkyNet.Formats.Tests/SkyNet.Formats.Tests.csproj" />
+  </Folder>
+</Solution>

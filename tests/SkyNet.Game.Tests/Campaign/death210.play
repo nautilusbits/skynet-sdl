@@ -1,0 +1,13 @@
+# Death by a robot (DOS: death = RESTART MISSION from the mission's first map): the soldier,
+# mortal (god off), stands in front of a MAP.210 endoskeleton until its rifle kills him;
+# MISSION FAILED, then mission 1 again on MAP.210 with a full bar.
+mission 1
+god off
+meet endorfl 300
+expect phase playing
+until alive no 60
+expect phase failed
+until phase playing 5
+expect mission 1
+expect map 210
+expect alive yes

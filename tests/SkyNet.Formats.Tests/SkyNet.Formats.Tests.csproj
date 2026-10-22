@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <ProjectReference Include="..\..\src\SkyNet.Formats\SkyNet.Formats.csproj" />
+    <!-- The shipped tables (embedded) and the tool that extracts them (re-extracted when SKYNET.EXE is at hand). -->
+    <ProjectReference Include="..\..\src\SkyNet.Data\SkyNet.Data.csproj" />
+    <ProjectReference Include="..\..\tools\SkyNet.Tables\SkyNet.Tables.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The Godot port's decodes of the player's files (hashes only, no game data); each
+         GodotReference/*.gd.txt script regenerates its godot_dump*.txt. -->
+    <None Include="GodotReference\godot_dump*.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

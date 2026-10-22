@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The game's executable: command line, window, input and the fixed-tick loop. -->
+  <PropertyGroup>
+    <!-- A GUI program: no console window of its own (the log goes to logs\ and the game's console;
+         tools attach to the cmd window they are run from). -->
+    <OutputType>WinExe</OutputType>
+    <ApplicationIcon>../../assets/icons/skynet.ico</ApplicationIcon>
+    <RootNamespace>SkyNet.App</RootNamespace>
+    <AssemblyName>skynet-sdl</AssemblyName>
+    <!-- dotnet publish -c Release -r win-x64 (build-release.bat): one native exe, shaders embedded, SDL3.dll beside it. -->
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <OptimizationPreference>Size</OptimizationPreference>
+    <NativeDebugSymbols>false</NativeDebugSymbols>
+    <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
+    <!-- Uses the engine's experimental APIs (VR/stereo, editor core). -->
+    <NoWarn>$(NoWarn);RE0001</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <RetroEngReference Include="RetroEng.Core" />
+    <RetroEngReference Include="RetroEng.Platform" />
+    <RetroEngReference Include="RetroEng.Render" />
+    <ProjectReference Include="..\SkyNet.Game\SkyNet.Game.csproj" />
+  </ItemGroup>
+</Project>

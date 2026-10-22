@@ -1,0 +1,7 @@
+# python -I -m pip install -r tools/upscale/requirements.txt  (in a venv)
+# For the GPU path install torch from the CUDA index first, e.g.
+#   python -I -m pip install torch --index-url https://download.pytorch.org/whl/cu128
+numpy>=2.0
+pillow>=11.0
+spandrel>=0.4      # loads the OpenModelDB ESRGAN weights (pixelperfect, fatalpixels)
+torch>=2.5

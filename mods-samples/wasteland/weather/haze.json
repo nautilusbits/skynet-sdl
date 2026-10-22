@@ -1,0 +1,8 @@
+{
+  "comment": "docs/modding.md, Weather. colour: sRGB 0-1; visibility: metres; density and horizon 0-1.",
+  "kind": "haze",
+  "colour": [0.17, 0.15, 0.125],
+  "visibility": 260,
+  "density": 1,
+  "horizon": 0.6
+}

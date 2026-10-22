@@ -1,0 +1,14 @@
+# masters.txt - the master server the game and the dedicated server use (docs/multiplayer.md
+# "Master server"). Copy this file to masters.txt beside skynet-sdl.exe and put the address in it.
+#
+# One host[:port] a line; the port defaults to 27900. Empty lines and everything after '#' or
+# "//" are skipped; the first usable line is the one used. Prefer a DNS name to an IP address, so
+# the master can move without new builds or settings.
+#
+# What comes first (and so overrides this file): --master HOST[:PORT] on the command line or
+# server.json's "master", then "net.master" in skynet-csharp-settings.json beside the exe.
+#
+# The repo holds no real address. Examples:
+# master.example.org
+# master.example.org:27900
+# 203.0.113.7:27901          // an address from a documentation range, not a real host

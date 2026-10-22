@@ -1,0 +1,8 @@
+{
+  "comment": "docs/modding.md, Weather. direction: degrees (0 towards +Z, 90 towards +X); speed: m/s; gusts 0-1; volume: the howl, 0-1.",
+  "kind": "wind",
+  "direction": 60,
+  "speed": 9,
+  "gusts": 0.6,
+  "volume": 0.5
+}

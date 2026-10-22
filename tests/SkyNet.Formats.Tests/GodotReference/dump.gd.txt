@@ -1,0 +1,64 @@
+## Regenerates godot_dump.txt: the Godot port's decode of a few real files, as MD5s and samples,
+## for GodotCrossCheckTests. Run it against a scratch Godot project holding copies of the port's
+## scripts/loaders/{bsa_reader,palette,texture_nnn,wld_terrain}.gd (with wld_terrain.gd's one
+## `Render.style(...)` call replaced by `pass`, since a --script run has no autoloads):
+##   SKYNET_DATA=<game data folder> DUMP_OUT=<file> godot --headless --path <scratch project> --script res://dump.gd
+extends SceneTree
+
+const BSAReader := preload("res://scripts/loaders/bsa_reader.gd")
+const Palette := preload("res://scripts/loaders/palette.gd")
+const Tex := preload("res://scripts/loaders/texture_nnn.gd")
+const Wld := preload("res://scripts/loaders/wld_terrain.gd")
+
+func _md5(b: PackedByteArray) -> String:
+	var ctx := HashingContext.new()
+	ctx.start(HashingContext.HASH_MD5)
+	if not b.is_empty():
+		ctx.update(b)
+	return ctx.finish().hex_encode()
+
+func _init() -> void:
+	var data: String = OS.get_environment("SKYNET_DATA")
+	var out: String = OS.get_environment("DUMP_OUT")
+	var lines: PackedStringArray = []
+	var bsa = BSAReader.new()
+	bsa.open(data + "/MDMDIMGS.BSA", 2)
+	lines.append("BSA MDMDIMGS.BSA %d" % bsa.count())
+	for e in bsa.entries().slice(0, 5):
+		lines.append("BSAENT %s %d %d %d" % [e.name, e.flags, e.size, e.offset])
+	var col: PackedByteArray = bsa.read("SKYNET.COL")
+	lines.append("COL SKYNET.COL %d %s" % [col.size(), _md5(col)])
+	var pal: PackedColorArray = Palette.parse(col)
+	var pb := PackedByteArray()
+	for c in pal:
+		pb.append(c.r8); pb.append(c.g8); pb.append(c.b8)
+	lines.append("PAL %s" % _md5(pb))
+	bsa.close()
+	for bank in [0, 1, 44, 200, 206, 214, 266, 302, 358, 359, 367]:
+		var bytes := FileAccess.get_file_as_bytes(data + "/TEXTURE.%03d" % bank)
+		var t = Tex.parse(bytes)
+		if t == null:
+			lines.append("TEX %03d null" % bank)
+			continue
+		lines.append("TEX %03d %d %s" % [bank, t.records.size(), t.name])
+		for i in t.records.size():
+			var r = t.records[i]
+			lines.append("REC %03d %d %d %d %s" % [bank, i, r.width, r.height, _md5(r.pixels)])
+	for bank in [358, 367]:
+		var bytes := FileAccess.get_file_as_bytes(data + "/TEXTURE.%03d" % bank)
+		var fr: Array = Tex.parse_record_frames(bytes, 0)
+		lines.append("FRAMES %03d %d" % [bank, fr.size()])
+		for i in fr.size():
+			lines.append("FRM %03d %d %d %d %s" % [bank, i, fr[i].width, fr[i].height, _md5(fr[i].pixels)])
+	for m in [210, 220, 270]:
+		var wb := FileAccess.get_file_as_bytes(data + "/WLD.%03d" % m)
+		var w = Wld.parse(wb)
+		for L in 4:
+			lines.append("WLD %03d %d %s" % [m, L, _md5(w.layers[L])])
+		var pts := [[1000.5, 60000.25], [32768.0, 32768.0], [12345.6, 54321.9], [-300.0, 100.0], [65500.0, 70000.0], [20000.0, 40000.0]]
+		for p in pts:
+			lines.append("H %03d %s %s %s %s" % [m, var_to_str(p[0]), var_to_str(p[1]), var_to_str(Wld.height_at_world(w, p[0], p[1])), str(Wld.is_water_at(w, p[0], p[1]))])
+	var f := FileAccess.open(out, FileAccess.WRITE)
+	f.store_string("\n".join(lines) + "\n")
+	f.close()
+	quit()

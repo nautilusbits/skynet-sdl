@@ -1,0 +1,13 @@
+bin/
+obj/
+*.user
+.vs/
+release/
+# What a release build ships but the repo must not hold (master server addresses: masters.txt).
+release-config/
+lookshots/
+native/sdl3/work/
+!native/sdl3/bin/
+release-android/
+# The baked system ZIP a --mods-dir mods-samples run writes.
+mods-samples/*.zip

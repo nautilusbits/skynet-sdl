@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The game's file formats: pure parsing, no SDL and no renderer. -->
+  <PropertyGroup>
+    <RootNamespace>SkyNet.Formats</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="SkyNet.Formats.Tests" />
+  </ItemGroup>
+</Project>

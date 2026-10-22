@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <!-- Uses the engine's experimental APIs (VR/stereo, editor core). -->
+    <NoWarn>$(NoWarn);RE0001</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <!-- The player and the collision world; nothing here opens a window or a GPU. -->
+    <ProjectReference Include="..\..\src\SkyNet.Game\SkyNet.Game.csproj" />
+    <!-- The headless trigger and mission verifiers, run on a fast subset (VerifierTests). -->
+    <ProjectReference Include="..\..\tools\SkyNet.Verify\SkyNet.Verify.csproj" />
+    <!-- master.sample.json is read with the master's own MasterSettings (ConfigSampleTests). -->
+    <ProjectReference Include="..\..\tools\SkyNet.Master\SkyNet.Master.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Behaviour\Verify\*" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\config\*.sample.*" Link="ConfigSamples\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,29 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <LangVersion>latest</LangVersion>
+    <!-- The game's version (major.minor.patch): a fix raises patch, a feature minor; tag vX.Y.Z. -->
+    <Version>1.0.0</Version>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <!-- Release builds ship one exe, without symbol files. -->
+    <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
+    <Sdl3Version>2026.722.0</Sdl3Version>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <!-- The build's UTC date in every assembly, read at run time (SkyNet.Game.BuildInfo). -->
+  <ItemGroup>
+    <AssemblyMetadata Include="BuildDate" Value="$([System.DateTime]::UtcNow.ToString('yyyy-MM-dd'))" />
+  </ItemGroup>
+  <!-- The engine (RetroEng.*, items RetroEngReference, Directory.Build.targets): NuGet packages of this
+       version from nuget.org, or with -p:UseLocalRetroEng=true the projects of an
+       engine checkout at RetroEngRoot (default: ..\..\retroeng\ from this folder). -->
+  <PropertyGroup>
+    <RetroEngVersion>0.33.1</RetroEngVersion>
+    <UseLocalRetroEng Condition="'$(UseLocalRetroEng)' == ''">false</UseLocalRetroEng>
+    <RetroEngRoot Condition="'$(RetroEngRoot)' == ''">$(MSBuildThisFileDirectory)..\..\retroeng\</RetroEngRoot>
+    <RetroEngRoot>$([MSBuild]::EnsureTrailingSlash('$(RetroEngRoot)'))</RetroEngRoot>
+  </PropertyGroup>
+</Project>

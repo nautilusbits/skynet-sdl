@@ -1,0 +1,92 @@
+SkyNET SDL third-party notices
+
+The port and its engine, RetroEng, use the components below. Each keeps its
+own licence; the full licence texts follow the list.
+
+Component                  Used by                  Ships                          Licence
+-------------------------  -----------------------  -----------------------------  ------------
+RetroEng (the engine)      SkyNet.*                 RetroEng.*.dll                 RetroEng NC
+SDL 3 (altered, see below) RetroEng.Native          SDL3.dll (win-x64)             zlib
+SDL 3                      via ppy.SDL3-CS          SDL3 for the other runtimes    zlib
+ppy.SDL3-CS                RetroEng.Platform/Audio  managed bindings + SDL3 builds MIT
+Dear ImGui                 via Hexa.NET.ImGui       inside cimgui                  MIT
+cimgui                     via Hexa.NET.ImGui       cimgui native library          MIT
+Hexa.NET.ImGui             RetroEng.Editor          managed bindings               MIT
+HexaGen.Runtime            via Hexa.NET.ImGui       managed runtime helpers        MIT
+LiteNetLib                 RetroEng.Net             managed library                MIT
+DotRecast                  SkyNet.Game (navmesh)    managed library                zlib
+LRO moon map (NASA SVS)    SkyNet.Game (night moon) data/sky/moon_near_side.gray   public domain
+
+RetroEng NC: the RetroEng Non-Commercial Binary Licence, LICENSE-RetroEng.txt
+in each RetroEng.* package and beside the released game. Free, unmodified
+redistribution with a non-commercial application only.
+
+Copyright notices
+
+- SDL: Copyright (C) 1997-2026 Sam Lantinga.
+- ppy.SDL3-CS: Copyright (c) 2024 ppy Pty Ltd.
+- Dear ImGui: Copyright (c) 2014-2025 Omar Cornut.
+- cimgui: Copyright (c) 2015 Stephan Dilly.
+- Hexa.NET.ImGui: Copyright (c) 2023 Juna Meinhold.
+- HexaGen.Runtime: Copyright (c) 2024 Juna Meinhold.
+- LiteNetLib: Copyright (c) 2026 Ruslan Pyrch.
+- DotRecast: Copyright (c) 2009 Mikko Mononen (Recast), (c) 2015 Piotr
+  Piastucki (recast4j), (c) 2023-2026 Choi Ikpil (DotRecast).
+
+Moon map
+
+data/sky/moon_near_side.gray (128 x 128 grey, the near side projected
+orthographically) is made from "CGI Moon Kit" lroc_color_poles_1k.jpg, NASA's
+Scientific Visualization Studio (SVS 4720, Lunar Reconnaissance Orbiter LROC),
+https://svs.gsfc.nasa.gov/4720 . NASA imagery is not copyrighted (public
+domain); credit: NASA's Scientific Visualization Studio.
+
+Altered SDL
+
+RetroEng.Native's win-x64 SDL3.dll is NOT the original SDL. It is SDL at
+revision a8591d943b7079b17fdd018dc04ec9c71dc94ae4 with one patch to the
+Direct3D 12 backend of SDL_GPU (descriptor-heap rollover before a draw writes
+its descriptor tables). The patch is under the same zlib terms as SDL.
+
+==============================================================================
+zlib licence (SDL, DotRecast, Recast)
+==============================================================================
+
+This software is provided 'as-is', without any express or implied warranty.
+In no event will the authors be held liable for any damages arising from the
+use of this software.
+
+Permission is granted to anyone to use this software for any purpose,
+including commercial applications, and to alter it and redistribute it
+freely, subject to the following restrictions:
+
+1. The origin of this software must not be misrepresented; you must not
+   claim that you wrote the original software. If you use this software in a
+   product, an acknowledgment in the product documentation would be
+   appreciated but is not required.
+2. Altered source versions must be plainly marked as such, and must not be
+   misrepresented as being the original software.
+3. This notice may not be removed or altered from any source distribution.
+
+==============================================================================
+MIT licence (ppy.SDL3-CS, Dear ImGui, cimgui, Hexa.NET.ImGui, HexaGen.Runtime,
+LiteNetLib)
+==============================================================================
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Headless trigger verifier and mission spec runner over the level behaviour: the Godot
+       port's trigger and mission verifiers, without physics. See README.md. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>SkyNet.Verify</RootNamespace>
+    <IsRidAgnostic>false</IsRidAgnostic>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SkyNet.Game\SkyNet.Game.csproj" />
+  </ItemGroup>
+</Project>

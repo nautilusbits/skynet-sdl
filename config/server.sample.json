@@ -1,0 +1,41 @@
+// server.json - a dedicated server's settings (docs/multiplayer.md "Dedicated server").
+//   SkyNet --dedicated --config server.json [--data DIR] [--port N] [--bind IP] [--master HOST[:PORT]] [--classes dos|balanced]
+// Copy this file to server.json and change what you need. Every key is optional: the values below are
+// the defaults. Comments (//) and trailing commas are allowed; an unknown key, a wrong type or a value
+// out of range stops the server with the file, the JSON path, the line and the column.
+{
+  "name": "SKYNET DEDICATED",        // listed in the LAN and INTERNET browsers (48 characters at most)
+  "port": 27015,                     // UDP; 0 = any free port (printed as "listening on port N")
+  "bind": "",                        // an IP address to serve on; "" = every interface
+  "max_players": 8,                  // humans, 1-16 (bots do not count)
+  "max_per_address": 2,              // connections from one address; 0 = no limit
+  "password": "",                    // "" = none. Or, not both: "password_sha256": "<64 hex digits>"
+                                     //   (SkyNet --password-hash TEXT prints them; the text is not kept)
+  "cheats": false,                   // the console's cheats for the players
+  "classes": "balanced",             // dos (equal classes) | balanced (the machine at 0.9 of the pace)
+  "public": false,                   // announce to the master server (docs/multiplayer.md "Master server")
+  "master": "",                      // its host[:port] (default port 27900); "" = masters.txt beside the exe
+  "discovery": true,                 // answer LAN browsers on UDP 27016
+  "motd": "",                        // a chat line from SERVER to every joiner (120 characters at most)
+  "log_file": "logs/server.log",     // relative to this file; "" = none (the last five are kept)
+  "ban_file": "bans.json",           // relative to this file; "" = bans last until the server stops
+  "record_demos": false,             // every round as a network demo (docs/demos.md "Network demos")
+  "demo_dir": "demos",               // where they go, relative to this file
+  "idle_kick_seconds": 300,          // without movement or action; 0 = never
+  "timeout_seconds": 10,             // without a packet, 2-120
+  "intermission_seconds": 10,        // the round's end on screen before the next map, 0-600
+  "bots": 0,                         // defaults for every map: 0-12 bots
+  "bot_skill": 1,                    //   of skill 0-2
+  // "goal": "kills",                // points | kills | lives | time; default: each arena's NETLEVEL.PRS goal
+  // "goal_limit": 10,               // 0-99999, 0 = none; default: DOS's for the goal
+  "time": 10,                        // minutes a round, 0-180, 0 = none
+
+  // The maps in turn, at least one. A plain "MAP.605" takes the defaults above; an object can
+  // change them for its map (every key but "map" optional):
+  //   { "map": "MAP.601", "goal": "kills", "goal_limit": 15, "time": 10, "bots": 3, "bot_skill": 2,
+  //     "max_players": 8, "replenish": true, "items": { "health": 4, "rockets": 0 } }
+  // "replenish": taken items come back (default: the arena's). "items": counts per category over
+  // NETLEVEL.PRS's (jeeps, hks, bullets, energy, armor, health, slugthrowers, lasers, plasmas,
+  // launchers, grenades, rockets); a category left out keeps the arena's.
+  "rotation": ["MAP.605"],
+}

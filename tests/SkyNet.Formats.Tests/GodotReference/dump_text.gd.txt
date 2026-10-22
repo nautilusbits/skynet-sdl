@@ -1,0 +1,87 @@
+## Regenerates godot_dump_text.txt: the Godot port's decode of every FONT00NN.FNT, every .PRS and
+## every briefing .TXT in MDMDBRIF.BSA, as counts and MD5s (no game data). Run it against a scratch
+## Godot project holding copies of the port's scripts/loaders/{bsa_reader,fnt_font,prs_file,
+## transfrm_prs,briefing}.gd, with prs_file.gd's one bsa.open(...) line pointed at
+## OS.get_environment("SKYNET_DATA") + "/MDMDBRIF.BSA" and variant 2 (a --script run has no autoloads):
+##   SKYNET_DATA=<game data folder> DUMP_OUT=<file> godot --headless --path <scratch project> --script res://dump.gd
+extends SceneTree
+
+const BSAReader := preload("res://scripts/loaders/bsa_reader.gd")
+const Fnt := preload("res://scripts/loaders/fnt_font.gd")
+const Prs := preload("res://scripts/loaders/prs_file.gd")
+const Transfrm := preload("res://scripts/loaders/transfrm_prs.gd")
+const Brief := preload("res://scripts/loaders/briefing.gd")
+
+func _md5(s: String) -> String:
+	var ctx := HashingContext.new()
+	ctx.start(HashingContext.HASH_MD5)
+	var b := s.to_utf8_buffer()
+	if not b.is_empty():
+		ctx.update(b)
+	return ctx.finish().hex_encode()
+
+func _font(name: String, bytes: PackedByteArray) -> String:
+	var font: FontFile = Fnt.build(bytes, 1)
+	if font == null:
+		return "FNT %s null" % name
+	var lh: int = bytes.decode_u16(2)
+	var size2 := Vector2i(lh, 0)
+	var img: Image = font.get_texture_image(0, size2, 0)
+	# Every table glyph's pixels (from the atlas), and the advance of every codepoint 0x20..0x110.
+	var gl: PackedStringArray = []
+	for i in 240:
+		var r: Rect2 = font.get_glyph_uv_rect(0, size2, 0x21 + i)
+		var bits := ""
+		for y in int(r.size.y):
+			for x in int(r.size.x):
+				bits += "1" if img.get_pixel(int(r.position.x) + x, int(r.position.y) + y).a > 0.5 else "0"
+		gl.append("%d:%s" % [int(r.size.x), bits])
+	var adv: PackedStringArray = []
+	for cp in range(0x20, 0x111):
+		adv.append(str(int(font.get_glyph_advance(0, lh, cp).x)))
+	return "FNT %s %d %d %s %s" % [name, bytes.decode_u16(0), lh, _md5("|".join(gl)), _md5(",".join(adv))]
+
+func _init() -> void:
+	var data: String = OS.get_environment("SKYNET_DATA")
+	var out: String = OS.get_environment("DUMP_OUT")
+	var lines: PackedStringArray = []
+	for i in 12:
+		var nm := "FONT%04d.FNT" % i
+		lines.append(_font(nm, FileAccess.get_file_as_bytes(data + "/" + nm)))
+	var bsa = BSAReader.new()
+	bsa.open(data + "/MDMDBRIF.BSA", 2)
+	for en in bsa.entries():
+		var nm: String = en.name
+		var ext := nm.get_extension().to_upper()
+		if ext == "PRS":
+			var t: Dictionary = Prs.table(nm)
+			var kv: PackedStringArray = []
+			for k in t:
+				kv.append("%s=%s" % [k, t[k]])
+			lines.append("PRS %s %d %s" % [nm, t.size(), _md5("\n".join(kv))])
+			if nm == "TRANSFRM.PRS":
+				var tr: Dictionary = Transfrm.parse(bsa.read(nm))
+				var names: Array = tr.keys()
+				names.sort()
+				var objs: PackedStringArray = []
+				for n in names:
+					objs.append("%s:%s" % [n, ",".join(tr[n])])
+				lines.append("TRANSFRM %d %s" % [tr.size(), _md5("|".join(objs))])
+		elif ext == "TXT":
+			var b: Dictionary = Brief.parse(bsa.read(nm))
+			var dl: PackedStringArray = []
+			for l in b.lines:
+				dl.append("%d:%s" % [l.speaker, l.text])
+			var mt: PackedStringArray = []
+			var count := 0
+			for sec in b.mission_texts:
+				mt.append("/".join(PackedStringArray(sec)))
+				count += sec.size()
+			lines.append("TXT %s %d %d %d %d %s %s %s %s %s %s" % [nm, b.lines.size(), count, b.tactical.size(), b.picture,
+				_md5(b.objectives), _md5("\n".join(dl)), _md5("\n".join(PackedStringArray(b.missions))),
+				_md5("\n".join(mt)), _md5("\n".join(PackedStringArray(b.hints))), _md5(" ".join(PackedStringArray(b.tactical)))])
+	bsa.close()
+	var f := FileAccess.open(out, FileAccess.WRITE)
+	f.store_string("\n".join(lines) + "\n")
+	f.close()
+	quit()

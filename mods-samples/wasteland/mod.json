@@ -1,0 +1,7 @@
+{
+  "name": "Wasteland",
+  "version": "1.0",
+  "author": "SkyNET C# port",
+  "description": "A bleak sky over the outdoor maps: a low dark deck hiding the stars, brown haze, drifting dust and a howling, gusting wind. ENHANCED look only; play is unchanged.",
+  "comment": "weather/clouds.json, haze.json, dust.json, wind.json: docs/modding.md, Weather"
+}

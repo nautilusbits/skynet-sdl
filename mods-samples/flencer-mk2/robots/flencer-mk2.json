@@ -1,0 +1,9 @@
+{
+  "type": 200,
+  "base": 0,
+  "hitPoints": 300,
+  "speed": 350,
+  "turn": 1024,
+  "fireRate": 200,
+  "comment": "Type 200 (new) starts from type 0 (flencer): its model, script, segments and death; the keys here replace the base's."
+}

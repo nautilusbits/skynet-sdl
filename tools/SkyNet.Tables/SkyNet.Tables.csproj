@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Extracts the tables SKYNET.EXE v1.01 keeps in its image into data/tables/*.json, the files
+       SkyNet.Data embeds. Run once per change of the readers; the game never reads the exe.
+       Usage: see Program.cs and docs/formats/exe-tables.md. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>SkyNet.Tables</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SkyNet.Formats\SkyNet.Formats.csproj" />
+    <ProjectReference Include="..\..\src\SkyNet.Data\SkyNet.Data.csproj" />
+  </ItemGroup>
+</Project>

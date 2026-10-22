@@ -1,0 +1,7 @@
+{
+  "name": "Rain",
+  "version": "1.0",
+  "author": "SkyNET C# port",
+  "description": "Rain over the outdoor maps: streaks round you and a hiss, none under cover. ENHANCED look only; play is unchanged.",
+  "comment": "weather/rain.json: docs/modding.md, Weather"
+}

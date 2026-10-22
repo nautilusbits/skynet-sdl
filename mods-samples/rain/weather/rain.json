@@ -1,0 +1,9 @@
+{
+  "comment": "docs/modding.md, Weather. intensity 0-1; windDirection: degrees (0 towards +Z, 90 towards +X); windSpeed: m/s; volume: the hiss, 0-1.",
+  "kind": "rain",
+  "on": true,
+  "intensity": 0.7,
+  "windDirection": 30,
+  "windSpeed": 4,
+  "volume": 0.6
+}

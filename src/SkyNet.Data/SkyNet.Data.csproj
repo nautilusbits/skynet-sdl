@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The tables SkyNET's DOS program keeps in its image (weapons, ammo, enemy types and their AIS
+       scripts, drops, location names...), extracted once by tools/SkyNet.Tables into data/tables/*.json
+       and embedded here; a mod's tables/<name>.json overrides one (GameTables.Mods). -->
+  <PropertyGroup>
+    <RootNamespace>SkyNet.Data</RootNamespace>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\data\tables\*.json" LogicalName="tables/%(Filename)%(Extension)" />
+  </ItemGroup>
+  <ItemGroup>
+    <RetroEngReference Include="RetroEng.Core" />
+    <ProjectReference Include="..\SkyNet.Formats\SkyNet.Formats.csproj" />
+  </ItemGroup>
+</Project>

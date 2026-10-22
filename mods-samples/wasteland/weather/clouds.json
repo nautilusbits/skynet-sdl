@@ -1,0 +1,10 @@
+{
+  "comment": "docs/modding.md, Weather. coverage 0-1; height and size: metres; colour: sRGB 0-1; fireGlow 0-4; drift: times the wind.",
+  "kind": "clouds",
+  "coverage": 0.96,
+  "height": 350,
+  "size": 220,
+  "colour": [0.11, 0.1, 0.09],
+  "fireGlow": 1.2,
+  "drift": 2
+}
