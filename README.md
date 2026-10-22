@@ -8,9 +8,10 @@ of The Terminator. **No game data is included.**
 
 ## Download
 
-[Releases](https://github.com/nautilusbits/skynet-sdl/releases): the Windows build
-(`skynet-sdl.exe`, the editor `SkyNetEdit.exe`), the Android APK and the optional HD mod
-`skynet-hd.zip`. The game's data is not included: you need your own copy (below).
+[Releases](https://github.com/nautilusbits/skynet-sdl/releases): Windows, Linux and macOS
+builds (the game `skynet-sdl` and the editor `SkyNetEdit`), the Android APK and the optional HD mod
+`skynet-hd.zip`. The Linux and macOS builds come from GitHub Actions (`.github/workflows/release.yml`);
+macOS builds are unsigned (`xattr -dr com.apple.quarantine <folder>` once). The game's data is not included: you need your own copy (below).
 
 ## Screenshots
 
