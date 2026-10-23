@@ -92,6 +92,50 @@ A legal copy of SkyNET v1.01 and/or Future Shock: the folder holding `MDMDMAP2.B
 `MDMDMAPS.BSA` (Future Shock). Future Shock's data is found beside SkyNET's where the installer puts
 it (`shock/GAMEDATA`).
 
+## Installing
+
+The port replaces the DOS executable only: it reads the game's own data files and never changes them.
+
+**Windows**
+
+1. Install SkyNET (from its CD, or copy an existing install). You need the folder with the game's
+   data, usually `GAMEDATA`, holding `MDMDMAP2.BSA`.
+2. Unzip `skynet-sdl-<version>-win-x64.zip` into the game's folder, beside `GAMEDATA`:
+   ```
+   SKYNET\
+     GAMEDATA\          SkyNET's data (MDMDMAP2.BSA, ...)
+     shock\
+       GAMEDATA\        Future Shock's data (MDMDMAPS.BSA, ...), optional
+     mods\              mods (skynet-hd.zip, ...); the port creates it
+     saves\             saved games; settings sit beside the exe
+     skynet-sdl.exe     the port
+     SkyNetEdit.exe     the editor
+   ```
+3. Run `skynet-sdl.exe`. The first start prepares the maps once ("PREPARING GAME DATA").
+
+Future Shock is found in `shock\GAMEDATA` beside SkyNET's data folder (the original installer's
+layout) and then shows up under NEW GAME. `mods\` is always beside the exe (`--mods-dir <folder>`
+to move it). The data can live anywhere else: start with `skynet-sdl.exe --data <folder>` or set
+`SKYNET_DATA`.
+
+**Linux / macOS**
+
+Unpack the `.tar.gz` the same way, beside the data folder, and run `./skynet-sdl`.
+Linux needs glibc 2.35+ and a Vulkan driver. macOS builds are unsigned: run
+`xattr -dr com.apple.quarantine <folder>` once.
+
+**Android**
+
+1. Copy the game's data folder (the one holding `MDMDMAP2.BSA`) to the phone.
+2. Install `SkyNET-<version>.apk` (allow installing from this source when asked).
+3. On the first start, pick that folder: the app copies it into its own storage.
+   Long-press the app icon → Setup to change it later or to pick a mods folder.
+
+**HD mod (optional)**
+
+Copy `skynet-hd.zip` (unzipped or not) into `mods\` beside the exe and turn it on under
+OPTIONS → MODS.
+
 ## Running
 
 ```
