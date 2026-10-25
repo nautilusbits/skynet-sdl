@@ -3,6 +3,23 @@
 Version in `Directory.Build.props`. Each batch of changes raises it: a fix
 the patch number, a feature the minor. Releases on GitHub start at 1.0.0.
 
+## 1.1.0 (2026-10-25)
+
+Fixes from the first GitHub issues.
+
+- Scenery sprites (trees, posts, rubble, fires) are drawn at DOS's
+  1:1 scale; they stood twice their size (#2). Maps re-bake once.
+  skynet-hd's sprite models follow (new skynet-hd.zip).
+- The 640 x 480 HUD and weapon art is the default; DISPLAY has a HUD
+  ART row (HI-RES / DOS). Older settings files switch to HI-RES once
+  (#3).
+- Bullets hitting a robot or another machine show their impact, as in
+  DOS (#8); robots' and other players' shots too.
+- Laser and rocket shots no longer cast shadows in ENHANCED (#4).
+- Dialogs stay below the title's menu bar (DISPLAY covered it at 16:9).
+- README: installation steps for every platform; Linux and macOS
+  builds from GitHub Actions.
+
 ## 1.0.0 (2026-10-22)
 
 The first public release: source (MIT), Windows and Android builds.

@@ -321,6 +321,54 @@ public class WeaponTests
 
         Assert.Equal((50f, DamageKind.Melee), (near.Hits[0].Points, near.Hits[0].Kind));
     }
+
+    [Fact]
+    public void A_bullet_on_a_robot_shows_its_impact()
+    {
+        // Issue #8. DOS FUN_0012311f puts the ammo's effect (+0x08) wherever a shot lands, a
+        // machine included; only a hit on the soldier goes without.
+        var table = WeaponTable.Shipped;
+        var weapons = new WeaponSystem(table, new CollisionWorld());
+        var target = new Dummy(new Vector3(0, 0, -400));
+        weapons.Targets.Add(target);
+        weapons.Tick(new WeaponInput(Fire: true, Throw: false, Run: false), new Shooter(Vector3.Zero, 0f, 0f), Dt);
+
+        Assert.Single(target.Hits);
+        var bank = table.AmmoOf(table.Weapons[1])!.ImpactBank;
+        Assert.Contains(weapons.Effects, e => e.Kind == EffectKind.Impact && e.Bank == bank);
+        Assert.Single(weapons.Puffs);
+    }
+
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    public void A_robots_or_remote_bullet_puffs_on_all_but_the_soldier(bool remote, bool onMachine)
+    {
+        // DOS FUN_0012311f: the puff on a machine, none on the soldier.
+        var table = WeaponTable.Shipped;
+        var soldier = new Dummy(new Vector3(0, 0, -800));
+        var weapons = new WeaponSystem(table, new CollisionWorld()) { Player = soldier };
+        var shooter = new Dummy(Vector3.Zero);
+        if (onMachine)
+        {
+            weapons.Targets.Add(new Dummy(new Vector3(0, 0, -400)));
+        }
+
+        if (remote)
+        {
+            Assert.True(weapons.RemoteFire(1, Vector3.Zero, -Vector3.UnitZ, shooter));
+        }
+        else
+        {
+            weapons.EnemyFire(shooter, table.AmmoOf(table.Weapons[1])!, Vector3.Zero, -Vector3.UnitZ, 1000f);
+        }
+
+        var bank = table.AmmoOf(table.Weapons[1])!.ImpactBank;
+        Assert.Equal(onMachine, weapons.Effects.Any(e => e.Kind == EffectKind.Impact && e.Bank == bank));
+        Assert.Equal(onMachine ? 1 : 0, weapons.Puffs.Count);
+    }
     [Fact]
     public void The_own_shots_flash_is_told_from_a_robots()
     {

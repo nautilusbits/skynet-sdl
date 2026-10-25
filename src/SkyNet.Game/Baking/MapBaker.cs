@@ -24,7 +24,7 @@ namespace SkyNet.Game.Baking;
 public static class MapBaker
 {
     /// <summary>The baker's own version: bump it when what a bake produces changes (a stale block is rebaked).</summary>
-    public const string ToolVersion = "1";
+    public const string ToolVersion = "2";
 
     /// <summary>The side of the map cells the static batch is split by, world units.</summary>
     public const float CellSize = 1024f;

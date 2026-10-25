@@ -23,8 +23,9 @@ public enum Detail { Low, Medium, High }
 /// </summary>
 public sealed partial class Level
 {
-    /// <summary>World units per sprite texel: scenery, and the item banks (200, 201, 214) at 1:1.</summary>
-    public const float SpriteScale = 2f;
+    /// <summary>World units per sprite texel: scenery, and the item banks (200, 201, 214); DOS draws
+    /// both 1:1 (map walker scale 0x100, v1.01 0x136f3f).</summary>
+    public const float SpriteScale = 1f;
     public const float ItemScale = 1f;
     /// <summary>Indoors a sprite's record Y sits this far above the floor.</summary>
     public const float IndoorSpriteLift = 16f;

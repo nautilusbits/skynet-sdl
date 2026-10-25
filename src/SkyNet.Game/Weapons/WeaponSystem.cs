@@ -410,7 +410,7 @@ public sealed class WeaponSystem
     /// port's dm_game.gd _on_fired: damage is the shooter's business): record
     /// <paramref name="record"/> from <paramref name="from"/> along <paramref name="dir"/>, as
     /// <see cref="Shot"/> gave them on the shooter's machine. The fire sound and the muzzle flash; a
-    /// bullet's ray to its puff (none on a body); a bolt, rocket, shell or thrown item flying as its
+    /// bullet's ray to its puff (none on the soldier); a bolt, rocket, shell or thrown item flying as its
     /// own and going off where it lands. <paramref name="shooter"/> (its body) is passed through.
     /// False when the record is not one of the table's.
     /// </summary>
@@ -433,7 +433,7 @@ public sealed class WeaponSystem
         if (ammo.Family == AmmoFamily.Hitscan)
         {
             Flash(from + dir * (MuzzleAhead + FlashAtGun.Z + 70f), record == 4 ? 26f : 18f, ammo);
-            if (Trace(from, dir, HitscanReach, out var at, out var normal, out _, out var target, shooter, hostile: true) && target == null)
+            if (Trace(from, dir, HitscanReach, out var at, out var normal, out _, out var target, shooter, hostile: true) && target != Player)
             {
                 AddEffect(ammo.ImpactBank, at + normal, PuffRadius, kind: EffectKind.Impact);
                 Puff(at, normal, dir, ammo);
@@ -508,11 +508,12 @@ public sealed class WeaponSystem
         }
         else
         {
-            AddEffect(ammo.ImpactBank, at + normal, PuffRadius, kind: EffectKind.Impact);
-            Puff(at, normal, fwd, ammo);
             Report(new ShotReport(w.Index, "wall", at, owner, null, 0f));
         }
 
+        // The puff on a machine too (DOS FUN_0012311f: on anything but the soldier).
+        AddEffect(ammo.ImpactBank, at + normal, PuffRadius, kind: EffectKind.Impact);
+        Puff(at, normal, fwd, ammo);
         SpawnPieces(ammo, at + normal, fwd, normal);
         if (ammo.Blasts)
         {
@@ -565,9 +566,14 @@ public sealed class WeaponSystem
             }
             else
             {
+                Report(new ShotReport(-1, "wall", at, owner, null, 0f));
+            }
+
+            // The puff on anything but the soldier (DOS FUN_0012311f).
+            if (target != Player)
+            {
                 AddEffect(ammo.ImpactBank, at + normal, PuffRadius, kind: EffectKind.Impact);
                 Puff(at, normal, dir, ammo);
-                Report(new ShotReport(-1, "wall", at, owner, null, 0f));
             }
 
             SpawnPieces(ammo, at + normal, dir, normal);

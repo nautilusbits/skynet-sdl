@@ -513,6 +513,20 @@ public class MenuNavigationTests
         Assert.Equal(100f, q.Y, 3);
     }
 
+    [Theory]
+    [InlineData(1920, 1080)]
+    [InlineData(1280, 720)]
+    [InlineData(1280, 1024)]
+    public void A_dialog_stays_below_the_menu_bar(int width, int height)
+    {
+        // DISPLAY's panel (13 rows) at its factor: its top under the title's menu bar.
+        var window = MenuFrame.Fit(width, height);
+        var dialog = new System.Drawing.Rectangle(System.Drawing.Point.Empty, DisplayScreen.PanelSize);
+        var panel = window.Panel(dialog, MenuLayout.DetailScale);
+
+        Assert.True(panel.ScreenY(0) >= window.ScreenY(MenuLayout.BarHeight), $"top {panel.ScreenY(0)}");
+    }
+
     [Fact]
     public void ShortNamesFitTheBoxes()
     {
@@ -564,6 +578,26 @@ public class SettingsStoreTests : IDisposable
         back.SoundVolume = 0;
         Assert.Equal(SaveResult.Saved, SettingsStore.Save(back, path));
         Assert.Equal(0, SettingsStore.Load(path).SoundVolume);
+    }
+
+    [Fact]
+    public void HudArtDefaultsToHiResAndOldFilesGetItOnce()
+    {
+        Assert.Equal(HudArtSet.HiRes, new MenuSettings().HudArt);
+
+        // A version 1 file saved LowRes as the old default: it loads HiRes.
+        var path = PathOf("old.json");
+        Directory.CreateDirectory(_dir);
+        var current = $"\"version\": {SettingsStore.Version}";
+        var low = SettingsStore.Text(new MenuSettings { HudArt = HudArtSet.LowRes });
+        File.WriteAllText(path, low.Replace(current, "\"version\": 1", StringComparison.Ordinal));
+        var back = SettingsStore.Load(path);
+        Assert.Equal(HudArtSet.HiRes, back.HudArt);
+
+        // Once saved, a chosen LowRes stays.
+        back.HudArt = HudArtSet.LowRes;
+        Assert.Equal(SaveResult.Saved, SettingsStore.Save(back, path));
+        Assert.Equal(HudArtSet.LowRes, SettingsStore.Load(path).HudArt);
     }
 
     [Fact]

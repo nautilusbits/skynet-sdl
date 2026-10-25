@@ -13,7 +13,7 @@ namespace SkyNet.Game.Weapons;
 public sealed class WeaponRenderer
 {
     /// <summary>World units per texel of a thrown item's sprite (the item banks at 1:1).</summary>
-    public const float SpriteScale = 2f;
+    public const float SpriteScale = 1f;
     /// <summary>A bolt is drawn this many times fatter (projectile.gd BOLT_FATTEN).</summary>
     public const float BoltFatten = 2f;
 
@@ -25,6 +25,8 @@ public sealed class WeaponRenderer
     private readonly Dictionary<(int Bank, int Record), (GpuTexture Texture, Material Material)?> _sprites = [];
     private readonly Dictionary<string, (ModelMesh Mesh, bool Forward)?> _models = new(StringComparer.OrdinalIgnoreCase);
     private static readonly RenderState SpriteState = new(Queues.AlphaTest, Cull.None);
+    /// <summary>A bolt's model glows by its own light (<see cref="Enhanced.GameLights.BoltLight"/>): unlit, no shadow.</summary>
+    private const Shading BoltShading = Shading.Unlit;
     /// <summary>The enhanced look's light on the lobbed bodies, pieces and drops (null: the original look).</summary>
     private Vector4? _spriteTint;
     /// <summary>The enhanced look's light all around (linear; the dust takes it).</summary>
@@ -148,7 +150,7 @@ public sealed class WeaponRenderer
 
                 using var bsa = _data.OpenArchive(archive);
                 if (bsa.Read(file) is { Length: > 0 } bytes && Model3D.Parse(bytes) is { } model
-                    && ModelMesh.Build(_renderer, model, _textures, _palette, RenderState.DoubleSided, smooth: true) is { } mesh)
+                    && ModelMesh.Build(_renderer, model, _textures, _palette, RenderState.DoubleSided, smooth: true, BoltShading) is { } mesh)
                 {
                     // Which end is the nose: the side of the body's centre (projectile.gd _body_forward).
                     var z = model.Vertices.Length > 0 ? model.Vertices.Average(v => v.ToYUp().Z) : 0f;
@@ -275,7 +277,7 @@ public sealed class WeaponRenderer
             }
         }
 
-        // The impact pieces: their sprite at the scenery's 2 units a texel.
+        // The impact pieces: their sprite at the scenery's 1 unit a texel.
         foreach (ref readonly var p in weapons.Slots)
         {
             if (!p.Active || (p.Flags & PieceType.FlagDrawn) == 0 || Sprite(p.Sprite >> 7, p.Sprite & 0x7F) is not { } s)
@@ -319,7 +321,7 @@ public sealed class WeaponRenderer
 
     /// <summary>
     /// Queues the sprites destroyed records left (<see cref="Campaign.GameSession.Drops"/>), standing
-    /// on their foot: items at 1:1, scenery at 2 units a texel, a multi-frame record animated as the
+    /// on their foot: items and scenery at 1:1, a multi-frame record animated as the
     /// map's own sprites are.
     /// </summary>
     public void DrawDrops(IReadOnlyList<Campaign.DroppedSprite> drops, Vector3 eye, long nowMs)

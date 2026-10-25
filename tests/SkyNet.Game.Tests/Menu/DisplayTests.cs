@@ -284,6 +284,19 @@ public class DisplayScreenTests
     }
 
     [Fact]
+    public void HudArtStepsAtOnce()
+    {
+        var (menu, _) = OpenDisplay();
+        var screen = (DisplayScreen)menu.Current!;
+        Assert.Equal("HI-RES", screen.Value("hudart"));
+        Step(menu, "hudart");
+        Assert.Equal(SkyNet.Game.Hud.HudArtSet.LowRes, menu.Settings.HudArt);
+        Assert.Equal("DOS", screen.Value("hudart"));
+        Step(menu, "hudart");
+        Assert.Equal(SkyNet.Game.Hud.HudArtSet.HiRes, menu.Settings.HudArt);
+    }
+
+    [Fact]
     public void UiScaleStepsAtOnce()
     {
         var (menu, log) = OpenDisplay();

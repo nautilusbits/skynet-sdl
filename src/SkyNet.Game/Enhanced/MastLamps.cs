@@ -7,7 +7,7 @@ namespace SkyNet.Game.Enhanced;
 
 /// <summary>
 /// Floodlights for the enhanced look's lamp posts. An outdoor street lamp is a tall billboard
-/// (MAP.210's base: 204/22, a post ~400 u high with two floodlight heads) with a variant-2 map light
+/// (MAP.210's base: 204/22, a post ~200 u high with two floodlight heads) with a variant-2 map light
 /// placed at its foot, ~25 u over the ground; the heads' lenses aren't lit in the art, so no art lamp
 /// marks them. Lit where the map puts it, the light (omni, 0.15–0.9 at 150 u) only made a smudge round
 /// the foot. A map light standing at a tall sprite is lifted to the sprite's head and lit as a spot
@@ -23,7 +23,7 @@ namespace SkyNet.Game.Enhanced;
 /// </summary>
 public static class MastLamps
 {
-    public const float MinHeight = 250f, Reach = 96f, HeadHeight = 0.92f;
+    public const float MinHeight = 125f, Reach = 96f, HeadHeight = 0.92f;
     public const float Inner = 30f, Outer = 62f;
     public const float IntensityAtRef = 12f;
     public const float RangePerHeight = 6f, RangeMax = 3200f;

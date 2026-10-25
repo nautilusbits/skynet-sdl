@@ -44,7 +44,7 @@ public sealed class SpriteViewerTests : IDisposable
 
         // Items are drawn 1:1, scenery sprites two units a texel.
         Assert.Equal(1f, SpriteUsage.UnitsPerTexel(FiftyCal));
-        Assert.Equal(2f, SpriteUsage.UnitsPerTexel(SpriteUsage.IndexOf(300, 1)));
+        Assert.Equal(1f, SpriteUsage.UnitsPerTexel(SpriteUsage.IndexOf(300, 1)));
     }
 
     [MapDataFact]

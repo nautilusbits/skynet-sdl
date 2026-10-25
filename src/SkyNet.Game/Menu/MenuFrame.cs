@@ -67,6 +67,10 @@ public readonly record struct MenuFrame(int Width, int Height)
         var k = factor * MathF.Min(Width / GodotWidth, Height / GodotHeight);
         // Never past the window.
         k = MathF.Min(k, MathF.Min(Width / (float)Math.Max(dos.Width, 1), Height / (float)Math.Max(dos.Height, 1)));
+
+        // Centred, its top stays under the title's menu bar (a tall dialog shrinks).
+        var bar = ScreenY(MenuLayout.BarHeight);
+        k = MathF.Min(k, (Height - 2 * bar) / Math.Max(dos.Height, 1));
         return this with
         {
             ScaleX = k,

@@ -24,8 +24,8 @@ public sealed class MenuSettings
 
     public bool ReverseStereo { get; set; }
 
-    /// <summary>The DETAIL screen's RESOLUTION row: 320 × 200 art or the 640 × 480 set (MDMDHRES.BSA).</summary>
-    public HudArtSet HudArt { get; set; } = HudArtSet.LowRes;
+    /// <summary>DISPLAY's HUD ART: the 640 × 480 set (MDMDHRES.BSA) or DOS's 320 × 200 art.</summary>
+    public HudArtSet HudArt { get; set; } = HudArtSet.HiRes;
 
     /// <summary>DISPLAY's HUD STYLE: DOS's panel (CLASSIC) or the corner widgets over a full-frame view (MODERN).</summary>
     public HudStyle HudStyle { get; set; } = HudStyle.Classic;
@@ -403,7 +403,10 @@ public static class SettingsStore
     public const string Folder = "SkyNET-CSharp";
     public const string FileName = "skynet-csharp-settings.json";
     public const string Format = "skynet-csharp-settings";
-    public const int Version = 1;
+    public const int Version = 2;
+
+    /// <summary>Files before this version saved LowRes as the default: they get HiRes once.</summary>
+    private const int HiResHudVersion = 2;
 
     /// <summary>The player's files - the settings, the console history, the saves - beside the game
     /// (the exe's folder), as the logs are; where that cannot be written (Program Files, Android),
@@ -541,7 +544,7 @@ public static class SettingsStore
         {
             var root = JsonItem.Parse(File.ReadAllBytes(path));
             s.Detail = Enum(root, "detail", s.Detail);
-            s.HudArt = Enum(root, "hudArt", s.HudArt);
+            s.HudArt = Int(root, "version", 1, 1, int.MaxValue) >= HiResHudVersion ? Enum(root, "hudArt", s.HudArt) : s.HudArt;
             s.HudStyle = Enum(root, "hudStyle", s.HudStyle);
             s.UiScale = Enum(root, "uiScale", s.UiScale);
             s.Difficulty = Enum(root, "difficulty", s.Difficulty);

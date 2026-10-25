@@ -250,6 +250,24 @@ public sealed class MapBlockTests(ITestOutputHelper output) : IDisposable
         }
     }
 
+    /// <summary>DOS draws every map sprite one world unit per texel: the map walker queues it at
+    /// scale 0x100 (v1.01 0x136f3f), the draw multiplies the descriptor's size by that 8.8 scale
+    /// (0x14f049) in the 24.8 space mesh vertices use. Scenery and items alike (issue #2).</summary>
+    [Fact]
+    public void ASpriteIsOneUnitPerTexel()
+    {
+        if (Data() is not { } data || MapBaker.Bake(data, 210) is not { } block)
+        {
+            return;
+        }
+
+        foreach (var g in block.Sprites)
+        {
+            var t = data.LoadTextureBank(g.Index >> 7)!.Records[g.Index & 0x7F];
+            Assert.All(g.Sprites, s => Assert.Equal(new Vector2(t.Width, t.Height), s.Size));
+        }
+    }
+
     [Fact]
     public void TheStaticBatchIsSplitPerMapCell()
     {

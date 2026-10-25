@@ -39,7 +39,7 @@ MAX_CELLS = 700              # relief grid cells per side, at most
 LATHE_SEG = 32
 PICKUP = {"spin": 90, "bob": 2, "offsetY": 3}
 SCENERY = {"spin": 0, "bob": 0, "offsetY": 0}
-ITEM_SCALE, SPRITE_SCALE = 1, 2   # world units per DOS texel: the game's Level.ItemScale, Level.SpriteScale
+ITEM_SCALE, SPRITE_SCALE = 1, 1   # world units per DOS texel: the game's Level.ItemScale, Level.SpriteScale
 
 # ------------------------------------------------------------------ the sprites
 # key: (method, options). Options: k (puff thickness vs. inscribed radius), t (slab half
