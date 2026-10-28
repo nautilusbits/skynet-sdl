@@ -14,6 +14,8 @@ public static class EnhancedOptions
     private static readonly ReliefLevel[] ReliefOrder = [ReliefLevel.Off, ReliefLevel.Low, ReliefLevel.Medium, ReliefLevel.High];
     private static readonly int[] Budgets = [MenuSettings.LowLightBudget, MenuSettings.HighLightBudget];
     private static readonly ParticleLevel[] ParticleOrder = [ParticleLevel.Off, ParticleLevel.Low, ParticleLevel.High];
+    private static readonly TextureFiltering[] FilterOrder = [TextureFiltering.Nearest, TextureFiltering.Bilinear, TextureFiltering.Trilinear,
+        TextureFiltering.Anisotropic2, TextureFiltering.Anisotropic4, TextureFiltering.Anisotropic8, TextureFiltering.Anisotropic16];
 
     public static ParticleLevel StepParticles(ParticleLevel p, int step) => Step(ParticleOrder, p, step);
 
@@ -26,6 +28,8 @@ public static class EnhancedOptions
     public static string Name(ReliefLevel r) => r.ToString().ToUpperInvariant();
 
     public static AntiAliasing StepAntiAliasing(AntiAliasing a, int step) => Step(AaOrder, a, step);
+
+    public static TextureFiltering StepFilter(TextureFiltering f, int step) => Step(FilterOrder, f, step);
 
     public static int StepLightBudget(int budget, int step) => Step(Budgets, budget, step);
 
@@ -47,6 +51,17 @@ public static class EnhancedOptions
         _ => "OFF",
     };
 
+    public static string Name(TextureFiltering f) => f switch
+    {
+        TextureFiltering.Nearest => "NEAREST",
+        TextureFiltering.Bilinear => "BILINEAR",
+        TextureFiltering.Trilinear => "TRILINEAR",
+        TextureFiltering.Anisotropic2 => "ANISOTROPIC 2X",
+        TextureFiltering.Anisotropic4 => "ANISOTROPIC 4X",
+        TextureFiltering.Anisotropic8 => "ANISOTROPIC 8X",
+        _ => "ANISOTROPIC 16X",
+    };
+
     public static string LightsName(int budget) => budget <= MenuSettings.LowLightBudget
         ? string.Create(CultureInfo.InvariantCulture, $"LOW ({MenuSettings.LowLightBudget})")
         : string.Create(CultureInfo.InvariantCulture, $"HIGH ({MenuSettings.HighLightBudget})");
@@ -64,7 +79,7 @@ public static class EnhancedOptions
 /// ENHANCED OPTIONS (DISPLAY → ENHANCED...), the port's own screen in the DISPLAY screen's make:
 /// SHADOWS, ANTI-ALIASING, LIGHTS (the point-light budget), AMBIENT (the light all around, 50..200 %:
 /// how dark walls away from the sun are), AMBIENT OCCLUSION, GLOW and SURFACE RELIEF (HD textures'
-/// relief maps: their normal and roughness) and PARTICLES (dust, ash and smoke). Every row applies and saves at
+/// relief maps: their normal and roughness), PARTICLES (dust, ash and smoke) and TEXTURE FILTER. Every row applies and saves at
 /// once (the game's ApplyLook). They belong to the ENHANCED look: under ORIGINAL they can be set
 /// ahead, greyed, with a line saying so.
 /// </summary>
@@ -76,18 +91,19 @@ public sealed class EnhancedScreen : PanelScreen
 
     public static readonly Size PanelSize = DisplayScreen.PanelSize;
     public const int RowTop = DisplayScreen.RowTop;
-    /// <summary>A pixel tighter than DISPLAY's: eight rows and the note fit above EXIT.</summary>
+    /// <summary>A pixel tighter than DISPLAY's: nine rows and the note fit above EXIT.</summary>
     public const int RowPitch = DisplayScreen.RowPitch - 1;
     public static readonly Rectangle ExitRect = DisplayScreen.ExitRect;
     /// <summary>The value boxes start further right than DISPLAY's: AMBIENT OCCLUSION is long.</summary>
     public static readonly Rectangle BoxAt = new(112, 0, 102, 10);
-    public static readonly Rectangle NoteRect = new(0, RowTop + 8 * RowPitch - 1, ExitRect.X, 10);
+    public static readonly Rectangle NoteRect = new(0, RowTop + 9 * RowPitch - 1, ExitRect.X, 10);
 
     /// <summary>The row ids, top to bottom, and their labels.</summary>
     public static readonly (string Id, string Label)[] Rows =
     [
         ("shadows", "SHADOWS"), ("aa", "ANTI-ALIASING"), ("lights", "LIGHTS"), ("ambient", "AMBIENT"),
         ("occlusion", "AMBIENT OCCLUSION"), ("glow", "GLOW"), ("relief", "SURFACE RELIEF"), ("particles", "PARTICLES"),
+        ("filter", "TEXTURE FILTER"),
     ];
 
     public static Rectangle ValueBox(int i) => new(BoxAt.X, RowTop + i * RowPitch, BoxAt.Width, BoxAt.Height);
@@ -135,6 +151,7 @@ public sealed class EnhancedScreen : PanelScreen
         Row(5, _ => s.Glow = !s.Glow);
         Row(6, d => s.Relief = EnhancedOptions.StepRelief(s.Relief, d));
         Row(7, d => s.Particles = EnhancedOptions.StepParticles(s.Particles, d));
+        Row(8, d => s.TextureFiltering = EnhancedOptions.StepFilter(s.TextureFiltering, d));
         Add(new MenuItem("exit", At(ExitRect))
         {
             Lit = new LitArt(OptionsLit, 11, new Point(Origin.X + ExitRect.X - OptionsExit.X + OptionsLitAt.X, Origin.Y + ExitRect.Y - OptionsExit.Y + OptionsLitAt.Y)),
@@ -167,6 +184,7 @@ public sealed class EnhancedScreen : PanelScreen
             "glow" => s.Glow ? "ON" : "OFF",
             "relief" => EnhancedOptions.Name(s.Relief),
             "particles" => EnhancedOptions.Name(s.Particles),
+            "filter" => EnhancedOptions.Name(s.TextureFiltering),
             _ => "",
         };
     }

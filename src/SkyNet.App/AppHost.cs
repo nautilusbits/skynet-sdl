@@ -37,6 +37,9 @@ internal sealed partial class AppHost : IDisposable
     private const float FieldOfView = 70f * MathF.PI / 180f;
     private const float Near = 1f;
     private const float FarPlane = 100000f;
+    /// <summary>No shared depth pre-pass: about as fast here, and AMD drivers place vertices differently in the
+    /// two passes, which hid robots (--depth-sharing overrides; no setting).</summary>
+    private const DepthSharing DefaultDepthSharing = DepthSharing.Off;
 
     // What Program.cs found before the window: the command line, the data, the log, the mods.
     private readonly Options options;
@@ -67,6 +70,9 @@ internal sealed partial class AppHost : IDisposable
 
     // The menus' text fields and the chat line as one owner of the window's text input.
     private static readonly object MenuTextField = new();
+    // The menu's text input as SDL ran it: seen on, then closed by the player (Android's Back hides
+    // the on-screen keyboard and SDL stops the text input under the arbiter).
+    private KeyboardState menuKeyboard;
     private (DisplaySetup Display, VSync VSync, bool ShowFps) applied;
     private Renderer renderer = null!;
     private Input input = null!;
@@ -85,6 +91,11 @@ internal sealed partial class AppHost : IDisposable
     private FrameStats frameStats = null!;
     /// <summary>The first seconds after a map is entered, for the log.</summary>
     private readonly LoadHitches loadHitches = new();
+    /// <summary>A line on the frame rate every few seconds of play, for the log (phones' slowdowns).</summary>
+    private readonly PerfLog perfLog = new();
+    // The ticks run since the last frame, and their time (Stopwatch ticks), for perfLog.
+    private int perfTicks;
+    private long perfTickTime;
     private Profiler sections = null!;
     private List<ZoneTime> zoneList = null!;
     private string? fpsText;
@@ -193,11 +204,6 @@ internal sealed partial class AppHost : IDisposable
     /// to its end: the exit code.</summary>
     public int Run()
     {
-        // The game's actions (their ids are the tick input's bits, a demo's too): SkyNet.Game's CampaignControls.
-        controls = CampaignControls.Create();
-        actions = controls.Actions;
-        (pause, quickSave, quickLoad) = (controls.Pause, controls.QuickSave, controls.QuickLoad);
-
         // The settings file (beside the game); the command line overrides them for this run only.
         settingsPath = SettingsStore.DefaultPath;
         if (interactive && SettingsStore.CopyFromAppData() is var moved and > 0)
@@ -206,6 +212,7 @@ internal sealed partial class AppHost : IDisposable
         }
 
         settings = SettingsStore.Load(settingsPath);
+
         settings.Detail = options.Detail ?? settings.Detail;
         settings.Difficulty = options.Difficulty ?? settings.Difficulty;
         settings.RobotAi = options.RobotAi ?? settings.RobotAi;
@@ -238,6 +245,16 @@ internal sealed partial class AppHost : IDisposable
             ? new DisplaySetup(windowMode == WindowMode.Fullscreen ? Fullscreen.Exclusive : Fullscreen.Off, windowSize, null)
             : applied.Display);
         Log.Info("Window", $"{windowMode} {(windowMode == WindowMode.Windowed ? windowSize.ToString() : window.Desktop.Size.ToString())}");
+
+        // The game's actions (their ids are the tick input's bits, a demo's too): SkyNet.Game's
+        // CampaignControls; the on-screen buttons where TOUCH LAYOUT put them (taken at start, kept
+        // on this window's screen).
+        controls = CampaignControls.Create(PlacedTouch(settings));
+        actions = controls.Actions;
+        (pause, quickSave, quickLoad) = (controls.Pause, controls.QuickSave, controls.QuickLoad);
+
+        ApplyStick(settings);
+
         renderer = new Renderer(window, options.Gpu, options.GpuDebug);
         churn = options.Churn ? ResourceChurn.Start(renderer) : null;
         // A hidden window draws offscreen at 1280 x 960, or at the size this run asked for.
@@ -250,6 +267,7 @@ internal sealed partial class AppHost : IDisposable
         renderer.FrontFace = Winding.CounterClockwise;
         renderer.VSync = options.NoVsync ? VSync.Off : settings.VSync;
         renderer.RenderScale = settings.RenderScale;
+        renderer.DepthSharing = options.DepthSharing ?? DefaultDepthSharing;
         renderer.Gamma = settings.Gamma;
         ViewStyles.Apply(renderer, settings);
 
@@ -354,6 +372,8 @@ internal sealed partial class AppHost : IDisposable
             FutureShockAvailable = futureShockDir != null,
             EnhancedAvailable = true,
             Window = OperatingSystem.IsAndroid() ? WindowKind.FixedFullscreen : WindowKind.Choosable,
+            Keyboard = window.HasTouchScreen ? KeyboardKind.OnScreen : KeyboardKind.Physical,
+            Touch = () => window.TouchSettings is { } touch ? (touch, new System.Numerics.Vector2(window.Size.Item1, window.Size.Item2)) : null,
             RenderScaleInUse = () => renderer.RenderScaleInUse,
             Bindings = bindings,
             Display = () => new DisplayModes(window.Desktop.Size, window.Usable, [.. window.ExclusiveModes().Select(m => m.Size)]),
@@ -816,6 +836,7 @@ internal sealed partial class AppHost : IDisposable
         }
 
         var levelMs = clock.Elapsed.TotalMilliseconds;
+        LoadingStage("Building the robots...", 1f / 3f, levelMs);
         using (Prof.Zone(AppZones.RobotMeshes))
         {
             robotView = new EnemyRenderer(renderer, new TextureStore(renderer, data), level.Palette, level, game.Kept);
@@ -831,7 +852,7 @@ internal sealed partial class AppHost : IDisposable
         var robotsMs = clock.Elapsed.TotalMilliseconds;
         using (Prof.Zone(AppZones.WarmUp))
         {
-            SplashStatus("Compiling shaders...");
+            LoadingStage("Compiling shaders...", 2f / 3f, robotsMs);
             // The look's light, haze and sprite materials, the colour textures asked for, and the pipelines.
             ApplyLook(settings);
         }
@@ -879,6 +900,7 @@ internal sealed partial class AppHost : IDisposable
         var gc = GcPacing.Playing();
         Log.Info("Level", $"GC after the load: {gc.TotalMilliseconds:0} ms, heap {GC.GetTotalMemory(false) >> 20} MB");
         loop?.Reset();
+        perfLog.Clear();
         loadHitches.Start($"MAP.{s.MapNumber:D3}", Stopwatch.GetTimestamp());
     }
 
@@ -976,7 +998,7 @@ internal sealed partial class AppHost : IDisposable
     {
         var wasOpen = devConsole.IsOpen;
         var capturing = menu.Current is ControlsScreen { Capturing: >= 0 };
-        var typing = menu.IsOpen && menu.TakesText;
+        var typing = MenuTyping();
         var chatting = dm is { ChatOpen: true };
         // A menu's text field or the chat line wants typed text as the console does (claimed first,
         // so a hand-over between them in one frame keeps the text input on).
@@ -997,6 +1019,31 @@ internal sealed partial class AppHost : IDisposable
 
         return true;
     }
+
+    // The menu wants typed text, unless the player closed the keyboard over it: then not until the
+    // field lets go or a tap asks again (the arbiter starts the text input only on a change).
+    bool MenuTyping()
+    {
+        var wants = menu.IsOpen && menu.TakesText;
+        if (!wants || input.WasClicked(Pointer.Left))
+        {
+            menuKeyboard = KeyboardState.Off;
+            return wants;
+        }
+
+        if (window.TextInput)
+        {
+            menuKeyboard = KeyboardState.Shown;
+        }
+        else if (menuKeyboard == KeyboardState.Shown)
+        {
+            menuKeyboard = KeyboardState.Closed;
+        }
+
+        return menuKeyboard != KeyboardState.Closed;
+    }
+
+    private enum KeyboardState { Off, Shown, Closed }
 
     // bind / unbind: the key binds and every action's keys into the settings file; the rest of the file
     // as it is on disk.
@@ -1049,6 +1096,27 @@ internal sealed partial class AppHost : IDisposable
     }
 
     // The settings, applied: the panel art, DIFFICULTY, the two volumes, RENDER DETAIL and DISPLAY.
+    /// <summary>TOUCH LAYOUT's stick: fixed where placed, else where the finger lands.</summary>
+    void ApplyStick(MenuSettings s)
+    {
+        if (window.TouchSettings is { } touch)
+        {
+            touch.FixedStick = PlacedTouch(s).Stick;
+        }
+    }
+
+    /// <summary>TOUCH LAYOUT's places kept on the window's screen (a hand-edited file may put them off it).</summary>
+    TouchLayout PlacedTouch(MenuSettings s)
+    {
+        var layout = new TouchLayout(s.TouchLayout);
+        if (window.TouchSettings is { } touch)
+        {
+            layout.Fit(TouchLayout.Room(touch, new Vector2(window.Size.Item1, window.Size.Item2), s.HudStyle));
+        }
+
+        return layout;
+    }
+
     void ApplySettings(MenuSettings s)
     {
         // The settings change the level, the drawers and the renderer's scene state a frame build reads.
@@ -1072,6 +1140,7 @@ internal sealed partial class AppHost : IDisposable
         }
 
         applied = (display, s.VSync, s.ShowFps);
+        ApplyStick(s);
         // A MODS change on the title (no game running) comes in at once, tables and all.
         if (menuRef is { InGame: false } && dm == null)
         {
@@ -1114,14 +1183,41 @@ internal sealed partial class AppHost : IDisposable
     // lights the map with its preset (LookLighting) and the ENHANCED OPTIONS (shadows, anti-aliasing,
     // light budget, ambient, occlusion, glow), BRIGHTNESS as the exposure (the gamma pass stays off), the depth cue as a linear haze, the world's colour textures asked for and the pipelines
     // made. The HUD, menus, view-model and underwater fill stay palette-exact.
+    // The deathmatch's avatar, gun and vehicle meshes and their pipelines, made at the map's load
+    // (a host's game exists only after its map loads: StartNet calls this again).
+    void PrepareAvatars()
+    {
+        if (dm == null || level == null)
+        {
+            return;
+        }
+
+        WaitForFrames();
+        dm.Prepare(level, renderer, Loading("PREPARING PLAYER MODELS"));
+        LogLoading("Avatar meshes");
+        Material[] materials = [.. dm.Materials()];
+        if (renderer.Lighting != null)
+        {
+            foreach (var m in materials)
+            {
+                renderer.Prepare(m);
+            }
+        }
+
+        renderer.WarmUp(materials);
+    }
+
     void ApplyLook(MenuSettings s)
     {
         WaitForFrames();
         var enhanced = s.Look == Look.Enhanced && level != null;
         renderer.Lighting = enhanced ? LookLighting.For(level!, s) : null;
         renderer.Gamma = enhanced ? Renderer.DefaultGamma : s.Gamma;
-        // ENHANCED OPTIONS: anti-aliasing (the original look stays unsmoothed) and the light budget.
+        // ENHANCED OPTIONS: anti-aliasing (the original look stays unsmoothed), texture filter and the light budget;
+        // the upscale: sharp for the original look.
         renderer.AntiAliasing = enhanced ? s.AntiAliasing : AntiAliasing.Off;
+        renderer.TextureFiltering = s.TextureFiltering;
+        renderer.ScaleFilter = s.ScaleFilter;
         if (level != null)
         {
             EnhancedEffects.Apply(level, s, weaponView);
@@ -1159,6 +1255,7 @@ internal sealed partial class AppHost : IDisposable
 
         renderer.WarmUp([.. materials]);
         robotView?.WarmUp();
+        PrepareAvatars();
     }
 
     // The menu closed onto the game: the input gathered under it is dropped (a click on RETURN does
@@ -1261,9 +1358,9 @@ internal sealed partial class AppHost : IDisposable
         return stereo.EyeAspect != 1f ? ((int)MathF.Round(width * stereo.EyeAspect), height) : (width, height);
     }
 
-    // The zone timer is the profiler backend while the overlay is on.
+    // The zone timer is the profiler backend always: the overlay and the log's perf lines read it.
     void ApplyZoneTimer() =>
-        Prof.SetBackend(displays.Debug ? zoneTimes : null);
+        Prof.SetBackend(zoneTimes);
 
     // The menus' and the network's clock (Stopwatch ticks): the wall's, or --capture's.
     long MenuClock() => capture?.Timestamp ?? Stopwatch.GetTimestamp();
@@ -1336,13 +1433,7 @@ internal sealed partial class AppHost : IDisposable
             return;
         }
 
-        window.PumpEvents(input);
-        var (width, height) = (renderer.Target.Width, renderer.Target.Height);
-        menuPainter.Use(null);
-        menuPainter.FillWindow(MenuPainter.Black);
-        menuPainter.Image(MenuLayout.TitleImage, MenuLayout.TitlePalette, 0, 0);
-        DrawBanner($"PREPARING GAME DATA {done}/{total}", width, height);
-        renderer.Present(new View(Matrix4x4.Identity, Matrix4x4.Identity, Vector3.Zero), new Vector4(0f, 0f, 0f, 1f));
+        DrawLoading($"PREPARING GAME DATA {done}/{total}", (float)done / Math.Max(total, 1));
     }
 }
 

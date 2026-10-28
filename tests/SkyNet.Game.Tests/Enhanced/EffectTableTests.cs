@@ -188,6 +188,7 @@ public class EffectTableTests
         public void DrawImage(TextureHandle texture, TextureHandle palette, Vector2 textureSize, RectangleF source, RectangleF target, Vector4 tint) { }
         public void DrawImage(TextureHandle texture, TextureHandle palette, Vector2 textureSize, RectangleF source, RectangleF target,
             TextureHandle shadeTable, CornerShades shades, float alpha = 1f) { }
+        void IFrameRecorder.DrawImage(Material material, Vector2 textureSize, RectangleF source, RectangleF target) { }
         public void FillRect(RectangleF target, Vector4 colour) { }
         public void AddRect(RectangleF target, Vector4 colour) { }
         public void FrameRect(RectangleF target, float width, Vector4 colour) { }

@@ -49,6 +49,35 @@ public static class DmAvatarTable
     /// <summary>The next avatar <paramref name="step"/> away, wrapping (FUN_00128b3b's either way).</summary>
     public static int Step(int number, int step) => ((Math.Clamp(number, 1, Count) - 1 + step) % Count + Count) % Count + 1;
 
+    /// <summary>The gun avatar <paramref name="number"/> holds for weapon record <paramref name="record"/>
+    /// (its +0x45 table, 29-byte entries: 0x31c37 AVSOL* for soldiers and terminators, 0x31adb AVFEM*
+    /// for women; each a model with the body's frames); the super UZI shows the UZI (the owner's
+    /// call: DOS has no entry for it); null for any other record past 11.</summary>
+    public static string? Gun(int number, int record)
+    {
+        if (record == Weapons.WeaponTable.SuperUzi)
+        {
+            record = 1;
+        }
+
+        if (record < 0 || record >= GunNames.Length)
+        {
+            return null;
+        }
+
+        return Get(number).Body == "AVFEMALE.3D" ? WomenGuns[record] : SoldierGuns[record];
+    }
+
+    /// <summary>The weapon records with a gun in hand (0..11).</summary>
+    internal static int GunCount => GunNames.Length;
+
+    // Records 0..11: PIPE, UZI, ASSAULT RIFLE … PLASMA CANNON.
+    private static readonly string[] GunNames = ["TRK", "UZI", "M16", "CHN", "SHT", "GRN", "RKT", "LSR", "BIG", "LSP", "LSL", "LSC"];
+
+    // The file names made once: the capture asks every frame.
+    private static readonly string[] SoldierGuns = [.. GunNames.Select(g => $"AVSOL{g}.3D")];
+    private static readonly string[] WomenGuns = [.. GunNames.Select(g => $"AVFEM{g}.3D")];
+
     /// <summary>The first avatar of <paramref name="number"/>'s kind.</summary>
     public static int FirstOf(int number) => number <= 3 ? 1 : number <= 7 ? 4 : 8;
 

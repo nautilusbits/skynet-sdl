@@ -409,8 +409,25 @@ public sealed class ControlsScreen : PanelScreen
         Add(new MenuItem("mouse", At(ControlsMouse)) { Lit = Lit(ControlsLit, ControlsLitAt, 1), Activate = () => Menu.Push(new MouseScreen()) });
         Add(new MenuItem("default", At(ControlsDefault)) { Lit = Lit(ControlsLit, ControlsLitAt, 2), Activate = ResetDefaults });
         Add(new MenuItem("exit", At(ControlsExit)) { Lit = Lit(ControlsLit, ControlsLitAt, 3), Activate = Menu.Pop });
+
         Highlight = Items.FindIndex(i => i.Enabled);
+
+        // A touch screen's TOUCH LAYOUT: the first row, a bar over the art (the art has no room),
+        // highlighted first. Added last, so the boxes keep their item indices.
+        if (Menu.Context.Touch() != null)
+        {
+            Add(new MenuItem(TouchLayoutScreen.Id, At(TouchBar)) { Activate = () => Menu.Push(new TouchLayoutScreen()) });
+            Highlight = Items.Count - 1;
+        }
     }
+
+    /// <summary>The TOUCH LAYOUT bar over CONTROLS.IMG.</summary>
+    private static readonly Rectangle TouchBar = new(0, -19, ControlsSize.Width, 18);
+
+    /// <summary>With the TOUCH LAYOUT bar, the panel takes its room too.</summary>
+    public override MenuFrame FrameIn(MenuFrame window) => Find(TouchLayoutScreen.Id) == null
+        ? base.FrameIn(window)
+        : window.Panel(new Rectangle(Origin.X, Origin.Y + TouchBar.Y, Size.Width, Size.Height - TouchBar.Y), Scale);
 
     private void ResetDefaults()
     {
@@ -489,6 +506,11 @@ public sealed class ControlsScreen : PanelScreen
     {
         // DOS's JOYSTICK button (an analogue PC stick) is the port's GAMEPAD.
         DosDialog.Button(p, At(ControlsJoystick), "GAMEPAD");
+        if (Find(TouchLayoutScreen.Id) is { } touch)
+        {
+            DosDialog.Button(p, touch.Rect, TouchLayoutScreen.Caption);
+        }
+
         for (var i = 0; i < ControlBoxes.Length; i++)
         {
             var item = Items[i];

@@ -82,7 +82,7 @@ payload (version mismatch, server full, no hello within 10 s, wrong or missing p
 console's kick and ban); a connection the server's door check turns away (a ban, too many from one
 address) is rejected with the reason as LiteNetLib's reject data. The hello's first field is the
 version, so a client and a server of different builds always get "Version mismatch: the server speaks
-network protocol N, this game M" whichever is older. Protocol version 8 (5: the password challenge; 8: the scanner flag).
+network protocol N, this game M" whichever is older. Protocol version 9 (5: the password challenge; 8: the scanner flag; 9: the weapon in hand).
 
 ## Running it
 
@@ -480,8 +480,8 @@ DOS is the reference here (SKYNET.EXE v1.01; the Godot port's dm_vehicle.gd diff
 - **The choice.** NETMENU1's left box cycles thirteen avatars (FUN_00128b3b: [0x31f37] 1..13,
   forwards or backwards with the key's direction, the chosen idle body and head turning in the box
   through 0x134200 / 0x1348e4). The avatar table is at 0x312bf + n·0x6d: +0 the skin's texture bank,
-  +4.. five 13-byte model names (body, head, head-shot, idle body, idle head), +0x45 the clip table
-  (0x31c37 men, 0x31adb women), +0x49 the body's offset under the eye (65 soldier, 64 terminator,
+  +4.. five 13-byte model names (body, head, head-shot, idle body, idle head), +0x45 the gun table
+  (0x31c37 men and terminators, 0x31adb women), +0x49 the body's offset under the eye (65 soldier, 64 terminator,
   62 woman), +0x59 80 (the same for all; the vehicles 14-15 have their own). Avatars 1-3 = AVSOLDER
   (skins 0x132, 0x133, 0x13d), 4-7 = AVTRMNTR (0x13c, 0x13b, 0x13a, 0x130), 8-13 = AVFEMALE
   (0x125, 0x134-0x137, 0x13e).

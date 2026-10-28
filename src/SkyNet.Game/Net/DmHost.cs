@@ -526,7 +526,7 @@ public sealed class DmHost : IDisposable
             if (other.Id != id && other.Alive)
             {
                 _ep.Send(peer, _w.Begin(DmMsg.PoseOf).I32(other.Id).Vec3(other.Position).F32(other.Yaw).F32(other.Pitch)
-                    .I32(Server.ServerFlags(other.Id, 0)).F32(Server.VehicleOf(other.Id)?.Yaw ?? other.Yaw), Channel.Unreliable);
+                    .I32(Server.ServerFlags(other.Id, DmProtocol.WeaponBits(other.Weapon))).F32(Server.VehicleOf(other.Id)?.Yaw ?? other.Yaw), Channel.Unreliable);
             }
         }
 

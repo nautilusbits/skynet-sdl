@@ -15,7 +15,7 @@ namespace SkyNet.Game.Campaign;
 /// </summary>
 public sealed class CampaignControls
 {
-    private CampaignControls(ActionSet a)
+    private CampaignControls(ActionSet a, Hud.TouchLayout touch)
     {
         Actions = a;
         Forward = a.Add("Forward", "W", "Up");
@@ -65,14 +65,17 @@ public sealed class CampaignControls
             .Pad(AutomapMoves.ZoomIn, PadButton.RightShoulder).Pad(AutomapMoves.ZoomOut, PadButton.LeftShoulder);
         // The on-screen buttons (touch screens): columns from the right edge, rows from the bottom.
         // No automap button: the screen's space goes to the fight.
-        a.AddTouch(Fire, "FIRE", 0, 0).AddTouch(Jump, "JUMP", 1, 0)
-            .AddTouch(Use, "USE", 0, 1).AddTouch(Throw, "ALT", 1, 1)
-            .AddTouch(NextWeapon, "WPN+", 0, 2).AddTouch(PreviousWeapon, "WPN-", 1, 2);
+        // Each at the player's place (TOUCH LAYOUT), else in the engine's grid.
+        a.AddTouch(touch.Slot(Fire, "FIRE", 0, 0)).AddTouch(touch.Slot(Jump, "JUMP", 1, 0))
+            .AddTouch(touch.Slot(Use, "USE", 0, 1)).AddTouch(touch.Slot(Throw, "ALT", 1, 1))
+            .AddTouch(touch.Slot(NextWeapon, "WPN+", 0, 2)).AddTouch(touch.Slot(PreviousWeapon, "WPN-", 1, 2));
         Player = new PlayerActions(Forward, Back, Left, Right, Run, Jump, Crouch, TurnLeft, TurnRight, LookUp, LookDown, Slide);
     }
 
-    /// <summary>The game's actions, registered in their fixed order.</summary>
-    public static CampaignControls Create() => new(new ActionSet());
+    /// <summary>The game's actions, registered in their fixed order; the on-screen buttons at
+    /// <paramref name="touch"/>'s places (null: the defaults).</summary>
+    public static CampaignControls Create(Hud.TouchLayout? touch = null) =>
+        new(new ActionSet(), touch ?? new Hud.TouchLayout(new Dictionary<string, string>()));
 
     public ActionSet Actions { get; }
     public int Forward { get; }

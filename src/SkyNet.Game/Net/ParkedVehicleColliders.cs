@@ -43,19 +43,36 @@ public sealed class ParkedVehicleColliders(Func<IEnumerable<DmVehicle>> vehicles
 
     public void Gather(in Box box, List<Triangle> into)
     {
-        foreach (var v in vehicles())
+        // A dictionary's values walked as such: through the interface each query boxes an enumerator.
+        var all = vehicles();
+        if (all is Dictionary<int, DmVehicle>.ValueCollection table)
         {
-            if (Place(v) is not { } p || !p.Bounds.Overlaps(box))
+            foreach (var v in table)
             {
-                continue;
+                Gather(v, box, into);
             }
 
-            foreach (var t in p.Triangles)
+            return;
+        }
+
+        foreach (var v in all)
+        {
+            Gather(v, box, into);
+        }
+    }
+
+    private void Gather(DmVehicle v, in Box box, List<Triangle> into)
+    {
+        if (Place(v) is not { } p || !p.Bounds.Overlaps(box))
+        {
+            return;
+        }
+
+        foreach (var t in p.Triangles)
+        {
+            if (new Box(t.Min, t.Max).Overlaps(box))
             {
-                if (new Box(t.Min, t.Max).Overlaps(box))
-                {
-                    into.Add(t);
-                }
+                into.Add(t);
             }
         }
     }

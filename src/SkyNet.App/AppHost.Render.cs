@@ -234,14 +234,39 @@ internal sealed partial class AppHost
 
         // The draw section is the capture's (the build's when on one thread), present the last build's.
         sections.Add(Section.Scene, Stopwatch.GetTimestamp() - now);
-        sections.Add(Section.Render, Interlocked.Exchange(ref lastBuildTicks, 0));
+        var built = Interlocked.Exchange(ref lastBuildTicks, 0);
+        sections.Add(Section.Render, built);
         sections.EndFrame();
         var stats = renderer.Stats;
+        LogPerf(built);
         uploadsPerFrame = renderer.UploadSubmits - uploadsAtFrame;
         uploadsAtFrame = renderer.UploadSubmits;
         Prof.Plot("Draw calls", stats.DrawCalls);
         Prof.Plot("Triangles", stats.Triangles);
         Prof.Plot("Upload submits", uploadsPerFrame);
+    }
+
+    // perfLog's frame (in play only), its line into the log every few seconds.
+    void LogPerf(long built)
+    {
+        var (ticks, tickTime) = (perfTicks, perfTickTime);
+        (perfTicks, perfTickTime) = (0, 0);
+        if (level == null || menu.PausesGame || frameTimes.Count == 0)
+        {
+            return;
+        }
+
+        var ms = 1000.0 / Stopwatch.Frequency;
+        var stats = renderer.Stats;
+        var frame = new PerfFrame(frameTimes[^1], ticks, tickTime * ms, built * ms, stats.DrawCalls, stats.Triangles, stats.GpuWait);
+        if (perfLog.Frame(frame, Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency, player.Position) is not { } line)
+        {
+            return;
+        }
+
+        Log.Info("Perf", line);
+        zoneTimes.Copy(zoneList);
+        Log.Info("Perf", string.Join(" | ", OverlayText.Zones(zoneList, int.MaxValue)));
     }
 
     // The map's part of a frame: the level's moving parts, the robots, the others' bodies, the
@@ -563,7 +588,7 @@ internal sealed partial class AppHost
         // The on-screen controls while fingers play (or --touch): a live frame.
         if (s.Live && window.Touch is { } touch)
         {
-            TouchControlsView.Draw(renderer, touch, new Vector2(width, height), bannerFont);
+            TouchView.Draw(renderer, touch, new Vector2(width, height), bannerFont);
         }
 
         // DOS's end banner over the frozen frame, centred on the view centre; the text only when the

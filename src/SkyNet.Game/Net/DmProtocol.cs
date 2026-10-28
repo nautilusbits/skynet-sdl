@@ -84,8 +84,9 @@ public static class DmProtocol
 {
     /// <summary>Bumped whenever a message changes; a mismatched hello is kicked with the reason.
     /// 7: the avatar (<see cref="DmAvatarTable"/>, its index 0..12) in the hello, the roster, the
-    /// class change and SetClass. 8: <see cref="FlagScanner"/> in the poses.</summary>
-    public const int Version = 8;
+    /// class change and SetClass. 8: <see cref="FlagScanner"/> in the poses. 9: the weapon in hand
+    /// in the poses (<see cref="WeaponBits"/>).</summary>
+    public const int Version = 9;
 
     /// <summary>LiteNetLib's connection key: other programs on the port are turned away.</summary>
     public const string AppKey = "SKYNET-DM";
@@ -141,6 +142,17 @@ public static class DmProtocol
     /// the owner's word, kept by the server for a HUMAN on foot. The others plot the holder on their
     /// scanners and hear its sweep.</summary>
     public const int FlagScanner = 1 << 5;
+
+    /// <summary>Bits 8-15: the record in hand + 1, 0 none (DOS's player byte +0x20, which picks the
+    /// avatar's gun): the owner's word.</summary>
+    private const int WeaponShift = 8;
+    private const int WeaponMask = 0xFF << WeaponShift;
+
+    /// <summary>Record <paramref name="record"/> in hand as pose flags (none outside 0..254).</summary>
+    public static int WeaponBits(int record) => record is >= 0 and < 0xFF ? (record + 1) << WeaponShift : 0;
+
+    /// <summary>The record in hand the flags carry, −1 none.</summary>
+    public static int WeaponOf(int flags) => ((flags & WeaponMask) >> WeaponShift) - 1;
 
     public static Vehicles.VehicleMode VehicleOf(int flags) => (Vehicles.VehicleMode)((flags & VehicleMask) >> VehicleShift);
 

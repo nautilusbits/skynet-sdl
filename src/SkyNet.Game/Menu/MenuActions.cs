@@ -127,6 +127,14 @@ public sealed class MenuContext
     /// DISPLAY's WINDOW and RESOLUTION.</summary>
     public WindowKind Window { get; init; } = WindowKind.Choosable;
 
+    /// <summary>How the player types: <see cref="KeyboardKind.OnScreen"/> (a touch screen) covers the
+    /// menu, so the network screens open with no box in use.</summary>
+    public KeyboardKind Keyboard { get; init; } = KeyboardKind.Physical;
+
+    /// <summary>The on-screen controls and the window's size in pixels (a touch screen, or
+    /// --touch); null hides CONTROLS' TOUCH LAYOUT.</summary>
+    public Func<(RetroEng.Platform.TouchControls Controls, System.Numerics.Vector2 Screen)?> Touch { get; init; } = () => null;
+
     /// <summary>The render scale (%) the renderer used last frame (AUTO's pick); null: unknown.</summary>
     public Func<int>? RenderScaleInUse { get; init; }
 
@@ -181,6 +189,9 @@ public sealed class MenuContext
 /// <summary>Whether the player picks the window's mode and size (desktop) or the system fixes it
 /// fullscreen (Android).</summary>
 public enum WindowKind { Choosable, FixedFullscreen }
+
+/// <summary>A keyboard beside the screen, or one the system draws over it (Android).</summary>
+public enum KeyboardKind { Physical, OnScreen }
 
 /// <summary>Where a menu's background job stands.</summary>
 public enum MenuJobState { Running, Done, Failed, Cancelled }

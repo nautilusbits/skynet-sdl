@@ -23,11 +23,18 @@ public static class ReplacementMesh
 
     /// <summary>The index texture standing for the surface's colour texture: kept across maps
     /// (<see cref="KeptSurfaces"/>), else made in the current scope.</summary>
-    private static TextureHandle Texture(Renderer renderer, KeptSurfaces? kept, ReplacementSurface surface)
+    private static TextureHandle Texture(Renderer renderer, KeptSurfaces? kept, ReplacementSurface surface,
+        Dictionary<ReplacementSurface, TextureHandle>? made = null)
     {
         if (kept?.Texture(surface) is { } texture)
         {
             return texture;
+        }
+
+        // Made in this scope already (an avatar's 41 frames share one atlas).
+        if (made != null && made.TryGetValue(surface, out var shared))
+        {
+            return shared;
         }
 
         var opaque = new byte[IndexSide * IndexSide];
@@ -36,6 +43,11 @@ public static class ReplacementMesh
         // Released: a texture of its own, drawn through one palette at one layer count.
         var colour = surface.Colour;
         renderer.ReplaceTexture(handle, colour.Width, colour.Height, colour.Rgba, null, HdPixels.Released);
+        if (made != null)
+        {
+            made[surface] = handle;
+        }
+
         return handle;
     }
 
@@ -50,7 +62,10 @@ public static class ReplacementMesh
     /// else made (<see cref="TangentSpace"/>).</summary>
     /// <param name="placement">The glTF model's space to the DOS model's (<see cref="ModelSidecar.Placement"/>).</param>
     /// <param name="kept">The surfaces kept across maps (<see cref="KeptSurfaces"/>); null: made in the current scope.</param>
-    public static ModelMesh? Build(Renderer renderer, TextureHandle palette, ModelReplacement r, Matrix4x4 placement, KeptSurfaces? kept = null)
+    /// <param name="made">Without <paramref name="kept"/>: the index textures made in the current scope so
+    /// far, by surface, shared and added to; null: one made per call.</param>
+    public static ModelMesh? Build(Renderer renderer, TextureHandle palette, ModelReplacement r, Matrix4x4 placement, KeptSurfaces? kept = null,
+        Dictionary<ReplacementSurface, TextureHandle>? made = null)
     {
         Matrix4x4.Invert(placement, out var inverse);
         var turnNormal = Matrix4x4.Transpose(inverse);
@@ -87,7 +102,7 @@ public static class ReplacementMesh
 
             // The index texture stands for the colour texture: 4 x 4 (a row per layer with maps).
             var layers = surface.Maps ? Renderer.SurfaceMapLayers : 1;
-            var handle = Texture(renderer, kept, surface);
+            var handle = Texture(renderer, kept, surface, made);
             buckets.Add((new SurfaceKey(handle, -1), new GpuTexture(handle, IndexSide, IndexSide, layers), vertices, indices));
             surfaces[handle.Index] = surface;
         }
@@ -121,6 +136,8 @@ public sealed class ReplacedModels(Renderer renderer, TextureHandle palette, Tex
     // Per DOS model and main replacement: a remount (the MODS screen) brings new replacements.
     private readonly Dictionary<(string File, ModelReplacement Main), Matrix4x4?> _placements = [];
     private readonly Dictionary<(string File, ModelReplacement Model), LodMesh?> _meshes = [];
+    // The index textures made in the level's scope (without kept surfaces), shared by every mesh of a surface.
+    private readonly Dictionary<ReplacementSurface, TextureHandle> _textures = new(ReferenceEqualityComparer.Instance);
 
     /// <summary>The replacement mesh for <paramref name="frame"/> of the DOS model <paramref name="file"/>
     /// ("GUNTWR1.3D"), in the DOS model's space; null: none (draw the DOS frame).</summary>
@@ -155,7 +172,7 @@ public sealed class ReplacedModels(Renderer renderer, TextureHandle palette, Tex
                 : null;
         }
 
-        _meshes[(file, model)] = mesh = placement is { } p ? LodMesh.Build(renderer, palette, model, p, kept) : null;
+        _meshes[(file, model)] = mesh = placement is { } p ? LodMesh.Build(renderer, palette, model, p, kept, _textures) : null;
         DevTools.LoadHitches.Since("segment replacement mesh", started);
         return mesh;
     }

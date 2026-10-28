@@ -1,3 +1,4 @@
+using System.Numerics;
 using RetroEng.Platform;
 using RetroEng.Render;
 using SkyNet.Game.Menu;
@@ -63,18 +64,18 @@ public class ViewStyleTests : IDisposable
         var screen = (DisplayScreen)menu.Current!;
         menu.Current!.Select("renderer");
 
-        // Right: DEFAULT → RETRO ASCII → POINT CLOUD → DEFAULT, each handed over at once.
+        // Right: DEFAULT → RETRO ASCII → POINT CLOUD → ENGRAVING → DEFAULT, each handed over at once.
         var seen = new List<string>();
-        for (var i = 0; i < 3; i++)
+        for (var i = 0; i < 4; i++)
         {
             menu.Update(new MenuInput { Right = true }, Frame);
             seen.Add(screen.Value("renderer"));
             Assert.Equal(menu.Settings.Style, log.Applied[^1].Style);
         }
 
-        Assert.Equal(["RETRO ASCII", "POINT CLOUD", "DEFAULT"], seen);
+        Assert.Equal(["RETRO ASCII", "POINT CLOUD", "ENGRAVING", "DEFAULT"], seen);
         menu.Update(new MenuInput { Left = true }, Frame);
-        Assert.Equal(RenderStyle.PointCloud, menu.Settings.Style);
+        Assert.Equal(RenderStyle.Engraving, menu.Settings.Style);
     }
 
     [Fact]
@@ -147,7 +148,32 @@ public class ViewStyleTests : IDisposable
     [Fact]
     public void WordsCoverEveryStyle()
     {
-        Assert.Equal([RenderStyle.Default, RenderStyle.Ascii, RenderStyle.PointCloud], ViewStyles.Words.Values.Order());
+        Assert.Equal([RenderStyle.Default, RenderStyle.Ascii, RenderStyle.PointCloud, RenderStyle.Engraving], ViewStyles.Words.Values.Order());
+        Assert.Equal(RenderStyle.Engraving, ViewStyles.Words["engraving"]);
         Assert.Equal(ViewStyles.Words["ascii"], ViewStyles.Step(RenderStyle.Default, 1));
+    }
+
+    [Fact]
+    public void EngravingRoundTripsAndOldFilesStillLoad()
+    {
+        Directory.CreateDirectory(_dir);
+        var path = Path.Combine(_dir, "settings.json");
+        Assert.Equal(SaveResult.Saved, SettingsStore.Save(new MenuSettings { Style = RenderStyle.Engraving }, path));
+        Assert.Equal(RenderStyle.Engraving, SettingsStore.Load(path).Style);
+
+        // A file from before ENGRAVING keeps its renderer.
+        File.WriteAllText(path, File.ReadAllText(path).Replace("\"Engraving\"", "\"PointCloud\"", StringComparison.Ordinal));
+        Assert.Equal(RenderStyle.PointCloud, SettingsStore.Load(path).Style);
+    }
+
+    [Fact]
+    public void EngravingIsFittedToSkyNet()
+    {
+        var engraving = ViewStyles.Engraving();
+        // SkyNET's world is Y-up: the lines run level across walls and slopes, not up them.
+        Assert.Equal(Vector3.UnitY, engraving.Up);
+        // The night maps are dark: brightened, or the print would be solid ink.
+        Assert.True(engraving.Brightness > 0f);
+        Assert.InRange(engraving.Spacing, EngravingStyle.MinSpacing, EngravingStyle.MaxSpacing);
     }
 }

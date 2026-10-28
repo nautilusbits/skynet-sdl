@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The setup screen's palette: the icon's gunmetal and red. -->
+<resources>
+  <color name="skynet_red">#FFFF3B2E</color>
+  <color name="skynet_ink">#FF140404</color>
+  <color name="skynet_panel">#F216171B</color>
+  <color name="skynet_rim">#80FF3B2E</color>
+  <color name="skynet_text">#FFEDEDEF</color>
+  <color name="skynet_text_dim">#FFB4B7BD</color>
+</resources>

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The rest comes from the activities' attributes (storage permissions: AllFilesAccess's).
+     Android 10 reads the SkyNET folder by path with legacy storage. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <application android:requestLegacyExternalStorage="true" />
+</manifest>

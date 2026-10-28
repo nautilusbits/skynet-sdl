@@ -382,6 +382,84 @@ public sealed class MapBlockTests(ITestOutputHelper output) : IDisposable
         Assert.Equal(fresh, Read(ZipPack.Open(store.ZipPath), 213));
     }
 
+    public enum StampChange { None, Stamp, DataTouched, DataEdited, ModAdded }
+
+    [Theory]
+    [InlineData(StampChange.None)]
+    [InlineData(StampChange.Stamp)]
+    [InlineData(StampChange.DataTouched)]
+    [InlineData(StampChange.DataEdited)]
+    [InlineData(StampChange.ModAdded)]
+    public void TheStampSkipsTheCheckUntilAnInputChanges(StampChange change)
+    {
+        if (Data() is not { } real)
+        {
+            return;
+        }
+
+        // A copy of the data (no videos) the test may change.
+        var dataDir = Path.Combine(_temp, "data");
+        Directory.CreateDirectory(dataDir);
+        foreach (var f in Directory.EnumerateFiles(real.Dir).Where(f => !f.EndsWith(".VID", StringComparison.OrdinalIgnoreCase)))
+        {
+            File.Copy(f, Path.Combine(dataDir, Path.GetFileName(f)));
+        }
+
+        var data = GameData.Open(dataDir)!;
+        var mods = Path.Combine(_temp, "mods");
+        int[] maps = [211, 213];
+        using var store = new BlockStore(mods, data);
+        Assert.Equal(2, store.Bake(maps));
+        Assert.Empty(store.Stale(only: maps));
+        Assert.Equal(["skynet"], new ContentRoot(mods).Discover().Select(m => m.Name));
+
+        // MAP.211's block goes stale behind the stamp's back: same ZIP size and time.
+        var zipTime = File.GetLastWriteTimeUtc(store.ZipPath);
+        var zipBytes = File.ReadAllBytes(store.ZipPath);
+        string hash;
+        using (var zip = ZipPack.Open(store.ZipPath))
+        {
+            hash = zip.Entries.Single(e => e.Path == MapBaker.PathOf(211)).SourceHash;
+        }
+
+        // The block's own copy (written before the manifest's) no longer matches the entry's.
+        var at = System.Text.Encoding.Latin1.GetString(zipBytes).IndexOf(hash, StringComparison.Ordinal) + hash.Length - 1;
+        zipBytes[at] = (byte)(zipBytes[at] == '0' ? '1' : '0');
+        File.WriteAllBytes(store.ZipPath, zipBytes);
+        File.SetLastWriteTimeUtc(store.ZipPath, zipTime);
+
+        int[] expected = [211];
+        switch (change)
+        {
+            case StampChange.None:
+                expected = [];
+                break;
+            case StampChange.Stamp:
+                foreach (var f in Directory.EnumerateFiles(mods, "*.stamp"))
+                {
+                    File.WriteAllText(f, "another build");
+                }
+
+                break;
+            case StampChange.DataTouched:
+                File.SetLastWriteTimeUtc(data.PathOf("MDMDOBJS.BSA"), DateTime.UtcNow);
+                break;
+            case StampChange.DataEdited:
+                // HAZE.000 is an input of every map.
+                var haze = data.PathOf("HAZE.000");
+                var bytes = File.ReadAllBytes(haze);
+                bytes[0] ^= 0xFF;
+                File.WriteAllBytes(haze, bytes);
+                expected = maps;
+                break;
+            case StampChange.ModAdded:
+                Directory.CreateDirectory(Path.Combine(mods, "newmod", "maps"));
+                break;
+        }
+
+        Assert.Equal(expected, store.Stale(only: maps));
+    }
+
     private static byte[] Read(ZipPack zip, int number)
     {
         using (zip)

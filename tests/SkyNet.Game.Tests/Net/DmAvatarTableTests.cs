@@ -1,4 +1,5 @@
 using SkyNet.Game.Net;
+using SkyNet.Game.Weapons;
 
 namespace SkyNet.Game.Tests.Net;
 
@@ -30,5 +31,19 @@ public class DmAvatarTableTests
         Assert.Equal(1, DmAvatarTable.Step(13, 1));
         Assert.Equal(("TERMINATOR 4", "WOMAN 1"), (DmAvatarTable.Get(7).Name, DmAvatarTable.Get(8).Name));
         Assert.Equal((1, 7), (DmAvatarTable.ForClass(DmClass.Human), DmAvatarTable.ForClass(DmClass.Terminator)));
+    }
+
+    [Fact]
+    public void Each_avatar_holds_its_kinds_gun_for_records_0_to_11()
+    {
+        // +0x45: 0x31c37 (AVSOL*, terminators too) or 0x31adb (AVFEM*), one model per record 0..11.
+        Assert.Equal("AVSOLUZI.3D", DmAvatarTable.Gun(1, 1));
+        Assert.Equal("AVFEMLSC.3D", DmAvatarTable.Gun(8, 11));
+        Assert.All(Enumerable.Range(4, 4), n => Assert.Equal("AVSOLTRK.3D", DmAvatarTable.Gun(n, 0)));
+        Assert.Equal("AVFEMM16.3D", DmAvatarTable.Gun(13, 2));
+        // The owner's call: the super UZI (no entry in DOS) shows the UZI.
+        Assert.Equal("AVFEMUZI.3D", DmAvatarTable.Gun(8, WeaponTable.SuperUzi));
+        Assert.Null(DmAvatarTable.Gun(1, WeaponTable.SuperUzi + 1));
+        Assert.Null(DmAvatarTable.Gun(1, -1));
     }
 }

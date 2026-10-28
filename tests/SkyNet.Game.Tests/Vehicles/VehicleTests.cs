@@ -101,6 +101,33 @@ public class VehicleTests
         Assert.Equal(VehicleController.JeepTurnMax, (before - car.CarYaw) / Dt, 3);
     }
 
+    /// <summary>A plane through the origin, y = sx·x + sz·z (car at yaw 0 looks along −Z, right is +X).</summary>
+    private static IEnumerable<Triangle> Slope(float sx, float sz, float half = 20000f)
+    {
+        Vector3 P(float x, float z) => new(x, sx * x + sz * z, z);
+        yield return new Triangle(P(-half, -half), P(half, -half), P(half, half));
+        yield return new Triangle(P(-half, -half), P(half, half), P(-half, half));
+    }
+
+    [Fact]
+    public void JeepLeansTowardTheLowerSide()
+    {
+        var (_, car) = Ride(VehicleMode.Jeep, Slope(-0.3f, 0f));                 // right side lower
+        var (_, _, up, _) = car.View(1f);
+        Assert.True(car.OnFloor);
+        Assert.True(up.X > 0.1f, $"up {up}");
+        Assert.True(Vector3.Transform(Vector3.UnitY, car.CockpitWorld(1f) with { Translation = Vector3.Zero }).X > 0.1f);
+    }
+
+    [Fact]
+    public void JeepNoseRisesUphill()
+    {
+        var (_, car) = Ride(VehicleMode.Jeep, Slope(0f, -0.3f));                 // ground rises ahead (−Z)
+        var (_, forward, _, _) = car.View(1f);
+        Assert.True(car.OnFloor);
+        Assert.True(forward.Y > 0.1f, $"forward {forward}");
+    }
+
     [Fact]
     public void JeepTurretPitchIsClampedAt45DegreesAndTheViewIsTheTurret()
     {

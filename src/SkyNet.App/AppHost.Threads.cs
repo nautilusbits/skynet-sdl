@@ -55,6 +55,9 @@ internal sealed partial class AppHost
             try
             {
                 ThreadGuard.TakeTurn();
+                // The zone timer nests the zones of the thread that made it: the ticks' and the capture's.
+                zoneTimes = new ZoneTimes();
+                ApplyZoneTimer();
                 loop!.Run(host, options.Frames);
                 frameBuild.Drain();
             }

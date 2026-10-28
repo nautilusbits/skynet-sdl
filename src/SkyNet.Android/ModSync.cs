@@ -17,16 +17,18 @@ internal enum SyncOutcome
 }
 
 /// <summary>
-/// Mirrors the player's mods folder (picked with SAF) into the game's mods folder,
-/// <c>files/mods</c>, next to the system mods' baked maps the game writes there. The plan is
+/// Mirrors the player's mods folder (picked with SAF, or the picked SkyNET folder's mods/) into
+/// the game's mods folder, next to the system mods' baked maps the game writes there. The plan is
 /// <see cref="ModMirror"/>'s; this class lists the picked tree and carries the plan out.
-/// The manifest (<c>files/mods-sync.txt</c>) lists the files the sync copied: it never deletes
-/// anything else.
+/// The manifest (<c>mods-sync.txt</c> beside the mods folder) lists the files the sync copied: it
+/// never deletes anything else.
 /// </summary>
-internal sealed class ModSync(Context context, Action<string> progress)
+internal sealed class ModSync(Context context, Action<string, int, int> progress)
 {
     private const string ManifestName = "mods-sync.txt";
     private const string PartName = "mods-sync.part";
+    /// <summary>Folders deeper than this in the mods folder are not synced.</summary>
+    private const int MaxDepth = 16;
 
     private static readonly string[] Columns =
     [
@@ -40,8 +42,9 @@ internal sealed class ModSync(Context context, Action<string> progress)
 
     public string? Error { get; private set; }
 
-    /// <summary>Syncs <paramref name="tree"/> into <paramref name="modsDir"/>; call off the UI thread.</summary>
-    public SyncOutcome Run(AUri tree, string modsDir)
+    /// <summary>Syncs the folder <paramref name="documentId"/> of <paramref name="tree"/> into
+    /// <paramref name="modsDir"/>; call off the UI thread.</summary>
+    public SyncOutcome Run(AUri tree, string documentId, string modsDir)
     {
         var resolver = context.ContentResolver!;
         var granted = resolver.PersistedUriPermissions.Any(p => p.IsReadPermission && p.Uri?.Equals(tree) == true);
@@ -55,15 +58,14 @@ internal sealed class ModSync(Context context, Action<string> progress)
         var source = new List<MirrorFile>();
         try
         {
-            progress("Reading your mods folder…");
-            List(tree, DocumentsContract.GetTreeDocumentId(tree)!, "", source, ids);
+            List(tree, documentId, "", source, ids, new HashSet<string>(StringComparer.Ordinal), 0);
         }
         catch (Exception e) when (e is Java.Lang.SecurityException or Java.IO.FileNotFoundException or System.UnauthorizedAccessException)
         {
             return SyncOutcome.NoAccess;
         }
 
-        var files = context.FilesDir!.AbsolutePath;
+        var files = Path.GetDirectoryName(Path.GetFullPath(modsDir))!;
         var manifestPath = Path.Combine(files, ManifestName);
         var owned = File.Exists(manifestPath) ? ModMirror.Read(File.ReadAllText(manifestPath)) : [];
         var plan = ModMirror.Plan(source, owned, p => File.Exists(Local(modsDir, p)), SystemMods);
@@ -81,7 +83,7 @@ internal sealed class ModSync(Context context, Action<string> progress)
             for (var i = 0; i < plan.Copy.Count; i++)
             {
                 var file = plan.Copy[i];
-                progress($"Syncing your mods… {i + 1}/{plan.Copy.Count} ({file.Path})");
+                progress(file.Path, i + 1, plan.Copy.Count);
                 Copy(DocumentsContract.BuildDocumentUriUsingTree(tree, ids[file.Path])!, Local(modsDir, file.Path), Path.Combine(files, PartName));
                 manifest[file.Path] = file;
             }
@@ -99,9 +101,38 @@ internal sealed class ModSync(Context context, Action<string> progress)
         }
     }
 
-    // A folder's documents and, recursively, its folders'.
-    private void List(AUri tree, string documentId, string prefix, List<MirrorFile> into, Dictionary<string, string> ids)
+    /// <summary>The document id of the folder <paramref name="name"/> (any case) in the picked
+    /// folder of <paramref name="tree"/>; null when there is none or it cannot be read.</summary>
+    public string? Folder(AUri tree, string name)
     {
+        try
+        {
+            var children = DocumentsContract.BuildChildDocumentsUriUsingTree(tree, DocumentsContract.GetTreeDocumentId(tree))!;
+            using var cursor = context.ContentResolver!.Query(children, Columns, null, null, null);
+            while (cursor != null && cursor.MoveToNext())
+            {
+                if (cursor.GetString(2) == DocumentsContract.Document.MimeTypeDir && string.Equals(cursor.GetString(1), name, StringComparison.OrdinalIgnoreCase))
+                {
+                    return cursor.GetString(0);
+                }
+            }
+        }
+        catch (Exception e) when (e is Java.Lang.SecurityException or Java.IO.FileNotFoundException or System.UnauthorizedAccessException)
+        {
+        }
+
+        return null;
+    }
+
+    // A folder's documents and, recursively, its folders'; folders seen before or too deep (a
+    // provider's loop) are skipped.
+    private void List(AUri tree, string documentId, string prefix, List<MirrorFile> into, Dictionary<string, string> ids, HashSet<string> seen, int depth)
+    {
+        if (depth > MaxDepth || !seen.Add(documentId))
+        {
+            return;
+        }
+
         var children = DocumentsContract.BuildChildDocumentsUriUsingTree(tree, documentId)!;
         using var cursor = context.ContentResolver!.Query(children, Columns, null, null, null);
         while (cursor != null && cursor.MoveToNext())
@@ -110,7 +141,7 @@ internal sealed class ModSync(Context context, Action<string> progress)
             var path = prefix + cursor.GetString(1);
             if (cursor.GetString(2) == DocumentsContract.Document.MimeTypeDir)
             {
-                List(tree, id, path + "/", into, ids);
+                List(tree, id, path + "/", into, ids, seen, depth + 1);
                 continue;
             }
 

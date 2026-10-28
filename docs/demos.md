@@ -265,6 +265,25 @@ keyframe gives the state the live client had when it was written. The host's dem
 the roster and scores every client was sent. `DmDedicatedTests` checks `record_demos`: one
 demo per round, and the first plays back to the kill that ended it.
 
+## Benchmark demos
+
+Two demos in `demos/` time the renderer. `--fixed-step` advances the game 1/60 s per frame, so
+every run draws the same frames; compare `ms per frame` in the log's `Last frame` line.
+
+| Demo | What | Time it |
+|---|---|---|
+| `bench-dm12` | network demo, MAP.605, host and 12 bots, 62 s | `--offscreen --novsync --no-sound --look enhanced --fixed-step --timedemo bench-dm12` |
+| `bench-m1` | campaign demo, mission 1 start, the soldier standing, 60 s | `--offscreen --novsync --no-sound --look enhanced --timedemo bench-m1` (reports fps) |
+
+A network demo plays on any build with the same `DmProtocol.Version`. A campaign demo plays
+only on a build whose simulation matches: a change to the simulation, the tables or the data
+desyncs it (`test.sndemo`, recorded by 0.33, desyncs at tick 0). Re-record them then:
+
+```
+skynet-sdl --offscreen --novsync --no-sound --host=MAP.605 --bots=12 --record bench-dm12 --fixed-step --frames 3720
+skynet-sdl --offscreen --novsync --no-sound --record bench-m1 --mission 1 --no-briefing --fixed-step --frames 3600
+```
+
 ## Determinism rules for new code
 
 The campaign simulation is deterministic on one machine and build: the same

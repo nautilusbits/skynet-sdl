@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The setup dialogs (Dialogs): platform Material, SkyNET's colours. -->
+<resources>
+  <style name="SkyNetDialog" parent="@android:style/Theme.Material.Dialog.Alert">
+    <item name="android:windowBackground">@drawable/dialog_panel</item>
+    <item name="android:colorBackground">@color/skynet_panel</item>
+    <item name="android:colorAccent">@color/skynet_red</item>
+    <item name="android:colorControlActivated">@color/skynet_red</item>
+    <item name="android:textColorPrimary">@color/skynet_text</item>
+    <item name="android:textColorSecondary">@color/skynet_text_dim</item>
+    <item name="android:windowTitleStyle">@style/SkyNetDialog.Title</item>
+    <item name="android:buttonBarPositiveButtonStyle">@style/SkyNetDialog.Primary</item>
+    <item name="android:buttonBarNegativeButtonStyle">@style/SkyNetDialog.Secondary</item>
+  </style>
+
+  <!-- The platform's DialogWindowTitle.Material is private: its items, the colour ours. -->
+  <style name="SkyNetDialog.Title" parent="">
+    <item name="android:maxLines">1</item>
+    <item name="android:ellipsize">end</item>
+    <item name="android:textAppearance">@style/SkyNetDialog.TitleText</item>
+  </style>
+
+  <style name="SkyNetDialog.TitleText" parent="@android:style/TextAppearance.Material.DialogWindowTitle">
+    <item name="android:textColor">@color/skynet_red</item>
+  </style>
+
+  <!-- The answer that goes on: filled red. -->
+  <style name="SkyNetDialog.Primary" parent="@android:style/Widget.Material.Button">
+    <item name="android:backgroundTint">@color/skynet_red</item>
+    <item name="android:textColor">@color/skynet_ink</item>
+    <item name="android:textAllCaps">false</item>
+    <item name="android:minWidth">96dp</item>
+    <item name="android:layout_marginStart">8dp</item>
+  </style>
+
+  <!-- The other one: red text. -->
+  <style name="SkyNetDialog.Secondary" parent="@android:style/Widget.Material.Button.Borderless.Colored">
+    <item name="android:textColor">@color/skynet_red</item>
+    <item name="android:textAllCaps">false</item>
+  </style>
+</resources>

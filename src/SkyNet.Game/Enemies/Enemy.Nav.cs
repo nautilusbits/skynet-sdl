@@ -81,7 +81,7 @@ public sealed partial class Enemy
 
         var feet = Position + new Vector3(0f, FootOffset, 0f);
         _repathT -= dt;
-        if (_pathTo is not { } old || Flat(old - goal).Length() > RepathMoved || _repathT <= 0f || OffLeg(feet))
+        if (_pathTo is not { } old || Flat(old - goal).Length() > RepathMoved || (_repathT <= 0f && Stale(old, goal)) || OffLeg(feet))
         {
             Plan(nav, body, feet, goal);
         }
@@ -126,6 +126,11 @@ public sealed partial class Enemy
             _corners.Clear();
         }
     }
+
+    /// <summary>The timer's re-plan is due: off the mesh (no corners), or a goal that crept (under
+    /// <see cref="RepathMoved"/>). A goal that stayed put keeps its path (the mesh does not change);
+    /// an unreachable one waits for the goal to move: its search walks the whole region (~10 ms).</summary>
+    private bool Stale(Vector3 old, Vector3 goal) => _corners.Count == 0 || (old != goal && _path != PathResult.Partial);
 
     /// <summary>Farther than <see cref="OffPath"/> from the leg being walked.</summary>
     private bool OffLeg(Vector3 feet)

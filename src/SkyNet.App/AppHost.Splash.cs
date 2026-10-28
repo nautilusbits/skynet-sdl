@@ -50,6 +50,12 @@ internal sealed partial class AppHost
     /// (dropped: showing it before the first, slow present left it blank white), the splash gone after the next.</summary>
     private void Presented()
     {
+        if (PlatformHooks.FirstFrame is { } first)
+        {
+            PlatformHooks.FirstFrame = null;
+            first();
+        }
+
         if (!UsesSplash || splash == null && revealed)
         {
             return;

@@ -32,6 +32,8 @@ public sealed partial class Enemy : IDamageable
     public const float StepTerminator = 40f, StepOther = 20f;
     public const float MaxDropTerminator = 96f, MaxDropOther = 60f;
     public const float SinkRecover = 110f;
+    /// <summary><see cref="SurfaceAt"/>'s column: this far above and below the point.</summary>
+    private const float SurfaceUp = 6000f, SurfaceDown = 20000f;
     public const float KamikazeReach = 40f;
     public const float MachineMargin = 60f;
     public const float MachineHitDamage = 4f;
@@ -78,6 +80,7 @@ public sealed partial class Enemy : IDamageable
     private float _stripT;
     private int _kamikaze = -1;
     private readonly float _rootRestYaw;
+    private readonly List<RetroEng.Physics.Triangle> _column = [];
 
     public Enemy(Robots ctx, int type, Vector3 position, float yaw, int markerOffset = -1)
     {
@@ -91,6 +94,7 @@ public sealed partial class Enemy : IDamageable
         _senseCount = ctx.NextSensePhase();
         Root = new EnemyPart(type, Type, ctx.Models.Get(Type?.ModelFile ?? "", Type?.Look ?? ""), null, Vector3.Zero, 0f, 0f, 0f);
         AddSegments(Root, 0);
+        Segments = [.. Root.Walk()];
         foreach (var p in Root.Walk())
         {
             if (p.IsTurret)
@@ -133,6 +137,8 @@ public sealed partial class Enemy : IDamageable
     public string Name => Type?.Name ?? $"type{TypeIndex}";
     public int State => Type?.State ?? 0;
     public EnemyPart Root { get; }
+    /// <summary><see cref="Root"/>'s <see cref="EnemyPart.Walk"/> made once: the frame's capture walks it without an iterator.</summary>
+    internal EnemyPart[] Segments { get; }
     public AisBrain? Brain { get; }
     public IReadOnlyList<EnemyPart> Turrets => _turrets;
     public IReadOnlyList<EnemyPart> Machines => _machines;
@@ -720,8 +726,29 @@ public sealed partial class Enemy : IDamageable
     }
 
     /// <summary>Highest surface under <paramref name="at"/>; its own Y when none.</summary>
-    public float SurfaceAt(Vector3 at) =>
-        Cast(at + new Vector3(0f, 6000f, 0f), at - new Vector3(0f, 20000f, 0f), out var hit) ? hit.Point.Y : at.Y;
+    public float SurfaceAt(Vector3 at)
+    {
+        var from = at + new Vector3(0f, SurfaceUp, 0f);
+        var ray = at - new Vector3(0f, SurfaceDown, 0f) - from;
+        var len = ray.Length();
+        var dir = ray / len;
+        dir /= dir.Length();
+
+        // The engine's ray gathers the column again every 512 units (51 times for these 26 000):
+        // gather it once and take the nearest crossing as that ray computes it (same answer, bit for bit).
+        _column.Clear();
+        _ctx.World.Gather(new RetroEng.Physics.Box(Vector3.Min(from, from + ray), Vector3.Max(from, from + ray)).Grow(1f), _column);
+        var best = float.MaxValue;
+        foreach (var tri in _column)
+        {
+            if (RetroEng.Physics.Intersect.Ray(from, dir, in tri, out var d) && d <= len && d < best)
+            {
+                best = d;
+            }
+        }
+
+        return best <= len ? (from + dir * best).Y : at.Y;
+    }
 
     private bool PathBlocked(Vector3 step)
     {

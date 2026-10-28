@@ -5,6 +5,7 @@ using RetroEng.Commands;
 using RetroEng.Diagnostics;
 using RetroEng.Net;
 using SkyNet.Formats;
+using SkyNet.Game.Audio;
 using SkyNet.Game.Campaign;
 using SkyNet.Game.Demos;
 using SkyNet.Game.Enemies;
@@ -515,7 +516,7 @@ public sealed class DmGame : IDisposable
 
         AskForItems();
         var p = _session.Player;
-        var flags = 0;
+        var flags = DmProtocol.WeaponBits(WeaponInHand);
         if (new Vector2(p.Velocity.X, p.Velocity.Z).Length() > 1f)
         {
             flags |= DmProtocol.FlagMoving;
@@ -588,12 +589,7 @@ public sealed class DmGame : IDisposable
     /// drawer, for a draw on another thread (<see cref="AvatarRenderer.Draw(DmFrame, long)"/>).</summary>
     public void Capture(Level level, RetroEng.Render.Renderer renderer, DmFrame frame)
     {
-        if (_view == null || !ReferenceEquals(_view.Level, level))
-        {
-            _view = new AvatarRenderer(renderer, _models, new TextureStore(renderer, _session.Data), level);
-        }
-
-        frame.View = _view;
+        frame.View = View(level, renderer);
         AvatarRenderer.Capture(_replay == null ? _avatars.Values
             : _avatars.Values.Where(a => a.Id != Hidden).Concat(_self != null && !OwnView ? new[] { _self } : Array.Empty<DmAvatar>()),
             Vehicles.Values, frame);
@@ -619,6 +615,26 @@ public sealed class DmGame : IDisposable
 
         frame.NavMesh = _navOutline.Lines;
         DmNavLines.Paths(bots.Brains.Values, frame.NavPaths);
+    }
+
+    /// <summary>Builds <paramref name="level"/>'s avatar drawer and every mesh it can draw (<see cref="AvatarRenderer.Prepare"/>), at the map's load;
+    /// a mesh is a step of <paramref name="progress"/>.</summary>
+    public void Prepare(Level level, RetroEng.Render.Renderer renderer, LoadProgress? progress = null)
+    {
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var view = View(level, renderer);
+        view.Prepare(Players.Values.Select(p => DmAvatarTable.Get(DmAvatarTable.Resolve(p.Avatar, p.Class))).Distinct().ToArray(), progress);
+        Log.Info("Net", $"avatar meshes: {view.MeshesBuilt} in {clock.ElapsedMilliseconds} ms");
+    }
+
+    private AvatarRenderer View(Level level, RetroEng.Render.Renderer renderer)
+    {
+        if (_view == null || !ReferenceEquals(_view.Level, level))
+        {
+            _view = new AvatarRenderer(renderer, _models, new TextureStore(renderer, _session.Data), level);
+        }
+
+        return _view;
     }
 
     /// <summary>The avatar meshes built so far (the warm-up's list).</summary>
@@ -1277,6 +1293,8 @@ public sealed class DmGame : IDisposable
         if (health < before && health > 0f)
         {
             _session.Sounds?.Play2D("HIT2.RAW", -3f);
+            // DOS's pain grunt (FUN_00122b52), as Soldier.Pained plays it in the campaign.
+            _session.Sounds?.PlayDos2D(PlayerSounds.PainGrunt(_session.Cosmetic.Next(16)), SoundBank.DosOverlap.Skip);
             soldier.Wounded?.Invoke(before - health);
             HitFlash = 0.35f;
         }
@@ -1295,6 +1313,7 @@ public sealed class DmGame : IDisposable
             _session.Soldier.Health = 0f;
             _session.Player.Velocity = Vector3.Zero;
             _session.Sounds?.Play2D("EXPLO2.RAW", -2f);
+            _session.Sounds?.PlayDos2D(PlayerSounds.DeathGrunt); // DOS's grunt9 (FUN_00122b52)
             _diedAt ??= _clock;
             ShowCentre(noKiller ? "YOU DIED" : $"KILLED BY {NameOf(killer)}", DmProtocol.RespawnDelay + 1.0);
             return;
@@ -1306,6 +1325,7 @@ public sealed class DmGame : IDisposable
         {
             var at = a.Position + new Vector3(0f, 50f, 0f);
             _session.Sounds?.Play3D("EXPLO2.RAW", at, -4f);
+            _session.Sounds?.PlayDos3D(PlayerSounds.DeathGrunt, at); // DOS sends the victim's grunt9 to the others
             _session.Weapons.Explosion(at, Enemy.DeathEffectBank, 90f);
         }
 

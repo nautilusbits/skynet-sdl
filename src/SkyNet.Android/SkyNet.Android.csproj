@@ -1,5 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- The game on Android (build-android.bat): an APK for arm64-v8a and x86_64 (emulators), Mono
+  <!-- The game on Android (build-android.bat): an APK for arm64-v8a (phones), Mono
        runtime. SDL3's Java activity and libSDL3.so come from the ppy.SDL3-CS package (its android
        assets: the same SDL revision as native/sdl3 in the retroeng repo; the patch there is Direct3D 12 only), drawn by
        SDL_GPU's Vulkan backend with the SPIR-V the shader build embeds. The game's sources are
@@ -16,7 +16,11 @@
     <!-- Android's version code must grow with every release: major*10000 + minor*100 + patch (0.9.0 = 900). -->
     <ApplicationVersion>$([MSBuild]::Add($([MSBuild]::Add($([MSBuild]::Multiply($([System.Version]::Parse($(Version)).Major), 10000)), $([MSBuild]::Multiply($([System.Version]::Parse($(Version)).Minor), 100)))), $([System.Version]::Parse($(Version)).Build)))</ApplicationVersion>
     <ApplicationDisplayVersion>$(Version)</ApplicationDisplayVersion>
-    <RuntimeIdentifiers>android-arm64;android-x64</RuntimeIdentifiers>
+    <!-- Phones only: an x86_64 emulator build doubled the native libraries in the APK. -->
+    <RuntimeIdentifiers>android-arm64</RuntimeIdentifiers>
+    <!-- All of the game's code compiled ahead of time, not only the start-up profile: otherwise the
+         phone compiles the map loader and the game loop while a level loads. -->
+    <AndroidEnableProfiledAot>false</AndroidEnableProfiledAot>
     <AndroidPackageFormat>apk</AndroidPackageFormat>
     <EmbedAssembliesIntoApk>true</EmbedAssembliesIntoApk>
     <InvariantGlobalization>true</InvariantGlobalization>
@@ -24,6 +28,11 @@
     <TrimMode>partial</TrimMode>
     <!-- RE0001: SkyNet.App's sources use the engine's experimental APIs (VR/stereo). -->
     <NoWarn>$(NoWarn);CA1416;XA4211;RE0001</NoWarn>
+  </PropertyGroup>
+  <!-- A store build (-p:StoreBuild=true): no All files access in the manifest (stores reject it
+       for a game); the game's folder is always copied into the app (DataSetup). -->
+  <PropertyGroup Condition="'$(StoreBuild)' == 'true'">
+    <DefineConstants>$(DefineConstants);STORE_BUILD</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\SkyNet.App\*.cs" Exclude="..\SkyNet.App\Program.cs" Link="App\%(Filename)%(Extension)" />

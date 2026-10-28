@@ -69,10 +69,15 @@ public static class HudFormat
     public const int CompassRibbon = 185;
 
     /// <summary>The primary count: 4 digits, clamped 0..9999; null for no pool.</summary>
-    public static string? PrimaryCount(int ammo) => ammo < 0 ? null : Math.Min(ammo, 9999).ToString(CultureInfo.InvariantCulture);
+    public static string? PrimaryCount(int ammo) => ammo < 0 ? null : Count(Math.Min(ammo, 9999));
 
     /// <summary>The secondary count: 3 digits, clamped 0..999; null when hidden.</summary>
-    public static string? SecondaryCount(int count) => count < 0 ? null : Math.Min(count, 999).ToString(CultureInfo.InvariantCulture);
+    public static string? SecondaryCount(int count) => count < 0 ? null : Count(Math.Min(count, 999));
+
+    // A count's text made once (the panel draws it every frame); 0..9999.
+    private static readonly string?[] Counts = new string?[10000];
+
+    private static string Count(int n) => Counts[n] ??= n.ToString(CultureInfo.InvariantCulture);
 
     /// <summary>RADCOUNT.CFA's frame: SAFE / CAUTION / DANGER (the fourth is never shown).</summary>
     public static int RadFrame(float dose) => dose < 1f ? 0 : dose < 35f ? 1 : 2;

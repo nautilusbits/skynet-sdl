@@ -33,13 +33,14 @@ public sealed class ModelMesh
         MeshChunk[]? Chunks = null);
 
     public MeshHandle Mesh { get; }
-    public IReadOnlyList<Part> Parts { get; }
+    /// <summary>An array (not a list behind an interface): a draw walks it every frame without boxing an enumerator. Do not write to it.</summary>
+    public Part[] Parts { get; }
     public int Triangles { get; }
 
     internal ModelMesh(MeshHandle mesh, List<Part> parts, int triangles)
     {
         Mesh = mesh;
-        Parts = parts;
+        Parts = [.. parts];
         Triangles = triangles;
     }
 

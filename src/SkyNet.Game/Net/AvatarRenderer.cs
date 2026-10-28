@@ -29,26 +29,115 @@ public sealed class AvatarRenderer(Renderer renderer, EnemyModels models, Textur
 
     public int MeshesBuilt => _meshes.Count;
 
-    /// <summary>The visible avatars' and the parked vehicles' poses, for a draw on another thread.</summary>
-    public static void Capture(IEnumerable<DmAvatar> avatars, IEnumerable<DmVehicle> vehicles, DmFrame frame)
+    /// <summary>Builds now (the map's load) every mesh <paramref name="looks"/> can draw (<see cref="Wanted"/>):
+    /// built on first sight, they cost frames of 230 to 930 ms in the first seconds. All 13 looks
+    /// take 2.5 s (2 400 meshes); a look that joins later is built on sight. Each mesh is a step of <paramref name="progress"/>.</summary>
+    internal void Prepare(IEnumerable<DmAvatarLook> looks, LoadProgress? progress = null)
     {
-        frame.Bodies.Clear();
-        foreach (var a in avatars)
+        var wanted = Wanted(models, looks).ToArray();
+        progress?.Begin(wanted.Length);
+        foreach (var (model, frame, skin) in wanted)
         {
-            if (a.Visible)
+            Build(model, frame, skin);
+            progress?.Step();
+        }
+    }
+
+    // One wanted mesh: the mod's replacement in the enhanced look, else the DOS frame.
+    private void Build(EnemyModelInfo model, int frame, (int From, int To)? skin)
+    {
+        if (level.Enhanced && _replaced.Mesh(model.File, model.Model, frame) != null)
+        {
+            return;
+        }
+
+        Mesh(model, frame, skin);
+    }
+
+    /// <summary>Each look's body and head in its skin, each frame; the guns in its hand (every record),
+    /// each frame; the fallback body's frames; the vehicles.</summary>
+    internal static IEnumerable<(EnemyModelInfo Model, int Frame, (int From, int To)? Skin)> Wanted(EnemyModels models,
+        IEnumerable<DmAvatarLook> looks)
+    {
+        string[] vehicles = [ParkedJeep, ParkedHk, DrivenJeep, JeepTurret, JeepBarrel, DrivenHk];
+        var plain = looks.SelectMany(l => Enumerable.Range(0, DmAvatarTable.GunCount).Select(r => DmAvatarTable.Gun(l.Number, r)))
+            .Append(DmAvatar.FallbackBody).Select(f => (File: f, Skin: ((int From, int To)?)null));
+        var skinned = looks.SelectMany(l => new[] { (File: (string?)l.Body, Skin: l.SkinRemap), (File: (string?)l.Head, Skin: l.SkinRemap) });
+        var all = skinned.Concat(plain).Distinct();
+        foreach (var (file, skin) in all)
+        {
+            if (file == null || models.Get(file) is not { } model)
             {
-                frame.Bodies.Add(new DmBody(a.Vehicle, a.Position, a.CarYaw, a.Yaw, a.Look, a.Frame, a.T800Frame()));
+                continue;
+            }
+
+            for (var frame = 0; frame < model.Frames; frame++)
+            {
+                yield return (model, frame, skin);
             }
         }
 
-        // Driven ones are their drivers' avatars; wrecks are gone.
-        frame.Parked.Clear();
-        foreach (var v in vehicles)
+        foreach (var file in vehicles)
         {
-            if (v.Driver == 0 && !v.Wrecked)
+            if (models.Get(file) is { } model)
             {
-                frame.Parked.Add(new DmParked(v.Kind, v.Position, v.Yaw));
+                yield return (model, 0, null);
             }
+        }
+    }
+
+    /// <summary>The visible avatars' and the parked vehicles' poses, for a draw on another thread.</summary>
+    public static void Capture(IEnumerable<DmAvatar> avatars, IEnumerable<DmVehicle> vehicles, DmFrame frame)
+    {
+        // A dictionary's values walked as such: through the interface each walk boxes an enumerator.
+        frame.Bodies.Clear();
+        if (avatars is Dictionary<int, DmAvatar>.ValueCollection live)
+        {
+            foreach (var a in live)
+            {
+                Catch(a, frame);
+            }
+        }
+        else
+        {
+            foreach (var a in avatars)
+            {
+                Catch(a, frame);
+            }
+        }
+
+        frame.Parked.Clear();
+        if (vehicles is Dictionary<int, DmVehicle>.ValueCollection table)
+        {
+            foreach (var v in table)
+            {
+                Park(v, frame);
+            }
+        }
+        else
+        {
+            foreach (var v in vehicles)
+            {
+                Park(v, frame);
+            }
+        }
+    }
+
+    private static void Catch(DmAvatar a, DmFrame frame)
+    {
+        if (a.Visible)
+        {
+            var gun = DmAvatarTable.Gun(a.Look.Number, DmProtocol.WeaponOf(a.Flags));
+            frame.Bodies.Add(new DmBody(a.Vehicle, a.Position, a.CarYaw, a.Yaw, a.Look, a.Frame, a.T800Frame(), gun));
+        }
+    }
+
+    // Driven ones are their drivers' avatars; wrecks are gone.
+    private static void Park(DmVehicle v, DmFrame frame)
+    {
+        if (v.Driver == 0 && !v.Wrecked)
+        {
+            frame.Parked.Add(new DmParked(v.Kind, v.Position, v.Yaw));
         }
     }
 
@@ -68,10 +157,11 @@ public sealed class AvatarRenderer(Renderer renderer, EnemyModels models, Textur
             var skin = look.SkinRemap;
             var body = models.Get(look.Body);
             var frame = a.Frame;
+            var gunFile = a.Gun;
             if (body == null)
             {
                 body = models.Get(DmAvatar.FallbackBody);
-                (headFile, skin) = (null, null);
+                (headFile, skin, gunFile) = (null, null, null);
                 frame = a.T800Frame;
             }
 
@@ -86,6 +176,12 @@ public sealed class AvatarRenderer(Renderer renderer, EnemyModels models, Textur
             if (headFile != null && models.Get(headFile) is { } head && frame < head.Frames)
             {
                 Draw(head, frame, shade, world, nowMs, skin);
+            }
+
+            // The gun in hand: its own model on the body's frame and place (DOS's actor +0x61).
+            if (gunFile != null && models.Get(gunFile) is { } gun && frame < gun.Frames)
+            {
+                Draw(gun, frame, shade, world, nowMs);
             }
         }
 
@@ -178,7 +274,7 @@ public sealed class AvatarRenderer(Renderer renderer, EnemyModels models, Textur
 }
 
 /// <summary>A visible avatar as caught for a frame (<see cref="DmAvatar"/>).</summary>
-public readonly record struct DmBody(VehicleMode Vehicle, Vector3 Position, float CarYaw, float Yaw, DmAvatarLook Look, int Frame, int T800Frame);
+public readonly record struct DmBody(VehicleMode Vehicle, Vector3 Position, float CarYaw, float Yaw, DmAvatarLook Look, int Frame, int T800Frame, string? Gun);
 
 /// <summary>A parked vehicle as caught for a frame (<see cref="DmVehicle"/>).</summary>
 public readonly record struct DmParked(VehicleMode Kind, Vector3 Position, float Yaw);

@@ -25,8 +25,8 @@ public sealed class WeaponRenderer
     private readonly Dictionary<(int Bank, int Record), (GpuTexture Texture, Material Material)?> _sprites = [];
     private readonly Dictionary<string, (ModelMesh Mesh, bool Forward)?> _models = new(StringComparer.OrdinalIgnoreCase);
     private static readonly RenderState SpriteState = new(Queues.AlphaTest, Cull.None);
-    /// <summary>A bolt's model glows by its own light (<see cref="Enhanced.GameLights.BoltLight"/>): unlit, no shadow.</summary>
-    private const Shading BoltShading = Shading.Unlit;
+    /// <summary>A bolt's model glows by its own light (<see cref="Enhanced.GameLights.BoltLight"/>): lit, no shadow (<see cref="Shadowless"/>).</summary>
+    private const Shading BoltShading = Shading.Lit;
     /// <summary>The enhanced look's light on the lobbed bodies, pieces and drops (null: the original look).</summary>
     private Vector4? _spriteTint;
     /// <summary>The enhanced look's light all around (linear; the dust takes it).</summary>
@@ -150,8 +150,9 @@ public sealed class WeaponRenderer
 
                 using var bsa = _data.OpenArchive(archive);
                 if (bsa.Read(file) is { Length: > 0 } bytes && Model3D.Parse(bytes) is { } model
-                    && ModelMesh.Build(_renderer, model, _textures, _palette, RenderState.DoubleSided, smooth: true, BoltShading) is { } mesh)
+                    && ModelMesh.Build(_renderer, model, _textures, _palette, RenderState.DoubleSided, smooth: true, BoltShading) is { } built)
                 {
+                    var mesh = new ModelMesh(built.Mesh, [.. built.Parts.Select(Shadowless)], built.Triangles);
                     // Which end is the nose: the side of the body's centre (projectile.gd _body_forward).
                     var z = model.Vertices.Length > 0 ? model.Vertices.Average(v => v.ToYUp().Z) : 0f;
                     m = (mesh, z > 0f);
@@ -164,6 +165,9 @@ public sealed class WeaponRenderer
 
         return m;
     }
+
+    /// <summary>A bolt's part kept out of the sun's shadow map: Lit draws cast shadows (issue #4).</summary>
+    private static ModelMesh.Part Shadowless(ModelMesh.Part part) => part with { Material = part.Material with { Shadowless = true } };
 
     /// <summary>Queues every effect, lobbed body and bolt for a frame seen from <paramref name="eye"/>.</summary>
     public void Draw(WeaponSystem weapons, Vector3 eye)

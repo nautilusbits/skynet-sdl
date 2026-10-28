@@ -50,11 +50,25 @@ public sealed partial class Enemy
     private const float AvoidTime = 0.8f, AvoidTurnBoost = 1.5f;
     /// <summary>The flyer's headings tried, either side (degrees); 0 is the climb.</summary>
     private static readonly float[] AvoidAngles = [35f, 0f, 70f, 110f, 150f];
+    /// <summary>The walker's probes across: both shoulders, then the middle.</summary>
+    private static readonly float[] Probes = [1f, -1f, 0f];
+    /// <summary>The flyer's turns: the goal's side first, then the other.</summary>
+    private static readonly int[] Turns = [1, -1];
+    /// <summary>The flyer's floor samples ahead, as shares of its reach.</summary>
+    private static readonly float[] FloorAhead = [0.34f, 0.67f, 1f];
     /// <summary>A climb goes this many body heights up.</summary>
     private const float ClimbHeights = 1.5f;
     /// <summary>The flyer's hull: sphere radius bounds, the gap kept from surfaces.</summary>
     private const float HullMin = 8f, HullMax = 150f, Skin = 2f;
     private const int SlideIterations = 3, DepenetrateRounds = 4;
+    /// <summary>Following re-probes its heading and the way out every this many ticks (11 rays per
+    /// heading tried); the heading is kept between.</summary>
+    private const int FollowEvery = 4;
+    /// <summary>A clear step probe holds for this many more ticks while the walker has moved less than
+    /// <see cref="ClearSlack"/> of the probe's 40-unit margin and turned less than acos(<see cref="ClearCos"/>)
+    /// (a raptor at 74 u/s: one probe per 4 ticks, 5 u).</summary>
+    private const int ClearReuse = 3;
+    private const float ClearSlack = 20f, ClearCos = 0.999f;
     /// <summary>Re-aim the hull's spheres once the yaw moved this much (radians).</summary>
     private const float HullYawStep = 0.05f;
 
@@ -68,6 +82,11 @@ public sealed partial class Enemy
     private float _followT;
     private int _followSide = 1;
     private float _metAt;
+    private float _followYaw;
+    private int _followProbe;
+    private int _clearTicks;
+    private Vector3 _clearDir;
+    private Vector3 _clearFrom;
     private float _backOffT;
     private float _backOffYaw;
     private float _stuckT;
@@ -80,6 +99,9 @@ public sealed partial class Enemy
     private float? _climbTo;
     private SphereBody? _hull;
     private float _hullYaw = float.NaN;
+    private List<Vector3>? _hullLocal;
+    private SphereBody? _keptHull;
+    private float _hullRadius;
 
     private bool Improved => _ctx.Ai == RobotAi.Improved;
 
@@ -295,7 +317,8 @@ public sealed partial class Enemy
         else if (_following && trying)
         {
             _followT += dt;
-            var leave = goalDist < _metAt + LeaveSlack && !GroundBlocked(Heading(goalYaw), FollowProbe) && !LongBlocked(Heading(goalYaw), clear);
+            var probe = --_followProbe <= 0;
+            var leave = probe && goalDist < _metAt + LeaveSlack && !GroundBlocked(Heading(goalYaw), FollowProbe) && !LongBlocked(Heading(goalYaw), clear);
             if (leave || _followT > FollowMax)
             {
                 _following = false;
@@ -303,7 +326,13 @@ public sealed partial class Enemy
             }
             else
             {
-                wantYaw = FollowHeading();
+                if (probe)
+                {
+                    _followYaw = FollowHeading();
+                    _followProbe = FollowEvery;
+                }
+
+                wantYaw = _followYaw;
             }
         }
 
@@ -320,12 +349,13 @@ public sealed partial class Enemy
         if (trying)
         {
             var dir = speed < 0f ? -Forward : Forward;
-            if (GroundBlocked(dir, MathF.Abs(speed) * dt))
+            if (StepBlocked(dir, MathF.Abs(speed) * dt))
             {
                 _blocked = true;
                 if (!_following && _backOffT <= 0f)
                 {
                     _following = true;
+                    _followProbe = 0;
                     _followT = 0f;
                     _metAt = goalDist;
                 }
@@ -339,6 +369,28 @@ public sealed partial class Enemy
         KeepApart(dt);
         Progress(dt, trying, MathF.Abs(Wrap(wantYaw - Yaw)) < FacingSlack, speed);
         SnapToGround(false);
+    }
+
+    /// <summary>The step's <see cref="GroundBlocked"/>, its level rays reused for a few ticks while
+    /// the way was clear (robots are checked every tick).</summary>
+    private bool StepBlocked(Vector3 dir, float length)
+    {
+        if (_clearTicks > 0 && Vector3.Dot(dir, _clearDir) > ClearCos && Flat(Position - _clearFrom).Length() < ClearSlack)
+        {
+            _clearTicks--;
+            return RobotAhead(dir, length);
+        }
+
+        if (GroundBlocked(dir, length))
+        {
+            _clearTicks = 0;
+            return true;
+        }
+
+        _clearTicks = ClearReuse;
+        _clearDir = dir;
+        _clearFrom = Position;
+        return false;
     }
 
     /// <summary>The way along the obstacle: from the facing, the turn back toward the obstacle
@@ -372,8 +424,9 @@ public sealed partial class Enemy
         // wall), the whole way.
         var side = new Vector3(-dir.Z, 0f, dir.X) * Shoulder;
         var knee = Position.Y + FootOffset + (Terminator ? StepTerminator : StepOther) + 1f;
-        foreach (var s in new[] { side, -side, Vector3.Zero })
+        foreach (var k in Probes)
         {
+            var s = side * k;
             var eye = Position + s + new Vector3(0f, 60f, 0f);
             if (s != Vector3.Zero && Cast(eye, eye + dir * (length + 40f), out _))
             {
@@ -403,8 +456,10 @@ public sealed partial class Enemy
     /// <summary>Another robot stands in the way within one step and both spacings.</summary>
     private bool RobotAhead(Vector3 dir, float length)
     {
-        foreach (var o in _ctx.All)
+        var all = _ctx.All;
+        for (var i = 0; i < all.Count; i++)
         {
+            var o = all[i];
             if (o == this || !o.Alive || o.IsFlying || o.State == 9)
             {
                 continue;
@@ -487,8 +542,10 @@ public sealed partial class Enemy
         }
 
         var push = Vector3.Zero;
-        foreach (var o in _ctx.All)
+        var all = _ctx.All;
+        for (var i = 0; i < all.Count; i++)
         {
+            var o = all[i];
             if (o == this || !o.Alive || o.IsFlying || o.State == 9)
             {
                 continue;
@@ -522,7 +579,7 @@ public sealed partial class Enemy
     // ------------------------------------------------------------------ flyers
 
     /// <summary>The flyer's hull: spheres of the body's half height along its long axis and across,
-    /// turned with the yaw (rebuilt when the yaw moved).</summary>
+    /// turned with the yaw (re-aimed when the yaw moved).</summary>
     private SphereBody Hull()
     {
         if (_hull != null && MathF.Abs(Wrap(Yaw - _hullYaw)) < HullYawStep)
@@ -530,6 +587,27 @@ public sealed partial class Enemy
             return _hull;
         }
 
+        // The spheres about the body at yaw 0 are laid out once; a turn only re-aims them.
+        if (_hullLocal == null)
+        {
+            HullLayout();
+        }
+
+        var turn = Matrix4x4.CreateRotationY(Yaw);
+        var turned = new Vector3[_hullLocal!.Count];
+        for (var i = 0; i < turned.Length; i++)
+        {
+            turned[i] = Vector3.Transform(_hullLocal[i], turn);
+        }
+
+        _hull = new SphereBody(_hullRadius, turned);
+        _hullYaw = Yaw;
+        return _hull;
+    }
+
+    /// <summary>The hull's sphere radius and centres about the body at yaw 0.</summary>
+    private void HullLayout()
+    {
         var h = _halfSize;
         var longZ = h.Z >= h.X;
         var lengthHalf = longZ ? h.Z : h.X;
@@ -553,10 +631,8 @@ public sealed partial class Enemy
             offsets.AddRange([BoundsCentre + across * (widthHalf - r), BoundsCentre - across * (widthHalf - r)]);
         }
 
-        var turn = Matrix4x4.CreateRotationY(Yaw);
-        _hull = new SphereBody(r, [.. offsets.Select(o => Vector3.Transform(o, turn))]);
-        _hullYaw = Yaw;
-        return _hull;
+        _hullLocal = offsets;
+        _hullRadius = r;
     }
 
     /// <summary>The hull moved by <paramref name="motion"/> from <paramref name="from"/> meets the level.</summary>
@@ -565,10 +641,18 @@ public sealed partial class Enemy
 
     private void Fly(float dt, float wantYaw, float speed, bool see, Vector3 player)
     {
+        // Out of the level: after a re-aim or a touch (the swept move keeps it out otherwise), and on
+        // the look tick (a mover).
         var hull = Hull();
-        Position += _ctx.World.Depenetrate(hull, Position, Skin, DepenetrateRounds);
+        var looks = _senseCount == 0;
+        if (hull != _keptHull || _blocked || looks)
+        {
+            _keptHull = hull;
+            Position += _ctx.World.Depenetrate(hull, Position, Skin, DepenetrateRounds);
+        }
 
-        // Look ahead along the flight (backwards while backing off); a clear way keeps the course.
+        // Look ahead along the flight (backwards while backing off), every fourth tick as the robot
+        // looks (staggered, <see cref="SenseCount"/>); a clear way keeps the course.
         var sign = speed < 0f ? -1f : 1f;
         var look = MathF.Max(MathF.Abs(speed) * FlyLookSeconds, FlyLookMin);
         if (_avoidT > 0f)
@@ -576,7 +660,7 @@ public sealed partial class Enemy
             _avoidT -= dt;
             wantYaw = _avoidYaw;
         }
-        else if (MathF.Abs(speed) > 0.5f && HullHits(hull, Position, Heading(Yaw) * (sign * look)))
+        else if (looks && MathF.Abs(speed) > 0.5f && HullHits(hull, Position, Heading(Yaw) * (sign * look)))
         {
             Avoid(hull, wantYaw, sign, look);
             wantYaw = _avoidT > 0f ? _avoidYaw : wantYaw;
@@ -615,8 +699,9 @@ public sealed partial class Enemy
                 continue;
             }
 
-            foreach (var side in new[] { first, -first })
+            foreach (var turn in Turns)
             {
+                var side = turn * first;
                 var yaw = Wrap(Yaw + side * Rad(angle));
                 if (HullHits(hull, Position, Heading(yaw) * (sign * look)))
                 {
@@ -642,7 +727,7 @@ public sealed partial class Enemy
             var minAlt = MathF.Max((Type?.Altitude ?? 384) - 100f, FlyerMinAlt);
             var reach = MathF.Max(Type?.AvoidRadius ?? 400, FlyerLookahead);
             var floor = SurfaceAt(Position);
-            foreach (var f in new[] { 0.34f, 0.67f, 1f })
+            foreach (var f in FloorAhead)
             {
                 floor = MathF.Max(floor, SurfaceAt(Position + Forward * (reach * f)));
             }

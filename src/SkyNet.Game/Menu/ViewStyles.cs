@@ -5,19 +5,20 @@ using RetroEng.Render;
 namespace SkyNet.Game.Menu;
 
 /// <summary>
-/// DISPLAY's RENDERER and ASCII COLOUR: the engine's view styles (DEFAULT, RETRO ASCII, POINT CLOUD)
+/// DISPLAY's RENDERER and ASCII COLOUR: the engine's view styles (DEFAULT, RETRO ASCII, POINT CLOUD, ENGRAVING)
 /// with parameters fitted to SkyNET's world (a soldier is about 80 units tall) and dark night maps.
 /// The styles draw the world only; the HUD and menus stay as they are.
 /// </summary>
 public static class ViewStyles
 {
-    private static readonly RenderStyle[] Order = [RenderStyle.Default, RenderStyle.Ascii, RenderStyle.PointCloud];
+    private static readonly RenderStyle[] Order = [RenderStyle.Default, RenderStyle.Ascii, RenderStyle.PointCloud, RenderStyle.Engraving];
     private static readonly AsciiColour[] Colours = [AsciiColour.Source, AsciiColour.Green, AsciiColour.Amber];
 
     /// <summary>The console's and <c>--renderer</c>'s words.</summary>
     public static readonly IReadOnlyDictionary<string, RenderStyle> Words = new Dictionary<string, RenderStyle>
     {
         ["default"] = RenderStyle.Default, ["ascii"] = RenderStyle.Ascii, ["pointcloud"] = RenderStyle.PointCloud,
+        ["engraving"] = RenderStyle.Engraving,
     };
 
     public static readonly IReadOnlyDictionary<string, AsciiColour> ColourWords = new Dictionary<string, AsciiColour>
@@ -57,6 +58,7 @@ public static class ViewStyles
     {
         RenderStyle.Ascii => "RETRO ASCII",
         RenderStyle.PointCloud => "POINT CLOUD",
+        RenderStyle.Engraving => "ENGRAVING",
         _ => "DEFAULT",
     };
 
@@ -90,6 +92,16 @@ public static class ViewStyles
         Backdrop = PointBackdrop,
         MaxPixelSpacing = PointMaxPixelSpacing,
         EdgeStrength = 0f,
+    };
+
+    /// <summary>The night maps are dark: brightened before the cut, or the print would be solid ink.</summary>
+    private const float EngravingBrightness = 0.25f;
+
+    /// <summary>ENGRAVING: the engine's wood engraving with its lines level in SkyNET's Y-up world.</summary>
+    public static EngravingStyle Engraving() => new()
+    {
+        Up = Vector3.UnitY,
+        Brightness = EngravingBrightness,
     };
 
     /// <summary>TERMINATOR VISION's background: near black with the machine palette's red in it.</summary>
@@ -129,6 +141,7 @@ public static class ViewStyles
     public static void Apply(Renderer renderer, MenuSettings s, bool machinePoints = false)
     {
         renderer.Ascii = Ascii(s.AsciiColour);
+        renderer.Engraving = Engraving();
         renderer.PointCloud = machinePoints ? MachineCloud() : PointCloud();
         renderer.Style = StyleOf(s.Style, machinePoints);
     }

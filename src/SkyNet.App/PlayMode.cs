@@ -100,6 +100,7 @@ internal sealed partial class AppHost
 
         var ticked = Stopwatch.GetTimestamp();
         sections.Add(Section.Scripts, ticked - started);
+        (perfTicks, perfTickTime) = (perfTicks + 1, perfTickTime + ticked - started);
         using (Prof.Zone(AppZones.AudioUpdate))
         {
             EngineLoop();

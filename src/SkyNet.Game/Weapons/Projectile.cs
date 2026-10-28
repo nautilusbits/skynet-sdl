@@ -26,6 +26,8 @@ public sealed class Projectile
     /// <summary>The rocket eye follows it (ammo flag 0x08 and RUN held at launch).</summary>
     public bool Followed { get; set; }
     public int Bounces { get; set; }
+    /// <summary>Seconds until a planted satchel goes off; null while it flies (or for any other shot).</summary>
+    public float? Fuse { get; set; }
     /// <summary>The robot that fired it (<see cref="WeaponSystem.EnemyFire"/>): the shot passes
     /// through its shooter and strikes the soldier; null for the soldier's own shots.</summary>
     public IDamageable? Source { get; init; }

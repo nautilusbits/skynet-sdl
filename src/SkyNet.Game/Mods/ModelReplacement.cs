@@ -278,19 +278,22 @@ public sealed class ModelReplacement
 
     public static ModelReplacement? Load(VirtualFileSystem vfs, string name)
     {
-        var replacement = Load(vfs, name, null);
+        var files = new Dictionary<string, byte[]?>(StringComparer.Ordinal);
+        var replacement = Load(vfs, name, null, files);
         if (replacement == null || replacement.Sidecar.FrameModels.Count == 0)
         {
             return replacement;
         }
 
-        // A frame model's own sidecar is not read: the main model's places it.
+        // A frame model's own sidecar is not read: the main model's places it. Files they share
+        // (one atlas for 41 frames) are read once; a frame drawn as the main model is (the same
+        // materials and images) draws with its surfaces, so their textures are made once.
         var frameModels = new List<(ModelSidecar.FrameModel, ModelReplacement)>();
         foreach (var entry in replacement.Sidecar.FrameModels)
         {
-            if (Load(vfs, entry.Model, replacement.Sidecar) is { } model)
+            if (Load(vfs, entry.Model, replacement.Sidecar, files) is { } model)
             {
-                frameModels.Add((entry, model));
+                frameModels.Add((entry, SameLook(model.Model, replacement.Model) ? model.WithSurfaces(replacement.Surfaces) : model));
             }
             else
             {
@@ -304,6 +307,37 @@ public sealed class ModelReplacement
             Surfaces = replacement.Surfaces, FrameModels = frameModels, Lods = replacement.Lods,
         };
     }
+
+    /// <summary>Whether <paramref name="a"/> and <paramref name="b"/> have the same materials and images
+    /// (a frame of an animated avatar: one atlas, one material).</summary>
+    private static bool SameLook(GltfModel a, GltfModel b)
+    {
+        if (!a.Materials.SequenceEqual(b.Materials) || a.Images.Count != b.Images.Count)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < a.Images.Count; i++)
+        {
+            var (x, y) = (a.Images[i], b.Images[i]);
+            if (x.MimeType != y.MimeType || !x.Data.AsSpan().SequenceEqual(y.Data))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>This model drawn with <paramref name="surfaces"/> (its levels with them too).</summary>
+    private ModelReplacement WithSurfaces(IReadOnlyList<ReplacementSurface> surfaces) => new()
+    {
+        Name = Name, Model = Model, Sidecar = Sidecar, Surfaces = surfaces, FrameModels = FrameModels, _materialMap = _materialMap,
+        Lods = [.. Lods.Select(l => new ModelReplacement
+        {
+            Name = l.Name, Model = l.Model, Sidecar = l.Sidecar, Surfaces = surfaces, _materialMap = l._materialMap,
+        })],
+    };
 
     /// <summary><paramref name="main"/>'s levels of detail: <c>NAME.lod1.glb</c> up to the first
     /// missing (one that does not read is logged and ends the list).</summary>
@@ -361,7 +395,11 @@ public sealed class ModelReplacement
     }
 
     /// <summary>One glTF file and its sidecar (<paramref name="sidecar"/>: given for a frame model, the main model's).</summary>
-    internal static ModelReplacement? Load(VirtualFileSystem vfs, string name, ModelSidecar? sidecar)
+    internal static ModelReplacement? Load(VirtualFileSystem vfs, string name, ModelSidecar? sidecar) => Load(vfs, name, sidecar, null);
+
+    /// <summary>As above, the files the glTF names read through <paramref name="files"/> (read once
+    /// for every model that shares it); null: read each time.</summary>
+    private static ModelReplacement? Load(VirtualFileSystem vfs, string name, ModelSidecar? sidecar, Dictionary<string, byte[]?>? files)
     {
         var dir = "models/";
         var (path, bytes) = vfs.TryReadAllBytes($"{dir}{name}.glb") is { } glb ? ($"{dir}{name}.glb", glb)
@@ -379,7 +417,18 @@ public sealed class ModelReplacement
                 try
                 {
                     // Beside the file ("sprites/X" reads models/sprites/URI).
-                    return vfs.TryReadAllBytes(dir + name[..(name.LastIndexOf('/') + 1)] + uri);
+                    var file = dir + name[..(name.LastIndexOf('/') + 1)] + uri;
+                    if (files == null)
+                    {
+                        return vfs.TryReadAllBytes(file);
+                    }
+
+                    if (!files.TryGetValue(file, out var read))
+                    {
+                        files[file] = read = vfs.TryReadAllBytes(file);
+                    }
+
+                    return read;
                 }
                 catch (ArgumentException)
                 {

@@ -40,7 +40,7 @@ public sealed class RobotShot
         (Robot, World, Shade) = (robot, drawn, shade);
         (AnimVa, AnimStarts) = robot.Brain is { } brain ? (brain.AnimVa, brain.AnimStarts) : (0u, 0);
         _segments.Clear();
-        foreach (var part in robot.Root.Walk())
+        foreach (var part in robot.Segments)
         {
             _segments.Add(new SegmentState(part.Model, part.Local, part.Frame, shift is { } s ? part.World * s : part.World));
         }

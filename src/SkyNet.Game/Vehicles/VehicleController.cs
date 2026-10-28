@@ -302,7 +302,8 @@ public sealed class VehicleController : IPlayerMover
             Wheel = 0f;
         }
 
-        // The cab tilts with the ground: pitch along the heading, roll across it.
+        // The cab tilts with the ground: pitch along the heading, roll across it. A positive roll
+        // lifts the right side, so a floor falling to the right (n·right > 0) rolls negative.
         var wantPitch = 0f;
         var wantRoll = 0f;
         if (OnFloor)
@@ -310,7 +311,7 @@ public sealed class VehicleController : IPlayerMover
             var n = Body.FloorNormal;
             var right = new Vector3(MathF.Cos(CarYaw), 0f, -MathF.Sin(CarYaw));
             wantPitch = MathF.Asin(Math.Clamp(Vector3.Dot(n, -ahead), -1f, 1f)) * 0.85f;
-            wantRoll = MathF.Asin(Math.Clamp(Vector3.Dot(n, right), -1f, 1f)) * 0.7f;
+            wantRoll = -MathF.Asin(Math.Clamp(Vector3.Dot(n, right), -1f, 1f)) * 0.7f;
         }
 
         var k = Math.Clamp(dt * JeepTiltRate, 0f, 1f);

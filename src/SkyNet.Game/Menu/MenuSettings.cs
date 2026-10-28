@@ -89,17 +89,26 @@ public sealed class MenuSettings
     /// <summary>ORIGINAL (DOS's palette look) or ENHANCED (the engine's lit pipeline; its options below).</summary>
     public Look Look { get; set; } = Look.Original;
 
-    /// <summary>DISPLAY's RENDERER: the world drawn as is, as ASCII glyphs or as a point cloud (<see cref="ViewStyles"/>).</summary>
+    /// <summary>DISPLAY's RENDERER: the world drawn as is, as ASCII glyphs, as a point cloud or as an engraving (<see cref="ViewStyles"/>).</summary>
     public RenderStyle Style { get; set; } = RenderStyle.Default;
 
     /// <summary>DISPLAY's ASCII COLOUR: RETRO ASCII's glyphs in the scene's colours (FULL COLOUR), green or amber.</summary>
     public AsciiColour AsciiColour { get; set; } = AsciiColour.Source;
 
     /// <summary>ENHANCED OPTIONS' SHADOWS: the sun's and moon's shadows outdoors (interiors have none).</summary>
-    public ShadowQuality Shadows { get; set; } = ShadowQuality.High;
+    public ShadowQuality Shadows { get; set; } = DefaultShadows(OsInfo.Current);
+
+    /// <summary>SHADOWS' default: off on Android (they multiply the draw calls by 2.5), High elsewhere.</summary>
+    internal static ShadowQuality DefaultShadows(Os os) => os == Os.Android ? ShadowQuality.Off : ShadowQuality.High;
 
     /// <summary>ENHANCED OPTIONS' ANTI-ALIASING (the enhanced look only; ORIGINAL stays unsmoothed).</summary>
     public AntiAliasing AntiAliasing { get; set; } = AntiAliasing.Fxaa;
+
+    /// <summary>ENHANCED OPTIONS' TEXTURE FILTER: how lit and sprite draws filter their textures.</summary>
+    public TextureFiltering TextureFiltering { get; set; } = TextureFiltering.Anisotropic16;
+
+    /// <summary>How a frame below 100 % render scale is stretched: the original look's pixels stay sharp.</summary>
+    public ScaleFilter ScaleFilter => Look == Look.Enhanced ? ScaleFilter.Smooth : ScaleFilter.Sharp;
 
     /// <summary>ENHANCED OPTIONS' LIGHTS: the most point lights gathered a frame,
     /// <see cref="LowLightBudget"/> or <see cref="HighLightBudget"/> (<see cref="Level.LightBudget"/>).</summary>
@@ -290,6 +299,9 @@ public sealed class MenuSettings
     /// (<see cref="DevTools.KeyBinds"/>).</summary>
     public Dictionary<string, string> CommandBinds { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>CONTROLS' TOUCH LAYOUT: the moved on-screen controls (<see cref="Hud.TouchLayout"/>), label → place.</summary>
+    public Dictionary<string, string> TouchLayout { get; set; } = new(StringComparer.Ordinal);
+
     public float SoundGain => Math.Clamp(SoundVolume, 0, VolumeSteps) / (float)VolumeSteps;
 
     public float MusicGain => Math.Clamp(MusicVolume, 0, VolumeSteps) / (float)VolumeSteps;
@@ -300,6 +312,7 @@ public sealed class MenuSettings
         c.Bindings = new Dictionary<string, string[]>(Bindings, StringComparer.Ordinal);
         c.PadBindings = new Dictionary<string, string[]>(PadBindings, StringComparer.Ordinal);
         c.CommandBinds = new Dictionary<string, string>(CommandBinds, StringComparer.OrdinalIgnoreCase);
+        c.TouchLayout = new Dictionary<string, string>(TouchLayout, StringComparer.Ordinal);
         c.Net = Net.Clone();
         c.Mods = [.. Mods];
         return c;
@@ -574,6 +587,7 @@ public static class SettingsStore
             s.AsciiColour = Enum(root, "asciiColour", s.AsciiColour);
             s.Shadows = Enum(root, "shadows", s.Shadows);
             s.AntiAliasing = Enum(root, "antiAliasing", s.AntiAliasing);
+            s.TextureFiltering = Enum(root, "textureFiltering", s.TextureFiltering);
             var budget = Int(root, "lightBudget", s.LightBudget, 1, int.MaxValue);
             s.LightBudget = budget is MenuSettings.LowLightBudget or MenuSettings.HighLightBudget ? budget : s.LightBudget;
             s.Ambient = Int(root, "ambient", s.Ambient, MenuSettings.MinAmbient, MenuSettings.MaxAmbient);
@@ -624,6 +638,7 @@ public static class SettingsStore
             ReadBindings(root["bindings"], s.Bindings);
             ReadBindings(root["padBindings"], s.PadBindings);
             ReadCommandBinds(root["commandBinds"], s.CommandBinds);
+            ReadCommandBinds(root["touchLayout"], s.TouchLayout);
         }
         catch (Exception e) when (e is JsonDataException or IOException or UnauthorizedAccessException)
         {
@@ -705,6 +720,7 @@ public static class SettingsStore
             w.WriteString("asciiColour", s.AsciiColour.ToString());
             w.WriteString("shadows", s.Shadows.ToString());
             w.WriteString("antiAliasing", s.AntiAliasing.ToString());
+            w.WriteString("textureFiltering", s.TextureFiltering.ToString());
             w.WriteNumber("lightBudget", s.LightBudget);
             w.WriteNumber("ambient", s.Ambient);
             w.WriteBoolean("ambientOcclusion", s.AmbientOcclusion);
@@ -747,6 +763,7 @@ public static class SettingsStore
             WriteBindings(w, "bindings", s.Bindings);
             WriteBindings(w, "padBindings", s.PadBindings);
             WriteCommandBinds(w, s.CommandBinds);
+            WriteTouchLayout(w, s.TouchLayout);
             w.WriteEndObject();
         }
 
@@ -901,6 +918,17 @@ public static class SettingsStore
         foreach (var (key, line) in binds.OrderBy(p => p.Key, StringComparer.OrdinalIgnoreCase))
         {
             w.WriteString(key, line);
+        }
+
+        w.WriteEndObject();
+    }
+
+    private static void WriteTouchLayout(Utf8JsonWriter w, Dictionary<string, string> places)
+    {
+        w.WriteStartObject("touchLayout");
+        foreach (var (label, place) in places.OrderBy(p => p.Key, StringComparer.Ordinal))
+        {
+            w.WriteString(label, place);
         }
 
         w.WriteEndObject();

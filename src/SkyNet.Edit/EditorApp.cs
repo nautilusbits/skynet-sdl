@@ -103,6 +103,8 @@ internal sealed partial class EditorApp : IDisposable
             HiddenSize = new Resolution(options.Width, options.Height),
             // .3D faces wind counter-clockwise seen from their visible side; DOS culls the back.
             FrontFace = Winding.CounterClockwise,
+            // No shared depth pre-pass, as the game (AppHost.DefaultDepthSharing): AMD hid robots with it.
+            DepthSharing = DepthSharing.Off,
         };
         _imgui = new ImGuiHost(_window, _renderer) { ShowDemo = options.ImGuiDemo, PanelTitle = "SkyNET panel" };
         _imgui.LayoutPath = LayoutFile(options, prefsPath);

@@ -65,11 +65,12 @@ public sealed class NetMenuTests : IDisposable
         }
     }
 
-    private static (MenuSystem Menu, NetRecorder Log) Make(Func<DiscoveryBrowser?>? browser = null)
+    private static (MenuSystem Menu, NetRecorder Log) Make(Func<DiscoveryBrowser?>? browser = null, KeyboardKind keyboard = KeyboardKind.Physical)
     {
         var log = new NetRecorder();
         var menu = new MenuSystem(log, new MenuSettings(), new MenuContext
         {
+            Keyboard = keyboard,
             NetLevels = () => Levels,
             LanBrowser = browser ?? (() => null),
             NetConnecting = () => log.Connecting,
@@ -472,5 +473,79 @@ public sealed class NetMenuTests : IDisposable
         menu.Update(Accept, Frame);
         var o = log.Started.Single();
         Assert.Equal(("203.0.113.5", 27999, DmClass.Human), (o.JoinHost, o.Port, o.Class));
+    }
+
+    /// <summary>A tap at a DOS pixel of the open screen.</summary>
+    private static MenuInput TapAt(MenuSystem menu, float x, float y) =>
+        new() { Pointer = menu.Current!.FrameIn(Frame).CanvasPoint(x, y), Click = true };
+
+    private static MenuInput Tap(MenuSystem menu, string id) =>
+        TapAt(menu, menu.Current!.Find(id)!.Centre.X, menu.Current.Find(id)!.Centre.Y);
+
+    [Fact]
+    public void TheHostScreenTakesTextOnlyWhileABoxIsHighlighted()
+    {
+        var (menu, _) = Make();
+        ToMultiplayer(menu);
+        menu.Update(Accept, Frame);
+        var host = Assert.IsType<NetHostScreen>(menu.Current);
+        Assert.False(menu.TakesText); // START
+        foreach (var (id, text) in new[] { ("exit", false), ("skill", false), ("cheats", false), ("name", true), ("bots", true), ("password", true) })
+        {
+            host.Select(id);
+            Assert.Equal(text, menu.TakesText);
+        }
+
+        // A tap on a box takes text; a tap off every item lets it go.
+        menu.Update(Tap(menu, "name"), Frame);
+        Assert.True(menu.TakesText);
+        menu.Update(TapAt(menu, 1, 1), Frame);
+        Assert.False(menu.TakesText);
+        Assert.Same(host, menu.Current);
+    }
+
+    [Fact]
+    public void ATouchScreenOpensTheNetScreensWithoutTheKeyboard()
+    {
+        var (menu, _) = Make(keyboard: KeyboardKind.OnScreen);
+        ToMultiplayer(menu);
+        menu.Update(Accept, Frame);
+        Assert.IsType<NetHostScreen>(menu.Current);
+        Assert.False(menu.TakesText);
+        menu.Update(Back, Frame);
+        menu.Current!.Select("join");
+        menu.Update(Accept, Frame);
+        var join = Assert.IsType<NetJoinScreen>(menu.Current);
+        Assert.False(menu.TakesText);
+
+        // A tap on a box opens the keyboard; Back closes it and stays, a second Back leaves.
+        menu.Update(Tap(menu, "name"), Frame);
+        Assert.True(menu.TakesText);
+        menu.Update(Back, Frame);
+        Assert.False(menu.TakesText);
+        Assert.Same(join, menu.Current);
+
+        // Enter (the keyboard's Done) closes it too.
+        menu.Update(Tap(menu, "password"), Frame);
+        menu.Update(new MenuInput { Typed = "x" }, Frame);
+        Assert.True(menu.TakesText);
+        menu.Update(Accept, Frame);
+        Assert.False(menu.TakesText);
+        Assert.Same(join, menu.Current);
+        menu.Update(Back, Frame);
+        Assert.IsType<MultiplayerScreen>(menu.Current);
+    }
+
+    [Fact]
+    public void AKeyboardOpensTheJoinScreenTypingAndEscLeaves()
+    {
+        var (menu, _) = Make();
+        ToMultiplayer(menu);
+        menu.Current!.Select("join");
+        menu.Update(Accept, Frame);
+        Assert.Equal("address", menu.Current!.Highlighted!.Id);
+        Assert.True(menu.TakesText);
+        menu.Update(Back, Frame);
+        Assert.IsType<MultiplayerScreen>(menu.Current);
     }
 }

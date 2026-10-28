@@ -1,5 +1,5 @@
 @echo off
-rem Builds the Android APK (src\SkyNet.Android: arm64-v8a + x86_64, Mono, SDL_GPU on Vulkan) into
+rem Builds the Android APK (src\SkyNet.Android: arm64-v8a, Mono, all code AOT, SDL_GPU on Vulkan) into
 rem release-android\SkyNET-<version>.apk, signed with the debug key. Install: adb install -r release-android\SkyNET-<version>.apk
 rem Needs: a .NET 10 SDK with the android workload (C:\android\dotnet is used when it exists - a
 rem private SDK, since the machine-wide one's MSI workload install can fail), the Android SDK

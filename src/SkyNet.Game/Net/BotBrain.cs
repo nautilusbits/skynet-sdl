@@ -284,6 +284,7 @@ public sealed class BotBrain
         {
             _poseT = 0f;
             var flags = new Vector2(Body.Velocity.X, Body.Velocity.Z).Length() > 1f ? DmProtocol.FlagMoving : 0;
+            flags |= DmProtocol.WeaponBits(Weapon);
             if (_firing > 0f)
             {
                 flags |= DmProtocol.FlagFiring;

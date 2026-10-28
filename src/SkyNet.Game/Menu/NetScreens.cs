@@ -79,7 +79,10 @@ public abstract class NetMenuScreen : PanelScreen
         Origin = Point.Empty;
     }
 
-    public override bool TakesText => true;
+    /// <summary>Only while a text or number box is highlighted: an on-screen keyboard would cover START / EXIT.</summary>
+    public override bool TakesText => Highlighted is { } h && _fields.ContainsKey(h.Id);
+
+    private bool OnScreenKeyboard => Menu.Context.Keyboard == KeyboardKind.OnScreen;
 
     protected TextField Field(string id) => _fields[id];
 
@@ -144,6 +147,13 @@ public abstract class NetMenuScreen : PanelScreen
             return false;
         }
 
+        // A tap off every item lets the box go (and the on-screen keyboard with it).
+        if (input.Click && PointerAt is { } at && !Items.Exists(i => i.Enabled && i.Contains(at)))
+        {
+            Highlight = -1;
+            return true;
+        }
+
         var used = false;
         foreach (var raw in input.Typed)
         {
@@ -191,7 +201,27 @@ public abstract class NetMenuScreen : PanelScreen
             used = true;
         }
 
-        return used;
+        if (used || !input.Accept || !OnScreenKeyboard)
+        {
+            return used;
+        }
+
+        // The on-screen keyboard's Enter / Done: the box lets go (the keyboard closes), then does what Enter does.
+        Highlight = -1;
+        item.Activate?.Invoke();
+        return true;
+    }
+
+    /// <summary>Back on a touch screen with a box in use closes the keyboard and stays.</summary>
+    public override void Back()
+    {
+        if (OnScreenKeyboard && TakesText)
+        {
+            Highlight = -1;
+            return;
+        }
+
+        base.Back();
     }
 
     protected override void DrawContents(MenuPainter p)
@@ -689,7 +719,8 @@ public sealed class NetJoinScreen : NetMenuScreen
         Caption(new Rectangle(14, 182, 44, 8), "PASSWORD");
         AddText("password", new Rectangle(60, 181, 52, 9), "", 32, keepCase: true, accept: JoinAddress, mask: true);
         AddStartExit(JoinAddress);
-        Highlight = Items.FindIndex(i => i.Id == "address");
+        // A touch screen opens with no box in use: the on-screen keyboard waits for a tap on one.
+        Highlight = Menu.Context.Keyboard == KeyboardKind.OnScreen ? -1 : Items.FindIndex(i => i.Id == "address");
         if (!_browserTried)
         {
             _browserTried = true;

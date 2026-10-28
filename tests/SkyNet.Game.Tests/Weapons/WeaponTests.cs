@@ -172,6 +172,44 @@ public class WeaponTests
     }
 
     [Fact]
+    public void SatchelLiesFifteenSecondsBeforeItGoesOff()
+    {
+        // DOS (v1.01 0x1234b6): ammo type 20 lands as a sprite and queues its explosion with the
+        // effect clock at -360 << 4, run at 0x180 a second: it goes off 15 s after landing.
+        var floor = Quad(new(-1000, -50, -1000), new(-1000, -50, 1000), new(1000, -50, 1000), new(1000, -50, -1000));
+        var weapons = new WeaponSystem(WeaponTable.Shipped, new CollisionWorld().Add(new TriangleGrid(floor)));
+        var bursts = new List<float>();
+        var time = 0f;
+        weapons.Reported += r =>
+        {
+            if (r.What == "burst")
+            {
+                bursts.Add(time);
+            }
+        };
+        var shooter = new Shooter(Vector3.Zero, -MathF.PI / 2f, 0f);
+        weapons.Tick(new WeaponInput(Fire: false, Throw: true, Run: false, SelectThrown: 19), shooter, Dt);
+        var satchel = Assert.Single(weapons.Projectiles);
+
+        var landed = -1f;
+        for (var i = 0; i < 20 * 60 && bursts.Count == 0; i++)
+        {
+            time += Dt;
+            weapons.Tick(default, shooter, Dt);
+            if (landed < 0f && satchel.Velocity == Vector3.Zero)
+            {
+                landed = time;
+            }
+        }
+
+        Assert.True(landed is > 0f and < 1f, $"landed at {landed}");
+        Assert.True(satchel.Position.Y >= -50f);
+        var burst = Assert.Single(bursts);
+        Assert.Equal(15f, burst - landed, 0.05f);
+        Assert.Empty(weapons.Projectiles);
+    }
+
+    [Fact]
     public void RadialBlastFallsOff()
     {
         // Rocket, S = 400: R = 400, 440 at the centre, 200 at 240 units, nothing past.

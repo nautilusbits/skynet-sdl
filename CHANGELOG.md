@@ -3,6 +3,39 @@
 Version in `Directory.Build.props`. Each batch of changes raises it: a fix
 the patch number, a feature the minor. Releases on GitHub start at 1.0.0.
 
+## 1.2.0 (2026-10-28)
+
+Android setup, touch controls, speed, and fixes from GitHub issues.
+
+- Android: the first start asks for All files access and plays from
+  the SkyNET folder in place (data, mods, settings, saves), as on the
+  PC. Without it the folder is copied into Android/data and new or
+  changed mods are synced at every start. Setup (long-press the icon)
+  switches between the two. Older installs move over once.
+- Touch buttons redrawn in the HUD's style; CONTROLS > TOUCH LAYOUT
+  moves and resizes them (touch screens only).
+- A loading screen with a progress bar for long loads (deathmatch
+  player models, map loads, bakes); on Android the start shows the
+  backdrop instead of a black screen.
+- IMPROVED robot AI is about 3x cheaper: Future Shock mission 1 went
+  from 7 to 60 fps on a phone.
+- Mod models decode a shared texture atlas once: deathmatch with an
+  avatar mod loads several times faster, with ~300 MB less GPU memory.
+- Less per-frame garbage (12-bot deathmatch: ~31 to ~3 MB/s); the map
+  block check is skipped when nothing changed; phones start with
+  shadows off.
+- TEXTURE FILTER in ENHANCED OPTIONS, NEAREST to ANISOTROPIC 16X (#7).
+- Bolts glow again without casting shadows (#4); no depth pre-pass,
+  which hid robots on AMD (#1).
+- Deathmatch players hold their gun and scream and grunt as in DOS
+  (#1).
+- The jeep leans toward the lower side of a slope, not the higher
+  (#10).
+- A thrown satchel lies 15 s before it goes off, as in DOS (#10).
+- ENGRAVING renderer; RetroEng 0.47.0; Android code compiled ahead of
+  time; network permissions on Android; the phone keyboard opens only
+  for a text box; a performance line in the log every 5 s.
+
 ## 1.1.0 (2026-10-25)
 
 Fixes from the first GitHub issues.

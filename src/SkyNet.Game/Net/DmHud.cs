@@ -40,6 +40,8 @@ public sealed class DmHud(Renderer renderer)
     private DmHudLayout _layout = null!;
     private Vector4 _status, _statusShadow;
     private HudStyle _style;
+    private (int Frags, int Limit, int Rank, int Players, int Seconds) _scoreKey;
+    private List<string>? _scoreTexts;
 
     /// <summary>Queues the read-outs for a <paramref name="width"/> × <paramref name="height"/> pixel
     /// screen, in <paramref name="hud"/>'s text (font, scale, colours). <paramref name="big"/>: the
@@ -131,7 +133,8 @@ public sealed class DmHud(Renderer renderer)
         (frame.Scanner, frame.ScannerAt) = frame.DetectorActive ? (game.Scanner(), gun) : (null, null);
 
         frame.Rows.Clear();
-        foreach (var p in game.Scoreboard())
+        DmServer.Rank(game.Players, game.Settings.Goal, frame.Ranked);
+        foreach (var p in frame.Ranked)
         {
             frame.Rows.Add(new DmRow(p.Id, p.Name, p.Frags, p.Deaths, p.Points, p.Bot));
         }
@@ -153,9 +156,24 @@ public sealed class DmHud(Renderer renderer)
     private void ScoreLines(DmHudFrame game)
     {
         var rows = game.Rows;
-        var rank = rows.FindIndex(p => p.Id == game.LocalId) + 1;
-        var lines = DmHudLayout.ScoreTexts(rank > 0 ? rows[rank - 1].Frags : 0, game.Settings.FragLimit, rank, rows.Count,
-            game.Settings.TimeLimitMinutes > 0 ? game.TimeLeft : null);
+        var rank = 0;
+        while (rank < rows.Count && rows[rank].Id != game.LocalId)
+        {
+            rank++;
+        }
+
+        rank = rank < rows.Count ? rank + 1 : 0;
+        double? timeLeft = game.Settings.TimeLimitMinutes > 0 ? game.TimeLeft : null;
+
+        // The texts made again only when one of them changes (the clock: once a second).
+        (int Frags, int Limit, int Rank, int Players, int Seconds) key = (rank > 0 ? rows[rank - 1].Frags : 0, game.Settings.FragLimit, rank, rows.Count,
+            timeLeft is { } t ? Math.Max(0, (int)Math.Ceiling(t)) : -1);
+        if (_scoreTexts == null || key != _scoreKey)
+        {
+            (_scoreKey, _scoreTexts) = (key, DmHudLayout.ScoreTexts(key.Frags, key.Limit, rank, rows.Count, timeLeft));
+        }
+
+        var lines = _scoreTexts;
         for (var i = 0; i < lines.Count; i++)
         {
             TextBatcher.DrawShadowed(renderer, _layout.Font, lines[i], _layout.ScoreLine(i) * _unit, _layout.Pixel * _unit,
@@ -448,6 +466,8 @@ public sealed class DmHudFrame
     public ScannerPlot? Scanner { get; internal set; }
     public RectangleF? ScannerAt { get; internal set; }
     public List<DmRow> Rows { get; } = [];
+    /// <summary>The players ranked for <see cref="Rows"/>, reused frame to frame.</summary>
+    internal readonly List<DmPlayer> Ranked = [];
     public DmSettings Settings { get; internal set; } = new();
     public int LocalId { get; internal set; }
     public bool IsHost { get; internal set; }

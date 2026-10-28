@@ -41,7 +41,7 @@ internal sealed record Options(string? Data, int? Map, Vector3? Position, float?
     RetroEng.Platform.HeadTracking? Head = null, RetroEng.Platform.AimCoupling? Aim = null, string? Viewer = null,
     int? CanvasDepth = null, bool StereoGrid = false, bool Churn = false, LoopThreads Threads = LoopThreads.Split,
     float? ScreenMm = null, RenderStyle? Style = null, string? Capture = null, int CaptureFps = FrameCapture.DefaultFps, RobotAi? RobotAi = null,
-    bool FixedStep = false, string? LogDir = null)
+    bool FixedStep = false, string? LogDir = null, DepthSharing? DepthSharing = null)
 {
     /// <summary>The animation clock (ms) under --freeze.</summary>
     public const long FrozenClockMs = 1000;
@@ -141,7 +141,7 @@ internal sealed record Options(string? Data, int? Map, Vector3? Position, float?
                                fingers play): their layout on the desktop
            --look original|enhanced   the DISPLAY screen's LOOK for this run (else the setting)
            --shadows off|low|high     ENHANCED OPTIONS' SHADOWS for this run (else the setting)
-           --renderer default|ascii|pointcloud   DISPLAY's RENDERER for this run (else the setting)
+           --renderer default|ascii|pointcloud|engraving   DISPLAY's RENDERER for this run (else the setting)
            --stereo <layout>          stereo output for this run, not saved (off, sbs, sbsr, sbsfull, crossview,
                                       tab, tabr, int, intr, viewer; else the setting; the console's stereo)
            --canvas-depth <units>     the HUD's and menus' depth in stereo for this run (0: zero parallax)
@@ -151,6 +151,7 @@ internal sealed record Options(string? Data, int? Map, Vector3? Position, float?
            --head off|gyro|scripted   head tracking for this run (scripted: a slow sweep, for desktop tests)
            --aim coupled|decoupled    whether the head turns the aim (decoupled: the body follows slowly)
            --aa off|fxaa|msaa2|msaa4  ENHANCED OPTIONS' ANTI-ALIASING for this run (else the setting)
+           --depth-sharing on|off     diagnostics: the ENHANCED scene pass reuses the depth pre-pass (default off)
            --bake              bakes the map blocks that are missing or stale (mods/skynet.zip, and
                                mods/shock.zip when Future Shock's data is beside) and exits; --rebake
                                bakes every map again. A normal start does the same for the game played
@@ -285,7 +286,7 @@ internal sealed record Options(string? Data, int? Map, Vector3? Position, float?
                         i++;
                         break;
                     case "--renderer":
-                        o = o with { Style = ViewStyles.Words.TryGetValue(value ?? "", out var style) ? style : throw new FormatException("--renderer takes default, ascii or pointcloud") };
+                        o = o with { Style = ViewStyles.Words.TryGetValue(value ?? "", out var style) ? style : throw new FormatException("--renderer takes default, ascii, pointcloud or engraving") };
                         i++;
                         break;
                     case "--shadows":
@@ -311,6 +312,18 @@ internal sealed record Options(string? Data, int? Map, Vector3? Position, float?
                                 "msaa2" => RetroEng.Render.AntiAliasing.Msaa2,
                                 "msaa4" => RetroEng.Render.AntiAliasing.Msaa4,
                                 _ => throw new FormatException("--aa takes off, fxaa, msaa2 or msaa4"),
+                            },
+                        };
+                        i++;
+                        break;
+                    case "--depth-sharing":
+                        o = o with
+                        {
+                            DepthSharing = value switch
+                            {
+                                "on" => RetroEng.Render.DepthSharing.On,
+                                "off" => RetroEng.Render.DepthSharing.Off,
+                                _ => throw new FormatException("--depth-sharing takes on or off"),
                             },
                         };
                         i++;

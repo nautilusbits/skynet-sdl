@@ -108,6 +108,15 @@ public class BotBrainTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void Its_poses_carry_the_weapon_in_hand()
+    {
+        var (server, bot, rec) = Setup(World(wall: false), 1);
+        bot.Weapon = 7;
+        Run(server, bot, rec, 1f);
+        Assert.Equal(7, server.Players[bot.Id].Weapon);
+    }
+
+    [Fact]
     public void It_keeps_its_weapons_distance_while_strafing()
     {
         var (_, bot, _) = Setup(World(wall: false), 1);

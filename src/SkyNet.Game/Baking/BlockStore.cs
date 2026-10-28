@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Runtime.ExceptionServices;
 using RetroEng.Content;
 using RetroEng.Diagnostics;
@@ -52,7 +53,19 @@ public sealed class BlockStore(string modsDirectory, GameData data) : IDisposabl
     public IReadOnlyList<int> Stale(bool all = false, IEnumerable<int>? only = null)
     {
         var maps = only?.ToArray() ?? MapBaker.MapNumbers(data);
-        if (all || !File.Exists(ZipPath) || OpenZip() is not { } zip)
+        if (all || !File.Exists(ZipPath))
+        {
+            return maps;
+        }
+
+        // The inputs as at the last check that found these maps fresh: nothing to read again.
+        var stamp = Stamp(maps);
+        if (ReadStamp() == stamp)
+        {
+            return [];
+        }
+
+        if (OpenZip() is not { } zip)
         {
             return maps;
         }
@@ -70,7 +83,83 @@ public sealed class BlockStore(string modsDirectory, GameData data) : IDisposabl
             }
         }
 
+        if (stale.Count == 0)
+        {
+            WriteStamp(stamp);
+        }
+
         return stale;
+    }
+
+    /// <summary>Beside the system ZIP: <see cref="Stamp"/> of the last check that found every block fresh.</summary>
+    private string StampPath => ZipPath + ".stamp";
+
+    /// <summary>
+    /// What the blocks of <paramref name="maps"/> depend on, cheap to gather: the maps, the format and
+    /// tool versions, the game's build (its code and shipped tables), every data file's size and time,
+    /// the ZIP's and the mods folder's entries. A block's real inputs (<see cref="Fresh"/>) are all in
+    /// there: when the stamp is the same, so is each block's source hash.
+    /// </summary>
+    private string Stamp(int[] maps)
+    {
+        var text = new System.Text.StringBuilder();
+        text.Append(CultureInfo.InvariantCulture, $"maps {string.Join(',', maps)}\n");
+        text.Append(CultureInfo.InvariantCulture, $"block {MapBlock.FormatVersion} tool {MapBaker.ToolVersion}\n");
+        text.Append(CultureInfo.InvariantCulture, $"build {typeof(MapBaker).Assembly.ManifestModule.ModuleVersionId} {typeof(SkyNet.Data.GameTables).Assembly.ManifestModule.ModuleVersionId}\n");
+        foreach (var dir in new[] { data.Dir, data.SkyNetDir }.OfType<string>().Distinct())
+        {
+            AppendEntries(text, dir, "");
+        }
+
+        AppendEntries(text, ModsDirectory, Path.GetFileName(StampPath));
+        return text.ToString();
+    }
+
+    // Each entry of a folder: name, size and time (a folder's name only), "skip" left out.
+    private static void AppendEntries(System.Text.StringBuilder text, string dir, string skip)
+    {
+        if (!Directory.Exists(dir))
+        {
+            return;
+        }
+
+        text.Append(CultureInfo.InvariantCulture, $"in {dir}\n");
+        foreach (var e in new DirectoryInfo(dir).EnumerateFileSystemInfos().OrderBy(e => e.Name, StringComparer.Ordinal))
+        {
+            if (e.Name == skip)
+            {
+                continue;
+            }
+
+            var size = e is FileInfo f ? f.Length : -1;
+            var time = e is FileInfo ? e.LastWriteTimeUtc.Ticks : 0;
+            text.Append(CultureInfo.InvariantCulture, $"{e.Name} {size} {time}\n");
+        }
+    }
+
+    private string? ReadStamp()
+    {
+        try
+        {
+            return File.Exists(StampPath) ? File.ReadAllText(StampPath) : null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    // Written after the check, so the ZIP's time in it is the one checked; a failed write only costs a check.
+    private void WriteStamp(string stamp)
+    {
+        try
+        {
+            File.WriteAllText(StampPath, stamp);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            Log.Warn("Bake", $"{Path.GetFileName(StampPath)} cannot be written ({e.Message}): the blocks are checked at every start");
+        }
     }
 
     // The system ZIP, or null (logged) when it does not open: its content is built again then.

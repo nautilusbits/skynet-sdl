@@ -110,6 +110,40 @@ public class ModContentTests
         }
     }
 
+    [Fact]
+    public void Frames_with_the_main_look_share_its_surfaces()
+    {
+        var root = Directory.CreateTempSubdirectory("skynet-mods-").FullName;
+        try
+        {
+            var models = Path.Combine(root, "m", "models");
+            Directory.CreateDirectory(models);
+            // One material, one image: an animated avatar's frames each naming the same atlas.
+            GltfMaterial skin = new("skin", Vector4.One, 0, GltfAlphaMode.Opaque, 0.5f, false);
+            GltfImage atlas = new([1, 2, 3, 4], "image/png");
+            var primitives = new[] { Unit.Primitives[0] with { Material = 0 } };
+            foreach (var name in new[] { "AV", "AV_F01" })
+            {
+                File.WriteAllBytes(Path.Combine(models, name + ".glb"), Gltf.WriteGlb(primitives, [skin], [atlas]));
+            }
+
+            File.WriteAllBytes(Path.Combine(models, "AV_F02.glb"), Gltf.WriteGlb(primitives, [skin with { DoubleSided = true }], [atlas]));
+            File.WriteAllBytes(Path.Combine(models, "AV.json"), Encoding.UTF8.GetBytes(
+                """{"frameModels":[{"model":"AV_F01","frames":[1]},{"model":"AV_F02","frames":[2]}]}"""));
+            ModContent.Mount(root, ["m"]);
+
+            var av = ModContent.Model("AV")!;
+            Assert.Same(av.Surfaces, av.ForFrame(1)!.Surfaces);
+            Assert.NotSame(av.Surfaces, av.ForFrame(2)!.Surfaces);
+            Assert.True(av.ForFrame(2)!.Surfaces[0].DoubleSided);
+        }
+        finally
+        {
+            ModContent.Unmount();
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData("""{"fit":"huge"}""")]
     [InlineData("""{"scale":0}""")]

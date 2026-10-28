@@ -1,6 +1,8 @@
 using System.Net;
 using System.Numerics;
+using RetroEng.Audio;
 using RetroEng.Physics;
+using SkyNet.Game.Audio;
 using SkyNet.Game.Campaign;
 using SkyNet.Game.Net;
 using SkyNet.Game.Player;
@@ -430,6 +432,37 @@ public class DmGameTests
         Assert.StartsWith($"facing {expected.Name} at", commands.Run("face").Single(), StringComparison.Ordinal);
         var to = expected.Centre - eye;
         Assert.Equal(MathF.Atan2(-to.X, -to.Z), session.Player.Yaw, 1e-4f);
+    }
+
+    /// <summary>DOS's FUN_00122b52 in a net game too: a hit he lives through grunts, a death plays
+    /// grunt9 (108); another's death is heard where the body falls.</summary>
+    [BehaviourDataFact]
+    public void Hurts_grunt_and_deaths_scream_in_the_arena()
+    {
+        var sounds = new SoundBank(new Mixer(), _ => new byte[44100]);
+        var trace = new List<SoundEvent>();
+        sounds.Trace = trace.Add;
+        var session = new GameSession(BehaviourData.Data, sounds);
+        var options = new DmRunOptions { HostMap = 605, Port = 0, Bind = IPAddress.Loopback, Discovery = false, Name = "HOST", Bots = 1 };
+        using var game = DmGame.StartHost(session, options, out var error);
+        Assert.True(game != null, error);
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        while (!game.Avatars.Values.Any(a => a.Alive) && clock.Elapsed < StepBudget)
+        {
+            game.Frame(Dt);
+        }
+
+        // The bot dies: grunt9 at its body.
+        var bot = game.Avatars.Values.First(a => a.Alive);
+        game.Host!.Hit(bot.Id, 10000f, 1);
+        Assert.Contains(trace, e => e is { Kind: SoundEventKind.Play3D, Id: PlayerSounds.DeathGrunt });
+
+        // The host is hurt, then killed: a pain grunt, then grunt9 without a place.
+        trace.Clear();
+        game.Host.Hit(game.LocalId, 10f, 1, bot.Id);
+        Assert.Contains(trace, e => e.Kind == SoundEventKind.Play2D && PlayerSounds.PainGrunts.Contains(e.Id));
+        game.Host.Hit(game.LocalId, 10000f, 1, bot.Id);
+        Assert.Contains(trace, e => e is { Kind: SoundEventKind.Play2D, Id: PlayerSounds.DeathGrunt });
     }
 
     [Fact]

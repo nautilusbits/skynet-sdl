@@ -29,10 +29,12 @@ internal sealed class LodMesh
     public ModelMesh this[int level] => _levels[Math.Clamp(level, 0, _levels.Length - 1)];
 
     /// <summary><paramref name="r"/> and its levels placed by <paramref name="placement"/>; null: the
-    /// model itself has no mesh. A level without one is left out (with the levels after it).</summary>
-    public static LodMesh? Build(Renderer renderer, TextureHandle palette, ModelReplacement r, Matrix4x4 placement, KeptSurfaces? kept)
+    /// model itself has no mesh. A level without one is left out (with the levels after it).
+    /// <paramref name="made"/>: see <see cref="ReplacementMesh.Build"/>.</summary>
+    public static LodMesh? Build(Renderer renderer, TextureHandle palette, ModelReplacement r, Matrix4x4 placement, KeptSurfaces? kept,
+        Dictionary<ReplacementSurface, TextureHandle>? made = null)
     {
-        if (ReplacementMesh.Build(renderer, palette, r, placement, kept) is not { } main)
+        if (ReplacementMesh.Build(renderer, palette, r, placement, kept, made) is not { } main)
         {
             return null;
         }
@@ -40,7 +42,7 @@ internal sealed class LodMesh
         var levels = new List<ModelMesh> { main };
         foreach (var lod in r.Lods)
         {
-            if (ReplacementMesh.Build(renderer, palette, lod, placement, kept) is not { } mesh)
+            if (ReplacementMesh.Build(renderer, palette, lod, placement, kept, made) is not { } mesh)
             {
                 break;
             }

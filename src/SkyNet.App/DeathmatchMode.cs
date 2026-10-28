@@ -97,6 +97,7 @@ internal sealed partial class AppHost
         }
 
         dm = started;
+        PrepareAvatars();
         // TERMINATOR VISION: this machine's choice, never sent (the frame's style follows dm.PointCloudView).
         dm.PointCloudVision = o.PointCloudVision;
         dm.Status += (text, colour) => hud.ShowStatus(text, colour);

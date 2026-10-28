@@ -79,6 +79,27 @@ public class DmSessionTests
     }
 
     [Fact]
+    public void The_weapon_in_hand_travels_with_the_pose()
+    {
+        // DOS's player byte +0x20: the others draw the gun the player holds, switched without a shot.
+        var rig = new Rig();
+        var c = rig.Join("ALICE");
+        c.Welcomed += c.ReportLevelReady;
+        rig.Pump(c);
+        var byHost = -1;
+        var byClient = -1;
+        rig.Host.PoseReceived += (_, _, _, _, flags, _) => byHost = DmProtocol.WeaponOf(flags);
+        c.PoseReceived += (id, _, _, _, flags, _) => byClient = id == 1 ? DmProtocol.WeaponOf(flags) : byClient;
+        c.SendPose(Vector3.Zero, 0f, 0f, DmProtocol.WeaponBits(4), 1.0);
+        rig.Host.SendPose(new Vector3(100, 0, 0), 0f, 0f, DmProtocol.WeaponBits(0), 1.0);
+        rig.Pump(c);
+        Assert.Equal(4, byHost);
+        Assert.Equal(4, rig.Host.Server.Players[2].Weapon);
+        Assert.Equal(0, byClient);
+        Assert.Equal(-1, DmProtocol.WeaponOf(0));
+    }
+
+    [Fact]
     public void A_hit_kill_respawn_round_trip()
     {
         var rig = new Rig();

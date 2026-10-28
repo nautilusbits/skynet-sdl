@@ -168,7 +168,7 @@ internal sealed partial class AppHost
             return $"relief {settings.Relief.ToString().ToLowerInvariant()} (this run)";
         })
         { Help = "ENHANCED OPTIONS' SURFACE RELIEF: how strongly the hi-res textures' normal and roughness maps light them (no argument: the next level)", Arguments = i => i == 0 ? ["off", "low", "medium", "high"] : [] });
-        commands.Add(new Command("renderer", "renderer [default|ascii|pointcloud] [source|green|amber]", args =>
+        commands.Add(new Command("renderer", "renderer [default|ascii|pointcloud|engraving] [source|green|amber]", args =>
         {
             settings.Style = args.OptionalWord(0) is null ? ViewStyles.Step(settings.Style, 1) : args.Choice(0, ViewStyles.Words);
             if (args.OptionalWord(1) is not null)
@@ -179,7 +179,7 @@ internal sealed partial class AppHost
             ApplySettings(settings);
             return $"renderer {ViewStyles.Name(settings.Style).ToLowerInvariant()}, ascii {settings.AsciiColour.ToString().ToLowerInvariant()} (this run)";
         })
-        { Help = "DISPLAY's RENDERER: the world as is, as ASCII glyphs or as a point cloud (no argument: the next); the ASCII colour", Arguments = i => i switch { 0 => ViewStyles.Words.Keys, 1 => ViewStyles.ColourWords.Keys, _ => [] } });
+        { Help = "DISPLAY's RENDERER: the world as is, as ASCII glyphs, as a point cloud or as an engraving (no argument: the next); the ASCII colour", Arguments = i => i switch { 0 => ViewStyles.Words.Keys, 1 => ViewStyles.ColourWords.Keys, _ => [] } });
         commands.Add(new Command("music", "music [off | title | <song> | 0-100]", args =>
         {
             if (args.OptionalWord(0) is not { } word)

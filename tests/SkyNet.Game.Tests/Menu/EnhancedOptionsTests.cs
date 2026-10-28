@@ -71,6 +71,29 @@ public class EnhancedOptionsTests : IDisposable
     }
 
     [Fact]
+    public void PhonesStartWithoutShadowsAndKeepASavedChoice()
+    {
+        // Shadows multiply the draw calls by 2.5: off on Android, High elsewhere.
+        Assert.Equal(ShadowQuality.Off, MenuSettings.DefaultShadows(Os.Android));
+        Assert.Equal(ShadowQuality.High, MenuSettings.DefaultShadows(Os.Windows));
+        Assert.Equal(ShadowQuality.High, MenuSettings.DefaultShadows(Os.Linux));
+
+        // A saved choice wins over the default.
+        var dir = Directory.CreateTempSubdirectory("skynet-shadows-").FullName;
+        try
+        {
+            var path = Path.Combine(dir, SettingsStore.FileName);
+            var chosen = MenuSettings.DefaultShadows(OsInfo.Current) == ShadowQuality.Off ? ShadowQuality.Low : ShadowQuality.Off;
+            Assert.Equal(SaveResult.Saved, SettingsStore.Save(new MenuSettings { Shadows = chosen }, path));
+            Assert.Equal(chosen, SettingsStore.Load(path).Shadows);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void DisplayKeepsItsRowsAndOpensEnhancedFromItsButton()
     {
         Assert.Equal(13, DisplayScreen.Rows.Length);
@@ -201,6 +224,51 @@ public class EnhancedOptionsTests : IDisposable
         // Eight rows and the note above EXIT.
         Assert.True(EnhancedScreen.NoteRect.Bottom <= EnhancedScreen.ExitRect.Y + EnhancedScreen.ExitRect.Height
             && EnhancedScreen.RowRect(EnhancedScreen.Rows.Length - 1).Bottom <= EnhancedScreen.NoteRect.Y + 1);
+    }
+
+    [Fact]
+    public void TextureFilterStepsFromNearestToAnisotropic16()
+    {
+        Assert.Equal(TextureFiltering.Anisotropic16, new MenuSettings().TextureFiltering);   // today's look
+        var (menu, log) = OpenEnhanced(new MenuSettings { Look = Look.Enhanced });
+        var screen = (EnhancedScreen)menu.Current!;
+        Assert.Equal("ANISOTROPIC 16X", screen.Value("filter"));
+        var seen = new List<string>();
+        for (var i = 0; i < 7; i++)
+        {
+            Step(menu, "filter");
+            seen.Add(screen.Value("filter"));
+        }
+
+        Assert.Equal(["NEAREST", "BILINEAR", "TRILINEAR", "ANISOTROPIC 2X", "ANISOTROPIC 4X", "ANISOTROPIC 8X", "ANISOTROPIC 16X"], seen);
+        Step(menu, "filter", left: true);
+        Assert.Equal(TextureFiltering.Anisotropic8, menu.Settings.TextureFiltering);
+        Assert.Equal(TextureFiltering.Anisotropic8, log.Applied[^1].TextureFiltering);
+        // Nine rows and the note above EXIT.
+        Assert.Equal(9, EnhancedScreen.Rows.Length);
+        Assert.True(EnhancedScreen.NoteRect.Bottom <= EnhancedScreen.ExitRect.Y
+            && EnhancedScreen.RowRect(EnhancedScreen.Rows.Length - 1).Bottom <= EnhancedScreen.NoteRect.Y + 1);
+    }
+
+    [Fact]
+    public void TextureFilterIsSavedAndOldFilesKeepTheDefault()
+    {
+        var path = Path.Combine(_dir, "filter.json");
+        Assert.Equal(SaveResult.Saved, SettingsStore.Save(new MenuSettings { TextureFiltering = TextureFiltering.Bilinear }, path));
+        Assert.Equal(TextureFiltering.Bilinear, SettingsStore.Load(path).TextureFiltering);
+
+        // A file from before the row, or with a bad value: ANISOTROPIC 16X.
+        File.WriteAllText(path, "{\"format\": \"skynet-csharp-settings\", \"version\": 1, \"look\": \"Enhanced\"}");
+        Assert.Equal((Look.Enhanced, TextureFiltering.Anisotropic16), (SettingsStore.Load(path).Look, SettingsStore.Load(path).TextureFiltering));
+        File.WriteAllText(path, "{\"format\": \"skynet-csharp-settings\", \"version\": 1, \"textureFiltering\": \"Sixteen\"}");
+        Assert.Equal(TextureFiltering.Anisotropic16, SettingsStore.Load(path).TextureFiltering);
+    }
+
+    [Fact]
+    public void UpscaleIsSharpForOriginalAndSmoothForEnhanced()
+    {
+        Assert.Equal(ScaleFilter.Sharp, new MenuSettings { Look = Look.Original }.ScaleFilter);
+        Assert.Equal(ScaleFilter.Smooth, new MenuSettings { Look = Look.Enhanced }.ScaleFilter);
     }
 
     [Fact]

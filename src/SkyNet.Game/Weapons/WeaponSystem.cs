@@ -67,6 +67,10 @@ public sealed class WeaponSystem
     /// <summary>An effect nearer the eye than this is skipped, and none is drawn bigger than this
     /// share of its distance (explosion.gd NEAR_SKIP, NEAR_SIZE_RATIO).</summary>
     public const float NearSkip = 70f;
+    /// <summary>The satchel's ammo type (DOS compares the shot's type with 0x14).</summary>
+    private const int SatchelAmmo = 20;
+    /// <summary>A planted satchel's wait: 360 × 16 clock steps at 0x180 (384) a second.</summary>
+    private const float SatchelFuse = 360f * 16f / 0x180;
     public const float NearSizeRatio = 0.4f;
     /// <summary>The Godot port's muzzle flare: TEXTURE.219 record 0 for 0.08 s, 18 units (26 for
     /// the shotgun), 70 units down the shot; at the gun art for the guns that fire from the eye.</summary>
@@ -600,6 +604,12 @@ public sealed class WeaponSystem
                 continue;
             }
 
+            if (p.Fuse is { } fuse)
+            {
+                BurnFuse(p, fuse - dt);
+                continue;
+            }
+
             p.Age += dt;
             if (p.Age >= p.Ammo.Life)
             {
@@ -645,11 +655,42 @@ public sealed class WeaponSystem
                 }
             }
 
+            if (p.Ammo.Index == SatchelAmmo)
+            {
+                Plant(p, at, normal);
+                continue;
+            }
+
             Detonate(p, at, normal, target, owner);
             p.Done = true;
         }
 
         _projectiles.RemoveAll(p => p.Done);
+    }
+
+    /// <summary>
+    /// A satchel's landing (DOS v1.01 0x1234b6, ammo type 20): no hit, sound or pieces; it lies as
+    /// its sprite and its explosion is queued with the effect clock at -360 &lt;&lt; 4 (0x1234d7),
+    /// which runs at 0x180 a second (0x12433a): <see cref="SatchelFuse"/> later it goes off.
+    /// </summary>
+    private static void Plant(Projectile p, Vector3 at, Vector3 normal)
+    {
+        p.Position = at + normal * 2f;
+        p.Velocity = Vector3.Zero;
+        p.Fuse = SatchelFuse;
+    }
+
+    // A planted satchel: it goes off where it lies when its fuse runs out.
+    private void BurnFuse(Projectile p, float left)
+    {
+        p.Fuse = left;
+        if (left > 0f)
+        {
+            return;
+        }
+
+        Detonate(p, p.Position, Vector3.UnitY, null, -1);
+        p.Done = true;
     }
 
     /// <summary>A shot's end on something: the direct hit, the blast, the effect and the sound.</summary>

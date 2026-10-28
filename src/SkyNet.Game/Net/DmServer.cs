@@ -239,7 +239,16 @@ public sealed class DmServer
     {
         // The scanner only in a HUMAN's hand, on foot (a machine has none, 0x134a9c).
         var human = _players.TryGetValue(id, out var p) && p.Class == DmClass.Human;
+        var weapon = DmProtocol.WeaponOf(flags);
         flags &= DmProtocol.FlagMoving | DmProtocol.FlagFiring | (human ? DmProtocol.FlagScanner : 0);
+
+        // The weapon in hand rides along and stays on the roster (DOS's player byte +0x20).
+        if (p != null && weapon >= 0)
+        {
+            p.Weapon = weapon;
+            flags |= DmProtocol.WeaponBits(weapon);
+        }
+
         if (VehicleOf(id) is { } v)
         {
             flags &= ~DmProtocol.FlagScanner;
@@ -973,13 +982,65 @@ public sealed class DmServer
     /// </summary>
     public static List<DmPlayer> Rank(IEnumerable<DmPlayer> players, DmGoal goal)
     {
-        var by = goal switch
+        List<DmPlayer> ranked = [.. players];
+        ranked.Sort(Order(goal));
+        return ranked;
+    }
+
+    /// <summary><see cref="Rank(IEnumerable{DmPlayer}, DmGoal)"/> into a reused list, allocating nothing
+    /// (the HUD ranks every frame). The id ends every tie, so the unstable sort keeps the order.</summary>
+    internal static void Rank(IReadOnlyDictionary<int, DmPlayer> players, DmGoal goal, List<DmPlayer> into)
+    {
+        into.Clear();
+        if (players is Dictionary<int, DmPlayer> table)
         {
-            DmGoal.Kills => players.OrderByDescending(p => p.Frags).ThenBy(p => p.Deaths).ThenByDescending(p => p.Points),
-            DmGoal.Lives => players.OrderBy(p => p.Deaths).ThenByDescending(p => p.Frags).ThenByDescending(p => p.Points),
-            _ => players.OrderByDescending(p => p.Points).ThenByDescending(p => p.Frags).ThenBy(p => p.Deaths),
-        };
-        return [.. by.ThenBy(p => p.Name, StringComparer.Ordinal).ThenBy(p => p.Id)];
+            foreach (var p in table.Values)
+            {
+                into.Add(p);
+            }
+        }
+        else
+        {
+            into.AddRange(players.Values);
+        }
+
+        into.Sort(Order(goal));
+    }
+
+    private static Comparison<DmPlayer> Order(DmGoal goal) => goal switch
+    {
+        DmGoal.Kills => ByKills,
+        DmGoal.Lives => ByLives,
+        _ => ByPoints,
+    };
+
+    // Each goal's three keys best first, then the name, then the id (a Comparison: sorting by an IComparer allocates a delegate).
+    private static readonly Comparison<DmPlayer> ByPoints = (a, b) =>
+        Tie(b.Points.CompareTo(a.Points), b.Frags.CompareTo(a.Frags), a.Deaths.CompareTo(b.Deaths), a, b);
+    private static readonly Comparison<DmPlayer> ByKills = (a, b) =>
+        Tie(b.Frags.CompareTo(a.Frags), a.Deaths.CompareTo(b.Deaths), b.Points.CompareTo(a.Points), a, b);
+    private static readonly Comparison<DmPlayer> ByLives = (a, b) =>
+        Tie(a.Deaths.CompareTo(b.Deaths), b.Frags.CompareTo(a.Frags), b.Points.CompareTo(a.Points), a, b);
+
+    private static int Tie(int first, int second, int third, DmPlayer a, DmPlayer b)
+    {
+        if (first != 0)
+        {
+            return first;
+        }
+
+        if (second != 0)
+        {
+            return second;
+        }
+
+        if (third != 0)
+        {
+            return third;
+        }
+
+        var name = string.CompareOrdinal(a.Name, b.Name);
+        return name != 0 ? name : a.Id.CompareTo(b.Id);
     }
 
     // ---- input budgets ----
