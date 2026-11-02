@@ -1,9 +1,6 @@
-using Android.App;
+using System.Runtime.InteropServices;
 using Android.Content;
-using Android.Content.PM;
-using Android.Net.Wifi;
-using Android.Views;
-using Org.Libsdl.App;
+using Android.Runtime;
 
 // Multiplayer: sockets, and the LAN game list's broadcasts (received only under a multicast lock).
 [assembly: UsesPermission(global::Android.Manifest.Permission.Internet)]
@@ -12,64 +9,46 @@ using Org.Libsdl.App;
 
 namespace SkyNet.Android;
 
-/// <summary>The game: SDL's activity (window, input, audio, the Vulkan surface) running SkyNet.App's
-/// Program on SDL's main thread with the files <see cref="DataSetup"/> found. The user folder plays
-/// the desktop install folder's part: settings, saves, mods/ (baked maps too) and logs/ there.</summary>
-[Activity(Label = "@string/app_name", Icon = "@mipmap/ic_launcher", RoundIcon = "@mipmap/ic_launcher", Theme = "@android:style/Theme.Material.NoActionBar.Fullscreen",
-    ScreenOrientation = ScreenOrientation.SensorLandscape, LaunchMode = LaunchMode.SingleTask, Exported = false,
-    ConfigurationChanges = ConfigChanges.Orientation | ConfigChanges.ScreenSize | ConfigChanges.ScreenLayout | ConfigChanges.Keyboard
-        | ConfigChanges.KeyboardHidden | ConfigChanges.Navigation | ConfigChanges.UiMode | ConfigChanges.SmallestScreenSize | ConfigChanges.Density)]
-public sealed class GameActivity : SDLActivity
+/// <summary>The game: SDL's activity (Java/GameActivity.java: window, input, audio, the Vulkan
+/// surface) runs <see cref="SdlMain"/> on SDL's main thread with the files <see cref="DataSetup"/>
+/// found. The user folder plays the desktop install folder's part: settings, saves, mods/ (baked
+/// maps too) and logs/ there.</summary>
+internal static class GameActivity
 {
-    private const string MulticastTag = "SkyNET LAN games";
+    private const string ClassName = "net.skynetport.skynet.GameActivity";
+    private const string JniClassName = "net/skynetport/skynet/GameActivity";
     private const string DataExtra = "data";
     private const string RootExtra = "root";
     private const string ArgsFile = "args.txt";
+    /// <summary>SDL's argv: the program name, the user root, the data folder.</summary>
+    private const int SdlArgs = 3;
     /// <summary>.NET's override of AppContext.BaseDirectory: the game keeps its user files there
     /// when it can write it (SettingsStore.UserFolder), as beside the exe on the desktop.</summary>
     private const string BaseDirectoryKey = "APP_CONTEXT_BASE_DIRECTORY";
 
-    // Held while the game runs: without it many phones drop the LAN list's broadcasts.
-    private WifiManager.MulticastLock? _multicast;
-
-    protected override string[] GetLibraries() => ["SDL3"];
-
     /// <summary>The intent that plays <paramref name="files"/>.</summary>
     internal static Intent For(Context context, GameFiles files) =>
-        new Intent(context, typeof(GameActivity)).PutExtra(DataExtra, files.DataDir)!.PutExtra(RootExtra, files.UserRoot)!;
+        new Intent().SetClassName(context, ClassName).PutExtra(DataExtra, files.DataDir)!.PutExtra(RootExtra, files.UserRoot)!;
 
-    protected override void OnCreate(global::Android.OS.Bundle? savedInstanceState)
+    /// <summary>SDL's entry: argv = program name, user root, data folder (GameActivity.java's
+    /// getArguments after SDL's placeholder).</summary>
+    [UnmanagedCallersOnly(EntryPoint = "SDL_main")]
+    private static unsafe int SdlMain(int argc, byte** argv)
     {
-        base.OnCreate(savedInstanceState);
-
-        // The screen stays on while the game shows (SDL sets it too, until a screensaver is allowed):
-        // a phone in a headset gets no touches to keep it awake.
-        Window?.AddFlags(WindowManagerFlags.KeepScreenOn);
-
-        _multicast = (GetSystemService(WifiService) as WifiManager)?.CreateMulticastLock(MulticastTag);
-        _multicast?.Acquire();
-    }
-
-    protected override void OnDestroy()
-    {
-        if (_multicast is { IsHeld: true })
+        // An exception here aborts the process without a log: a missing argument quits instead.
+        if (argc < SdlArgs)
         {
-            _multicast.Release();
+            return 1;
         }
 
-        base.OnDestroy();
-    }
-
-    protected override void Main()
-    {
-        // Started by SetupActivity, which always passes both.
-        var root = Intent?.GetStringExtra(RootExtra) ?? (GetExternalFilesDir(null) ?? FilesDir!).AbsolutePath;
-        var data = Intent?.GetStringExtra(DataExtra) ?? root;
+        var given = Enumerable.Range(0, argc).Select(i => Marshal.PtrToStringUTF8((nint)argv[i]) ?? "").ToArray();
+        var root = given[^2];
+        var data = given[^1];
         Environment.CurrentDirectory = root;
         AppContext.SetData(BaseDirectoryKey, root + Path.DirectorySeparatorChar);
         string[] args = ["--data", data, "--mods-dir", DataSetup.Mods(root), "--log-dir", DataSetup.Logs(root), .. ExtraArgs(root)];
         PlatformHooks.WindowBrightness = SetBrightness;
-        GameMain.Run(args);
+        return GameMain.Run(args);
     }
 
     /// <summary>The desktop's command line for a run on the phone (a demo to profile, a map), one
@@ -86,16 +65,19 @@ public sealed class GameActivity : SDLActivity
         return File.ReadAllLines(file).Select(l => l.Trim()).Where(l => l.Length > 0).ToArray();
     }
 
-    /// <summary>The window's own brightness (0..1; -1: the system's, adaptive included), on the UI
-    /// thread. Needs no permission and leaves the system setting alone.</summary>
-    private void SetBrightness(float level) => RunOnUiThread(() =>
+    /// <summary>The window's own brightness (0..1; -1: the system's, adaptive included), set by
+    /// GameActivity.java on the UI thread. A plain JNI call: no C# Java-callable wrapper.</summary>
+    private static void SetBrightness(float level)
     {
-        if (Window is not { Attributes: { } attributes } window)
+        var type = JNIEnv.FindClass(JniClassName);
+        try
         {
-            return;
+            var method = JNIEnv.GetStaticMethodID(type, "setBrightness", "(F)V");
+            JNIEnv.CallStaticVoidMethod(type, method, [new JValue(level)]);
         }
-
-        attributes.ScreenBrightness = level;
-        window.Attributes = attributes;
-    });
+        finally
+        {
+            JNIEnv.DeleteGlobalRef(type);
+        }
+    }
 }

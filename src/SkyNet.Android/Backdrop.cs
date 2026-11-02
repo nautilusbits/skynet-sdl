@@ -99,8 +99,14 @@ internal sealed class Backdrop : View
             return;
         }
 
-        // The screen's width: the backdrop may not be laid out yet.
+        // The window's width, else the screen's: before the first layout (the first dialog of a
+        // fast start) the window is 0 wide, and so was the dialog: invisible, the setup stuck.
         var width = activity.Window!.DecorView.Width;
+        if (width == 0)
+        {
+            width = activity.Resources!.DisplayMetrics!.WidthPixels;
+        }
+
         window.ClearFlags(WindowManagerFlags.DimBehind);
         window.SetGravity(GravityFlags.End | GravityFlags.CenterVertical);
         var attributes = window.Attributes!;

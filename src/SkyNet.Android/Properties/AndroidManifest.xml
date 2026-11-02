@@ -8,5 +8,11 @@
     <profileable android:shell="true" />
     <!-- The game modes it supports; isGame for older game managers. -->
     <meta-data android:name="android.game_mode_config" android:resource="@xml/game_mode_config" />
+    <!-- The game: SDL's activity in Java (Java/GameActivity.java); SetupActivity starts it. -->
+    <activity android:name="net.skynetport.skynet.GameActivity" android:exported="false"
+        android:label="@string/app_name" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher"
+        android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen"
+        android:screenOrientation="sensorLandscape" android:launchMode="singleTask"
+        android:configChanges="orientation|screenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|smallestScreenSize|density" />
   </application>
 </manifest>

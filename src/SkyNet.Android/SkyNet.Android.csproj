@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- The game on Android (build-android.bat): an APK for arm64-v8a (phones), Mono
-       runtime. SDL3's Java activity and libSDL3.so come from the ppy.SDL3-CS package (its android
+  <!-- The game on Android (build-android.bat): an APK for arm64-v8a (phones),
+       NativeAOT. SDL3's Java activity and libSDL3.so come from the ppy.SDL3-CS package (its android
        assets: the same SDL revision as native/sdl3 in the retroeng repo; the patch there is Direct3D 12 only), drawn by
        SDL_GPU's Vulkan backend with the SPIR-V the shader build embeds. The game's sources are
        SkyNet.App's (linked, not referenced: that project is a desktop exe); its GameMain runs
@@ -21,6 +21,9 @@
     <!-- All of the game's code compiled ahead of time, not only the start-up profile: otherwise the
          phone compiles the map loader and the game loop while a level loads. -->
     <AndroidEnableProfiledAot>false</AndroidEnableProfiledAot>
+    <!-- NativeAOT: RyuJIT code, as on the desktop (trench timedemo 64 fps against Mono's 45).
+         XA1040: experimental on Android in .NET 10. -->
+    <PublishAot>true</PublishAot>
     <AndroidPackageFormat>apk</AndroidPackageFormat>
     <EmbedAssembliesIntoApk>true</EmbedAssembliesIntoApk>
     <InvariantGlobalization>true</InvariantGlobalization>
@@ -34,6 +37,11 @@
   <PropertyGroup Condition="'$(StoreBuild)' == 'true'">
     <DefineConstants>$(DefineConstants);STORE_BUILD</DefineConstants>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- SDL's activity in Java: a C# subclass of the SDL binding needs Reflection.Emit. -->
+    <AndroidJavaSource Remove="@(AndroidJavaSource)" />
+    <AndroidJavaSource Include="Java\GameActivity.java" Bind="false" />
+  </ItemGroup>
   <ItemGroup>
     <Compile Include="..\SkyNet.App\*.cs" Exclude="..\SkyNet.App\Program.cs" Link="App\%(Filename)%(Extension)" />
   </ItemGroup>

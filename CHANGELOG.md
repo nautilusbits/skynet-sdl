@@ -3,6 +3,16 @@
 Version in `Directory.Build.props`. Each batch of changes raises it: a fix
 the patch number, a feature the minor. Releases on GitHub start at 1.0.0.
 
+## 1.3.0 (2026-11-02)
+
+Android runs on NativeAOT.
+
+- Android: the game's code is compiled as on the desktop (NativeAOT
+  instead of Mono): about 40% more frames (an Honor phone's trench
+  timedemo 64 fps instead of 45) and faster map loads.
+- Android: the setup screen no longer hangs on a black screen at some
+  starts; its first dialog was drawn 0 pixels wide (#11).
+
 ## 1.2.1 (2026-11-02)
 
 Movies, weapon light shadows, the laser rifle's scope, and fixes from
