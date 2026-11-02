@@ -1,4 +1,5 @@
 using System.Drawing;
+using System.Numerics;
 using SkyNet.Formats;
 using SkyNet.Game.Hud;
 using SkyNet.Game.Tests.Behaviour;
@@ -61,5 +62,47 @@ public class LaserScopeTests
         var dark = palette[0xbe];
         Assert.True(bright.G > bright.R && bright.G > bright.B);
         Assert.True(bright.G > dark.G);
+    }
+
+    // Issue #18: the scope magnifies about the crosshair, which DOS puts above the panel (the
+    // projection's centre shifted up), not about the frame's middle.
+    [Theory]
+    [InlineData(1280, 720, 640, 280)]
+    [InlineData(790, 498, 395, 194)]
+    [InlineData(800, 600, 400, 300)]
+    public void Magnify_centres_the_crosshair(int width, int height, float x, float y)
+    {
+        var scope = new SizeF(88f, 72f);
+        var zoom = LaserScope.Magnify(new Vector2(x, y), new Size(width, height), scope);
+
+        // A frame pixel → its clip point (w = 3, as a perspective's) → the scope's NDC.
+        Vector2 Scope(float px, float py)
+        {
+            const float w = 3f;
+            var clip = new Vector4((2f * px / width - 1f) * w, (1f - 2f * py / height) * w, 0f, w);
+            var to = Vector4.Transform(clip, zoom);
+            return new Vector2(to.X / to.W, to.Y / to.W);
+        }
+
+        AssertNear(Vector2.Zero, Scope(x, y));
+
+        // Each scope pixel shows half a frame pixel: half the scope's width away reaches its edge.
+        AssertNear(new Vector2(1f, 0f), Scope(x + scope.Width / (2f * LaserScope.Zoom), y));
+        AssertNear(new Vector2(0f, -1f), Scope(x, y + scope.Height / (2f * LaserScope.Zoom)));
+    }
+
+    // Issue #23: where nothing is drawn (the cleared sky) the scope shows the sky's green, not the
+    // gun art's monitor under it; DOS's buffer holds the whole frame, the clear colour too.
+    [BehaviourDataFact]
+    public void Sky_shows_its_green()
+    {
+        var palette = BehaviourData.Data.LoadPalette()!;
+        Assert.Equal(LaserScope.Remap(palette)[Level.NightSkyIndex], LaserScope.Background(palette));
+    }
+
+    private static void AssertNear(Vector2 expected, Vector2 actual)
+    {
+        Assert.InRange(actual.X, expected.X - 1e-4f, expected.X + 1e-4f);
+        Assert.InRange(actual.Y, expected.Y - 1e-4f, expected.Y + 1e-4f);
     }
 }

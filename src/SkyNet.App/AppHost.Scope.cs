@@ -2,13 +2,14 @@ using System.Drawing;
 using System.Numerics;
 using RetroEng.Render;
 using SkyNet.Formats;
+using SkyNet.Game.Hud;
 using SkyNet.Game.Weapons;
 
 /// <summary>
 /// The laser rifle's live scope (issue #12, <see cref="LaserScope"/>): the frame's scene again as an
 /// inset over the gun's monitor, magnified around the crosshair and mapped to the green ramp.
 /// <code>
-///  main view ──► × (2 · frame / scope) about the crosshair (the projection's centre)
+///  main view ──► × (2 · frame / scope) about the crosshair (the projection's centre, above the panel)
 ///            ──► inset over the canvas at the gun's corner + LaserScope.Area
 ///            ──► ViewRemap: original Table (index → green), enhanced Ramp (brightness → green)
 /// </code>
@@ -18,6 +19,8 @@ internal sealed partial class AppHost
     // The green table and ramp, made on first use for the data they came from.
     private TextureHandle scopeTable, scopeRamp;
     private GameData? scopeData;
+    // The cleared sky's green: under the inset, where the scene draws nothing.
+    private Vector4 scopeSky;
 
     // A 320 x 200 pixel in 640 x 480 ones.
     private static readonly SizeF HiresPixel = new(640f / 320f, 480f / 200f);
@@ -46,9 +49,10 @@ internal sealed partial class AppHost
         var sy = art.Height * gun.Height / frames[0].Height;
         var screen = new RectangleF(gun.X + area.X * sx, gun.Y + area.Y * sy, area.Width * sx, area.Height * sy);
 
-        // Each scope pixel shows half a frame pixel (LaserScope.Zoom): the crop's clip span widened to ±1.
+        // Each scope pixel shows half a frame pixel (LaserScope.Zoom), about the crosshair the projection centres.
         var main = s.Views.Centre;
-        var zoom = Matrix4x4.CreateScale(LaserScope.Zoom * width / screen.Width, LaserScope.Zoom * height / screen.Height, 1f);
+        var crosshair = DosHud.ViewCentre(width, height, s.HudStyle);
+        var zoom = LaserScope.Magnify(crosshair, new Size(width, height), screen.Size);
         Matrix4x4.Invert(zoom, out var unzoom);
         var view = new View(main.ViewProjection * zoom, unzoom * main.ClipToDirection, main.Position)
         {
@@ -57,6 +61,7 @@ internal sealed partial class AppHost
 
         var unit = Renderer.CanvasHeight / height;
         var canvas = new RectangleF(screen.X * unit, screen.Y * unit, screen.Width * unit, screen.Height * unit);
+        renderer.FillRect(canvas, scopeSky);
         renderer.BeginInset(view, canvas, InsetContent.Scene, InsetLayer.OverCanvas);
         renderer.EndInset();
     }
@@ -99,6 +104,8 @@ internal sealed partial class AppHost
 
         scopeTable = renderer.CreateShadeTable(LaserScope.Remap(palette), 0);
         scopeRamp = renderer.CreatePalette(rgba);
+        var (skyR, skyG, skyB) = palette[LaserScope.Background(palette)];
+        scopeSky = new Vector4(skyR / 255f, skyG / 255f, skyB / 255f, 1f);
         scopeData = data;
         return true;
     }

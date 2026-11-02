@@ -167,6 +167,10 @@ public sealed class MenuSettings
     /// dismissed: it comes up once.</summary>
     public bool HiresNoticeSeen { get; set; }
 
+    /// <summary>The unknown game data UNKNOWN GAME DATA no longer warns of (its IGNORE:
+    /// <see cref="DataNotice.Key"/>); empty: none.</summary>
+    public string IgnoredData { get; set; } = "";
+
     /// <summary>The FPS readout in the corner (F11, the console's <c>fps</c>); a port-only aid.</summary>
     public bool ShowFps { get; set; }
 
@@ -185,6 +189,14 @@ public sealed class MenuSettings
     public int LensK1 { get; set; } = 44;
     public int LensK2 { get; set; } = 16;
 
+    /// <summary>The HUD's and menus' size in a viewer's eye, in percent (3D VIEW's HUD SIZE): small enough to
+    /// stay inside the lens (the engine's 70% reached past it in a phone viewer).</summary>
+    public int HudSize { get; set; } = DefaultHudSize;
+
+    public const int DefaultHudSize = 60;
+    public const int MinHudSize = 30;
+    public const int MaxHudSize = 100;
+
     /// <summary>What turns the head (3D VIEW's HEAD TRACKING): off, or the phone's gyroscope.</summary>
     public RetroEng.Platform.HeadTracking HeadTracking { get; set; }
 
@@ -199,7 +211,8 @@ public sealed class MenuSettings
 
     /// <summary>The viewer's lens from <see cref="Viewer"/> (custom: <see cref="LensK1"/>, <see cref="LensK2"/>).</summary>
     public RetroEng.Render.LensProfile Lens() =>
-        RetroEng.Render.LensProfile.Preset(Viewer) ?? new RetroEng.Render.LensProfile(LensK1 / 100f, LensK2 / 100f);
+        (RetroEng.Render.LensProfile.Preset(Viewer) ?? new RetroEng.Render.LensProfile(LensK1 / 100f, LensK2 / 100f))
+            with { CanvasScale = HudSize / 100f };
 
     /// <summary>The stereo eyes' distance apart in world units (the soldier's eye is 75 high: 3 ≈ 6.4 cm).</summary>
     public int StereoSeparation { get; set; } = DefaultStereoSeparation;
@@ -611,6 +624,7 @@ public static class SettingsStore
             s.Viewer = Array.IndexOf(RetroEng.Render.LensProfile.Names, Str(root, "viewer")) >= 0 ? Str(root, "viewer") : s.Viewer;
             s.LensK1 = Int(root, "lensK1", s.LensK1, 0, MenuSettings.MaxLensK);
             s.LensK2 = Int(root, "lensK2", s.LensK2, 0, MenuSettings.MaxLensK);
+            s.HudSize = Int(root, "hudSize", s.HudSize, MenuSettings.MinHudSize, MenuSettings.MaxHudSize);
             s.HeadTracking = Enum(root, "headTracking", s.HeadTracking);
             s.Aim = Enum(root, "aim", s.Aim);
             s.ScreenBrightness = Enum(root, "screenBrightness", s.ScreenBrightness);
@@ -625,6 +639,7 @@ public static class SettingsStore
             s.PadSticks = Enum(root, "padSticks", s.PadSticks);
 
             s.HiresNoticeSeen = Bool(root, "hiresNoticeSeen", s.HiresNoticeSeen);
+            s.IgnoredData = Str(root, "ignoredData");
             if (root["mods"] is { Kind: JsonKind.Array } mods)
             {
                 s.Mods = SkyNet.Game.Mods.ModOrder.Clean(mods.Items.Where(e => e.Kind == JsonKind.String).Select(e => e.AsString()));
@@ -739,6 +754,7 @@ public static class SettingsStore
             w.WriteString("viewer", s.Viewer);
             w.WriteNumber("lensK1", s.LensK1);
             w.WriteNumber("lensK2", s.LensK2);
+            w.WriteNumber("hudSize", s.HudSize);
             w.WriteString("headTracking", s.HeadTracking.ToString().ToLowerInvariant());
             w.WriteString("aim", s.Aim.ToString().ToLowerInvariant());
             w.WriteString("screenBrightness", s.ScreenBrightness.ToString().ToLowerInvariant());
@@ -752,6 +768,7 @@ public static class SettingsStore
             w.WriteBoolean("padVibration", s.PadVibration);
             w.WriteString("padSticks", s.PadSticks.ToString().ToLowerInvariant());
             w.WriteBoolean("hiresNoticeSeen", s.HiresNoticeSeen);
+            w.WriteString("ignoredData", s.IgnoredData);
             w.WriteStartArray("mods");
             foreach (var mod in s.Mods)
             {

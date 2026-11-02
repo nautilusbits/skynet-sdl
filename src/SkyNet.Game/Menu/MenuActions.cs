@@ -189,6 +189,9 @@ public sealed class MenuContext
     /// never comes up (tests, a build without the enhanced look).</summary>
     public Func<bool>? HiresTextures { get; init; }
 
+    /// <summary>The games whose data is an unknown release (<see cref="DataNotice"/>); empty: none.</summary>
+    public IReadOnlyList<Storage.DataCheck> UnknownData { get; init; } = [];
+
     /// <summary>The CONTROLS screen's 17 boxes → action names in <see cref="Bindings"/>.</summary>
     public IReadOnlyDictionary<string, string> ControlActions { get; init; } = MenuLayout.DefaultControlActions;
 }

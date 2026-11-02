@@ -34,6 +34,8 @@ public sealed partial class Enemy : IDamageable
     public const float SinkRecover = 110f;
     /// <summary><see cref="SurfaceAt"/>'s column: this far above and below the point.</summary>
     private const float SurfaceUp = 6000f, SurfaceDown = 20000f;
+    /// <summary>A hover keeps its origin this far under a ceiling: the eye (<see cref="EyeHeight"/>) and a margin below it.</summary>
+    private const float CeilingGap = EyeHeight + 20f;
     public const float KamikazeReach = 40f;
     public const float MachineMargin = 60f;
     public const float MachineHitDamage = 4f;
@@ -645,7 +647,7 @@ public sealed partial class Enemy : IDamageable
         _blocked = false;
         if (moving && MathF.Abs(speed) > 0.5f)
         {
-            var fwd = Forward;
+            var fwd = MineWay(see, to);
             var step = fwd * speed * dt;
             var groundBound = State != 9 && !IsFlying;
             if (PathBlocked(step) || (groundBound && (TooSteep(fwd) || DropAhead(fwd))))
@@ -684,12 +686,8 @@ public sealed partial class Enemy : IDamageable
         }
         else if (IsFlying && !(State == 6 && IsKamikaze && see))
         {
-            var fl = MathF.Max(SurfaceAt(Position), SurfaceAt(Position + Forward * FlyerLookahead));
-            var need = fl + FlyerMinAlt - Position.Y;
-            if (need > 0f)
-            {
-                Position += new Vector3(0f, MathF.Min(need, FlyerClimbSpeed * dt), 0f);
-            }
+            var need = HoverNeed();
+            Position += new Vector3(0f, Math.Clamp(need, -FlyerSinkSpeed * dt, FlyerClimbSpeed * dt), 0f);
         }
         else if (State == 6 && IsFlying && IsKamikaze && see)
         {
@@ -749,6 +747,46 @@ public sealed partial class Enemy : IDamageable
 
         return best <= len ? (from + dir * best).Y : at.Y;
     }
+
+    /// <summary>The vertical step a hover (globe, drone, scout) wants: up to <see cref="FlyerMinAlt"/>
+    /// over what lies under it and ahead. Under open sky that is the highest surface (roofs); under a
+    /// ceiling it is the floor, and the hover keeps <see cref="CeilingGap"/> under the ceiling
+    /// (negative: sink away from it). Indoors the highest surface is the roof, which lifted it into
+    /// the ceiling and out of sight for good (#23).</summary>
+    private float HoverNeed()
+    {
+        var ahead = Position + Forward * FlyerLookahead;
+        var up = new Vector3(0f, 1f, 0f);
+        if (!Cast(Position + up, Position + up * (FlyerMinAlt + CeilingGap), out var roof))
+        {
+            return MathF.Max(MathF.Max(SurfaceAt(Position), SurfaceAt(ahead)) + FlyerMinAlt - Position.Y, 0f);
+        }
+
+        var floor = MathF.Max(FloorUnder(Position), FloorUnder(ahead));
+        var climb = MathF.Max(floor + FlyerMinAlt - Position.Y, 0f);
+        return MathF.Min(climb, roof.Point.Y - CeilingGap - Position.Y);
+    }
+
+    /// <summary>The flat heading of a step: a flying mine in sight goes straight along
+    /// <paramref name="to"/>, the soldier's way, as DOS moves a hover (0x137545; its turn is only its
+    /// look). Steered by its turn rate it circles him once it overshoots (#23). Others: <see cref="Forward"/>.</summary>
+    private Vector3 MineWay(bool see, Vector3 to)
+    {
+        var flat = to with { Y = 0f };
+        if (!Homes(see) || flat.LengthSquared() < 1f)
+        {
+            return Forward;
+        }
+
+        return Vector3.Normalize(flat);
+    }
+
+    /// <summary>A flying mine with the soldier in sight: it homes on him.</summary>
+    private bool Homes(bool see) => see && State == 6 && IsFlying && IsKamikaze;
+
+    /// <summary>The first surface below <paramref name="at"/>; −∞ when none.</summary>
+    private float FloorUnder(Vector3 at) =>
+        Cast(at + new Vector3(0f, 1f, 0f), at - new Vector3(0f, SurfaceDown, 0f), out var hit) ? hit.Point.Y : float.NegativeInfinity;
 
     private bool PathBlocked(Vector3 step)
     {

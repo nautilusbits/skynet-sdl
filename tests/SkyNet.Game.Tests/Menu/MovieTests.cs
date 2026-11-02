@@ -199,6 +199,22 @@ public class MovieScreenTests
         Assert.Contains(block, v => v != 0f);
     }
 
+    // A silent file with a soundtrack (Future Shock's cues) plays the soundtrack.
+    [Fact]
+    public void Plays_its_soundtrack()
+    {
+        var (menu, _) = Make();
+        menu.OpenTitle();
+        var mixer = new Mixer();
+        var track = new Sound(Enumerable.Repeat(1f, 1111).ToArray(), 1, 11025, Looping.Once);
+        menu.Push(new MovieScreen(Movie(), mixer, null) { Soundtrack = track });
+
+        menu.Update(new MenuInput(), Frame, 0f);
+        var block = new float[Mixer.BlockFrames * 2];
+        mixer.Mix(block);
+        Assert.Contains(block, v => v != 0f);
+    }
+
     [Fact]
     public void Released_runs_once_on_skip()
     {

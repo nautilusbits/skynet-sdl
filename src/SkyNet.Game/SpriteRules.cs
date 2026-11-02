@@ -1,3 +1,5 @@
+using SkyNet.Formats;
+
 namespace SkyNet.Game;
 
 /// <summary>Which map sprites are pickups, and which DOS draws at full light.</summary>
@@ -33,5 +35,28 @@ public static class SpriteRules
             0xda => record <= 3,
             _ => false,
         };
+    }
+
+    /// <summary>
+    /// The level Y a map sprite's foot stands at. Indoors (<paramref name="ground"/> null) the record
+    /// is <see cref="Level.IndoorSpriteLift"/> over its foot. Outdoors scenery stands on the terrain;
+    /// an item (<see cref="IsItem"/>) keeps its record's height when that is above the terrain: items
+    /// lie on roofs, ruins and beams (issue #21), and the ones on the ground sit 0-23 over it.
+    /// <code>
+    ///   record ●          roof item: foot = record − 16
+    ///   ───────┴── roof
+    ///   ~~~~~~~~~~~ terrain: the foot of a record lower than 16 over it
+    /// </code>
+    /// </summary>
+    public static float Foot(MapEntity e, WldTerrain? ground)
+    {
+        var record = -e.Y - Level.IndoorSpriteLift;
+        if (ground == null)
+        {
+            return record;
+        }
+
+        var terrain = (float)ground.HeightAt(e.X, e.Z);
+        return IsItem(e.SpriteIndex) ? MathF.Max(terrain, record) : terrain;
     }
 }

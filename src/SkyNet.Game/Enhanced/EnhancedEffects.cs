@@ -91,7 +91,7 @@ public sealed class EnhancedEffects
         }
 
         _gather.Begin();
-        Collect(_gather.All, level, data, seconds, behaviour, weapons, lampPosts, renderer.Lighting.ShadowQuality);
+        Collect(_gather.All, level, data, seconds, renderer.Lighting.ShadowQuality, behaviour, weapons, lampPosts);
         renderer.Lights = _gather.Finish(eye, level.Far, level.LightBudget);
 
         // The storm by the wall clock (a long stall counts as a quarter second).
@@ -125,9 +125,10 @@ public sealed class EnhancedEffects
 
     /// <summary>Adds the frame's candidate lights to <paramref name="into"/>: the level's map lights
     /// (switched by <paramref name="behaviour"/>), art lamps and fires, and the weapons' lights
-    /// (shadowed at <paramref name="shadows"/> High).</summary>
-    public void Collect(List<PointLight> into, Level level, GameData data, float seconds,
-        LevelBehaviour? behaviour = null, WeaponSystem? weapons = null, bool lampPosts = true, ShadowQuality shadows = ShadowQuality.Off)
+    /// (shadowed at <paramref name="shadows"/> High: the frame's <see cref="Lighting.ShadowQuality"/>,
+    /// no default, so a caller can't leave them unshadowed by omission, GitHub #17).</summary>
+    public void Collect(List<PointLight> into, Level level, GameData data, float seconds, ShadowQuality shadows,
+        LevelBehaviour? behaviour = null, WeaponSystem? weapons = null, bool lampPosts = true)
     {
         if (_lights == null || !ReferenceEquals(_lightsOf, level) || _lightsWithPosts != lampPosts)
         {

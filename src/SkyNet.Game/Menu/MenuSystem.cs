@@ -240,6 +240,8 @@ public sealed class MenuSystem
     private Look _look;
     // The mission whose briefing last played its movie by itself (OpenMission).
     private (GameKind Game, int Mission)? _briefed;
+    // UNKNOWN GAME DATA came up this run (once a run).
+    private bool _dataNoticed;
 
     public MenuSystem(IMenuActions actions, MenuSettings settings, MenuContext? context = null, string? settingsPath = null)
     {
@@ -284,6 +286,19 @@ public sealed class MenuSystem
         InGame = false;
         Replace(new MainMenuScreen());
         OfferHiresNotice();
+        OfferDataNotice();
+    }
+
+    // UNKNOWN GAME DATA over the top screen, the first time the title opens.
+    private void OfferDataNotice()
+    {
+        if (_dataNoticed || Context.UnknownData.Count == 0 || Settings.IgnoredData == DataNotice.Key(Context.UnknownData))
+        {
+            return;
+        }
+
+        _dataNoticed = true;
+        Push(new DataNotice(Context.UnknownData));
     }
 
     /// <summary>HI-RES TEXTURES over the top screen when it is due (<see cref="HiresNotice.Due"/>).</summary>

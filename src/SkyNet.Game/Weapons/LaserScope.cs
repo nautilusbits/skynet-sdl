@@ -1,4 +1,5 @@
 using System.Drawing;
+using System.Numerics;
 using SkyNet.Formats;
 using SkyNet.Game.Hud;
 
@@ -63,4 +64,26 @@ public static class LaserScope
 
         return table;
     }
+
+    /// <summary>The scope's clip space from the main view's: <see cref="Zoom"/>× about the
+    /// <paramref name="crosshair"/> (frame pixels), so each <paramref name="scope"/> pixel shows half a
+    /// frame pixel. The crosshair sits above the panel, off the frame's middle (issue #18).
+    /// <code>
+    ///  ndc' = k · (ndc − crosshair's ndc),  k = Zoom · frame / scope   (in clip: − k · c · w)
+    /// </code></summary>
+    public static Matrix4x4 Magnify(Vector2 crosshair, Size frame, SizeF scope)
+    {
+        var k = new Vector2(Zoom * frame.Width / scope.Width, Zoom * frame.Height / scope.Height);
+        var centre = new Vector2(2f * crosshair.X / frame.Width - 1f, 1f - 2f * crosshair.Y / frame.Height);
+
+        // Row vectors: the w row moves the crosshair to the clip origin, scaled with the rest.
+        var zoom = Matrix4x4.CreateScale(k.X, k.Y, 1f);
+        zoom.M41 = -k.X * centre.X;
+        zoom.M42 = -k.Y * centre.Y;
+        return zoom;
+    }
+
+    /// <summary>The scope's ground where nothing is drawn: the cleared frame's index
+    /// (<see cref="Level.NightSkyIndex"/>) through the green table, as DOS's buffer holds it (issue #23).</summary>
+    public static byte Background(Palette palette) => Remap(palette)[Level.NightSkyIndex];
 }

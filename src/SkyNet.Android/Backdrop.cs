@@ -99,12 +99,14 @@ internal sealed class Backdrop : View
             return;
         }
 
-        // The window's width, else the screen's: before the first layout (the first dialog of a
-        // fast start) the window is 0 wide, and so was the dialog: invisible, the setup stuck.
+        // The window's width, else the screen's long side (the activity is landscape): before the
+        // first layout the window is 0 wide (an invisible dialog, the setup stuck), and before the
+        // turn to landscape the screen's width is the portrait one (a narrow dialog).
         var width = activity.Window!.DecorView.Width;
         if (width == 0)
         {
-            width = activity.Resources!.DisplayMetrics!.WidthPixels;
+            var screen = activity.Resources!.DisplayMetrics!;
+            width = Math.Max(screen.WidthPixels, screen.HeightPixels);
         }
 
         window.ClearFlags(WindowManagerFlags.DimBehind);

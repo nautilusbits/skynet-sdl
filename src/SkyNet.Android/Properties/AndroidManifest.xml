@@ -2,7 +2,10 @@
 <!-- The rest comes from the activities' attributes (storage permissions: AllFilesAccess's).
      Android 10 reads the SkyNET folder by path with legacy storage. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-  <application android:requestLegacyExternalStorage="true" android:appCategory="game" android:isGame="true">
+  <!-- enableOnBackInvokedCallback false: Android 16's predictive back closed the game on Back (and a
+       mouse's right button); without it Back reaches SDL as a key, as the game's menus expect. -->
+  <application android:requestLegacyExternalStorage="true" android:appCategory="game" android:isGame="true"
+      android:enableOnBackInvokedCallback="false">
     <!-- appCategory: game managers (Honor, Samsung) treat it as a game and offer their profiles.
          simpleperf and Perfetto may sample the game from adb (no debugging, no data access). -->
     <profileable android:shell="true" />

@@ -13,7 +13,7 @@ namespace SkyNet.Game.Tests.Enemies;
 public class RobotAiTests
 {
     private const float Dt = 1f / 60f;
-    private const int HkType = 4, RaptorType = 32;
+    private const int GlobeType = 1, HkType = 4, RaptorType = 32;
 
     // ---------------------------------------------------------------- a world of boxes
 
@@ -132,6 +132,34 @@ public class RobotAiTests
         }
 
         Assert.True(crossed, $"stayed at {hk.Position}");
+    }
+
+    /// <summary>A flying mine indoors (a room under a ceiling slab), the soldier out of its sight at
+    /// first, then in the room (#23). It hovers below the ceiling, not on or over it, and once he is
+    /// in sight it comes for him and goes off.</summary>
+    [BehaviourDataTheory]
+    [InlineData(RobotAi.Classic)]
+    [InlineData(RobotAi.Improved)]
+    public void TheMineChasesUnderACeiling(RobotAi ai)
+    {
+        const float ceiling = 300f;
+        var slab = (new Vector3(-8000f, ceiling, -8000f), new Vector3(8000f, ceiling + 40f, 8000f));
+        var far = new Vector3(0f, 0f, -3000f);
+        var (robots, _, _) = Setup(World(slab), ai, far);
+        var mine = robots.Add(GlobeType, new Vector3(0f, 100f, 0f));
+        for (var t = 0; t < 60 * 10; t++)
+        {
+            robots.Tick(Dt, far);
+            Assert.True(mine.Position.Y < ceiling - 20f, $"at {mine.Position} under a ceiling at {ceiling}");
+        }
+
+        var near = new Vector3(mine.Position.X, 0f, mine.Position.Z - 800f);
+        for (var t = 0; t < 60 * 15 && mine.Alive; t++)
+        {
+            robots.Tick(Dt, near);
+        }
+
+        Assert.False(mine.Alive, $"still at {mine.Position}, the soldier at {near}");
     }
 
     // ---------------------------------------------------------------- walkers

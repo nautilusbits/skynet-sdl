@@ -49,6 +49,9 @@ public sealed class MovieScreen : MenuScreen
 
     public MoviePlace Place { get; init; }
 
+    /// <summary>The sound played instead of the file's (Future Shock's cue track, <see cref="Audio.MovieCues"/>); null: the file's.</summary>
+    public Sound? Soundtrack { get; init; }
+
     /// <summary>Runs once when the movie lets go, however it closed (ended, skipped or replaced by the menus).</summary>
     public Action? Released { get; init; }
 
@@ -99,6 +102,12 @@ public sealed class MovieScreen : MenuScreen
 
     private void StartSound()
     {
+        if (_mixer != null && Soundtrack != null)
+        {
+            _voice = _mixer.Play(Soundtrack, bus: Bus.Interface);
+            return;
+        }
+
         if (_mixer == null || _vid.AudioRate == 0)
         {
             return;

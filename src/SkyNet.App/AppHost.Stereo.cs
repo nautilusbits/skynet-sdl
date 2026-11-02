@@ -22,8 +22,19 @@ internal sealed partial class AppHost
 
         var output = stereoRun ?? StereoOutput.Parse(settings.Stereo) ?? StereoOutput.Mono;
         return output.Layout == StereoLayout.Viewer
-            ? output with { Lens = LensProfile.Preset(options.Viewer) ?? settings.Lens(), ScreenMm = options.ScreenMm ?? window.WidthMm }
+            ? output with { Lens = ViewerLens(), ScreenMm = options.ScreenMm ?? window.WidthMm }
             : output;
+    }
+
+    /// <summary>--viewer's preset for this run, else the settings' lens; 3D VIEW's HUD SIZE either way.</summary>
+    private LensProfile ViewerLens()
+    {
+        if (LensProfile.Preset(options.Viewer) is not { } preset)
+        {
+            return settings.Lens();
+        }
+
+        return preset with { CanvasScale = settings.HudSize / 100f };
     }
 
     /// <summary>3D VIEW's BACKLIGHT on the platform's window (Android; the desktop has no hook).</summary>
@@ -147,6 +158,7 @@ internal sealed partial class AppHost
         var stored = SettingsStore.Load(settingsPath);
         (stored.Stereo, stored.StereoSeparation, stored.StereoDepth, stored.CanvasDepth) = (settings.Stereo, settings.StereoSeparation, settings.StereoDepth, settings.CanvasDepth);
         (stored.Viewer, stored.LensK1, stored.LensK2, stored.HeadTracking, stored.Aim) = (settings.Viewer, settings.LensK1, settings.LensK2, settings.HeadTracking, settings.Aim);
+        stored.HudSize = settings.HudSize;
         SettingsStore.Save(stored, settingsPath);
     }
 }

@@ -367,6 +367,8 @@ internal sealed partial class AppHost : IDisposable
         showBriefing = !options.NoBriefing && options.PlayScript == null;
 
         futureShockDir = homeData.Game == GameKind.SkyNet ? GameDataLocator.OtherGameDir(homeData.Dir) : null;
+        SplashStatus("Checking the game data...");
+        var unknownData = CheckData((homeData.Dir, homeData.Game), (futureShockDir, GameKind.FutureShock));
         menuEvents = new MenuEvents();
         dmHud = new SkyNet.Game.Net.DmHud(renderer);
         menu = new MenuSystem(menuEvents, settings, new MenuContext
@@ -390,6 +392,7 @@ internal sealed partial class AppHost : IDisposable
             ModList = () => SkyNet.Game.Mods.ModCatalog.Scan(modsDir, systemMods),
             ModsOverride = modsOverride,
             HiresTextures = () => SkyNet.Game.Mods.ModContent.HasTextures,
+            UnknownData = unknownData,
             GenerateHires = () => SkyNet.Game.Mods.HiresJob.Start(data, modsDir, Path.Combine(AppContext.BaseDirectory, "cache"), SkyNet.Upscale.UpscalerSource.Default),
         }, settingsPath);
         menuRef = menu;

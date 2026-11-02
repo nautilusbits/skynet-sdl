@@ -14,6 +14,8 @@ public static class StereoOptions
     public static readonly int[] Depths = [50, 100, 150, 200, 300, 500, 800, 1200, 2000];
     /// <summary>CANVAS DEPTH's steps (0: at the screen, the convergence depth).</summary>
     public static readonly int[] CanvasDepths = [0, 50, 100, 150, 200, 300, 500];
+    /// <summary>HUD SIZE's steps (percent of a viewer's eye).</summary>
+    public static readonly int[] HudSizes = [40, 50, 60, 70, 80];
 
     public static string StepMode(string mode, int step) => Step(StereoOutput.Names, StereoOutput.Parse(mode)?.Name ?? "off", step);
 
@@ -24,6 +26,8 @@ public static class StereoOptions
     public static int StepCanvasDepth(int depth, int step) => Step(CanvasDepths, Nearest(CanvasDepths, depth), step);
 
     public static string StepViewer(string viewer, int step) => Step(LensProfile.Names, viewer, step);
+
+    public static int StepHudSize(int size, int step) => Step(HudSizes, Nearest(HudSizes, size), step);
 
     public static HeadTracking StepHead(HeadTracking head, int step) => Step([HeadTracking.Off, HeadTracking.Gyro], head, step);
 
@@ -66,7 +70,7 @@ public static class StereoOptions
 /// 3D VIEW (OPTIONS → DISPLAY → 3D VIEW), the port's own screen in the DISPLAY screen's make: MODE (the
 /// stereo output: off, side by side, top / bottom, interlaced, the phone viewer), SEPARATION (the eyes'
 /// distance apart), DEPTH (what shows at the screen), CANVAS DEPTH (where the HUD and menus show), VIEWER
-/// (the phone viewer's lens), HEAD TRACKING (the phone's gyroscope), AIM (the head turns the aim, or
+/// (the phone viewer's lens), HUD SIZE (the HUD's and menus' share of a viewer's eye), HEAD TRACKING (the phone's gyroscope), AIM (the head turns the aim, or
 /// looks on its own) and BACKLIGHT (the phone screen's brightness; auto: full in the viewer). Every row
 /// applies at once (also in game) and is saved. Not DOS's STEREO on OPTIONS, which swaps the sound's channels.
 /// </summary>
@@ -85,7 +89,7 @@ public sealed class StereoScreen : PanelScreen
     public static readonly (string Id, string Label)[] Rows =
     [
         ("mode", "MODE"), ("separation", "SEPARATION"), ("depth", "DEPTH"), ("canvas", "CANVAS DEPTH"),
-        ("viewer", "VIEWER"), ("head", "HEAD TRACKING"), ("aim", "AIM"), ("brightness", "BACKLIGHT"),
+        ("viewer", "VIEWER"), ("hudsize", "HUD SIZE"), ("head", "HEAD TRACKING"), ("aim", "AIM"), ("brightness", "BACKLIGHT"),
     ];
 
     public static Rectangle ValueBox(int i) => new(BoxAt.X, RowTop + i * RowPitch, BoxAt.Width, BoxAt.Height);
@@ -111,9 +115,10 @@ public sealed class StereoScreen : PanelScreen
         Row(2, d => s.StereoDepth = StereoOptions.StepDepth(s.StereoDepth, d));
         Row(3, d => s.CanvasDepth = StereoOptions.StepCanvasDepth(s.CanvasDepth, d));
         Row(4, d => s.Viewer = StereoOptions.StepViewer(s.Viewer, d));
-        Row(5, d => s.HeadTracking = StereoOptions.StepHead(s.HeadTracking, d));
-        Row(6, d => s.Aim = StereoOptions.StepAim(s.Aim, d));
-        Row(7, d => s.ScreenBrightness = ScreenBrightnessLevels.Step(s.ScreenBrightness, d));
+        Row(5, d => s.HudSize = StereoOptions.StepHudSize(s.HudSize, d));
+        Row(6, d => s.HeadTracking = StereoOptions.StepHead(s.HeadTracking, d));
+        Row(7, d => s.Aim = StereoOptions.StepAim(s.Aim, d));
+        Row(8, d => s.ScreenBrightness = ScreenBrightnessLevels.Step(s.ScreenBrightness, d));
         Add(new MenuItem("exit", At(ExitRect))
         {
             Lit = new LitArt(OptionsLit, 11, new Point(Origin.X + ExitRect.X - OptionsExit.X + OptionsLitAt.X, Origin.Y + ExitRect.Y - OptionsExit.Y + OptionsLitAt.Y)),
@@ -150,6 +155,7 @@ public sealed class StereoScreen : PanelScreen
             "depth" => string.Create(c, $"{s.StereoDepth}"),
             "canvas" => s.CanvasDepth == 0 ? "AT THE SCREEN" : string.Create(c, $"{s.CanvasDepth}"),
             "viewer" => StereoOptions.ViewerName(s),
+            "hudsize" => string.Create(c, $"{s.HudSize}%"),
             "head" => s.HeadTracking == HeadTracking.Off ? "OFF" : "GYROSCOPE",
             "aim" => s.Aim == AimCoupling.Coupled ? "WITH THE HEAD" : "ON ITS OWN",
             "brightness" => ScreenBrightnessLevels.Name(s.ScreenBrightness),

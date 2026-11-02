@@ -74,6 +74,8 @@ public class StereoMenuTests : IDisposable
         Step(menu, "depth");
         Step(menu, "canvas", 2);
         Step(menu, "viewer");
+        Step(menu, "hudsize");
+        Assert.Equal("70%", screen.Value("hudsize"));
         Step(menu, "head");
         Step(menu, "aim");
         Assert.Equal((MenuSettings.DefaultStereoSeparation + 2, 300, 100, "cardboard1", HeadTracking.Gyro, AimCoupling.Decoupled),
@@ -83,6 +85,7 @@ public class StereoMenuTests : IDisposable
         var back = SettingsStore.Load(path);
         Assert.Equal(("viewer", 300, 100, "cardboard1", HeadTracking.Gyro, AimCoupling.Decoupled),
             (back.Stereo, back.StereoDepth, back.CanvasDepth, back.Viewer, back.HeadTracking, back.Aim));
+        Assert.Equal(70, back.HudSize);
     }
 
     [Fact]
@@ -91,20 +94,20 @@ public class StereoMenuTests : IDisposable
         var s = new MenuSettings
         {
             Stereo = "sbsfull", StereoSeparation = 7, StereoDepth = 450, CanvasDepth = 120, Viewer = "custom",
-            LensK1 = 25, LensK2 = 61, HeadTracking = HeadTracking.Gyro, Aim = AimCoupling.Decoupled,
+            LensK1 = 25, LensK2 = 61, HudSize = 50, HeadTracking = HeadTracking.Gyro, Aim = AimCoupling.Decoupled,
         };
         Directory.CreateDirectory(_dir);
         var path = Path.Combine(_dir, "round.json");
         Assert.Equal(SaveResult.Saved, SettingsStore.Save(s, path));
         var back = SettingsStore.Load(path);
         Assert.Equal(SettingsStore.Text(s), SettingsStore.Text(back));
-        Assert.Equal(new LensProfile(0.25f, 0.61f), back.Lens());
+        Assert.Equal(new LensProfile(0.25f, 0.61f, CanvasScale: 0.5f), back.Lens());
 
         // A file from before V7 keeps the defaults; bad values fall back.
         File.WriteAllText(path, "{\"format\": \"skynet-csharp-settings\", \"version\": 1, \"viewer\": \"oculus\", \"aim\": \"sideways\", \"lensK1\": 900}");
         back = SettingsStore.Load(path);
         Assert.Equal(("generic", AimCoupling.Coupled, HeadTracking.Off, 0), (back.Viewer, back.Aim, back.HeadTracking, back.CanvasDepth));
-        Assert.Equal(LensProfile.Generic, back.Lens());
+        Assert.Equal(LensProfile.Generic with { CanvasScale = MenuSettings.DefaultHudSize / 100f }, back.Lens());
     }
 
     [Fact]

@@ -314,6 +314,12 @@ public sealed class GameSession
         Soldier.Pained = () =>
         {
             var grunt = PlayerSounds.PainGrunt(Cosmetic.Next(16));
+            // Future Shock alone (no SkyNET folder) has grunt1 only: it stands in for the rest.
+            if (Sounds?.Get(grunt) == null)
+            {
+                grunt = PlayerSounds.PainGrunts[0];
+            }
+
             Sounds?.PlayDos2D(grunt, SoundBank.DosOverlap.Skip);
         };
         Weapons = new WeaponSystem(WeaponTable.Load(data), World, new DamageTargets(), sounds) { Player = Soldier };
@@ -1077,8 +1083,8 @@ public sealed class GameSession
                 continue;
             }
 
-            // Where Level draws its foot: the ground outdoors, 16 under the record indoors.
-            var y = Wld != null ? (float)Wld.HeightAt(e.X, e.Z) : -e.Y - Level.IndoorSpriteLift;
+            // Where Level draws its foot.
+            var y = SpriteRules.Foot(e, Wld);
             _pickups.Add(new Pickup(e.FileOffset, new Vector3(e.X, y, -e.Z), item));
         }
 

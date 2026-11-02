@@ -401,7 +401,7 @@ internal sealed partial class AppHost
         }
 
         using var zone = Prof.Zone(AppZones.GatherLights);
-        effects.Collect(s.Lights, level!, data, s.AnimationMs / 1000f, session.Behaviour, weapons);
+        effects.Collect(s.Lights, level!, data, s.AnimationMs / 1000f, renderer.Lighting!.ShadowQuality, session.Behaviour, weapons);
         (s.LightReach, s.LightBudget) = (level!.Far, level.LightBudget);
 
         // A mod's weather: its own clock (held while the game is), presentation only.

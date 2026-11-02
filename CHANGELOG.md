@@ -3,6 +3,29 @@
 Version in `Directory.Build.props`. Each batch of changes raises it: a fix
 the patch number, a feature the minor. Releases on GitHub start at 1.0.0.
 
+## 1.4.0 (2026-11-03)
+
+Fixes from GitHub issues, a data version check, and a HUD size for
+phone viewers.
+
+- Unknown game data: at start the game fingerprints its data archives
+  and warns when they are a release it does not know (#20), with
+  CONTINUE, IGNORE (no more warnings for that data) and QUIT; the log
+  lists each file's size and hash. Checked once, then only on change.
+- The laser rifle's scope shows where the crosshair aims, and the
+  night sky no longer shows the monitor's art through it (#18, #23).
+- Items placed on roofs, ruins, beams and conveyors stay up there
+  instead of dropping to the ground (#21); maps rebake once.
+- Future Shock: a pain grunt on every hit (#22); the intro and ending
+  movies play their sound (#23).
+- Flying mines stay under ceilings and fly straight at the player
+  instead of circling (#23).
+- Muzzle flashes and explosions cast shadows outdoors at SHADOWS High
+  (#17); indoors needs an engine change.
+- 3D VIEW: HUD SIZE sets the HUD's and menus' share of a phone
+  viewer's eye (60% by default), so they stay inside the lens.
+- Android 16: Back no longer closes the game.
+
 ## 1.3.0 (2026-11-02)
 
 Android runs on NativeAOT.

@@ -57,6 +57,8 @@ public sealed class SoundBank : IDisposable
     private readonly Mixer _mixer;
     private readonly Func<string, byte[]?> _read;
     private readonly IDisposable? _owned;
+    /// <summary>SkyNET's archive under Future Shock's (<see cref="Open"/>); null: none.</summary>
+    private readonly IDisposable? _fallback;
     private readonly SoundMods? _mods;
     /// <summary>The mods' files the cache was read through (a mount empties it).</summary>
     private VirtualFileSystem? _cacheMods;
@@ -134,9 +136,33 @@ public sealed class SoundBank : IDisposable
 
     private SoundBank(Mixer mixer, BsaArchive archive) : this(mixer, archive.Read, SoundMods.Mounted) => _owned = archive;
 
-    /// <summary>The game's MDMDSFXS.BSA, kept open until disposed; null when the folder has none.</summary>
-    public static SoundBank? Open(Mixer mixer, GameData data) =>
-        data.Exists(Archive) ? new SoundBank(mixer, data.OpenArchive(Archive)) : null;
+    /// <summary><paramref name="archive"/>'s sounds, <paramref name="fallback"/>'s for the names it lacks.</summary>
+    private SoundBank(Mixer mixer, BsaArchive archive, BsaArchive fallback)
+        : this(mixer, name => archive.Read(name) ?? fallback.Read(name), SoundMods.Mounted)
+    {
+        _owned = archive;
+        _fallback = fallback;
+    }
+
+    /// <summary>The game's MDMDSFXS.BSA, kept open until disposed; null when the folder has none.
+    /// Future Shock's lacks SkyNET's grunt2-9, drowning and wading sounds: SKYNET.EXE plays Future
+    /// Shock with SkyNET's sounds, so those come from SkyNET's archive when its folder is known.</summary>
+    public static SoundBank? Open(Mixer mixer, GameData data)
+    {
+        if (!data.Exists(Archive))
+        {
+            return null;
+        }
+
+        var own = data.OpenArchive(Archive);
+        var (path, variant) = data.FrontArchive(Archive);
+        if (path == data.PathOf(Archive))
+        {
+            return new SoundBank(mixer, own);
+        }
+
+        return new SoundBank(mixer, own, BsaArchive.Open(path, variant));
+    }
 
     /// <summary>The listener's position as the bank last heard it.</summary>
     public Vector3 ListenerPosition => _listener;
@@ -665,5 +691,6 @@ public sealed class SoundBank : IDisposable
     {
         StopAll();
         _owned?.Dispose();
+        _fallback?.Dispose();
     }
 }

@@ -1,6 +1,7 @@
 using RetroEng.Audio;
 using RetroEng.Diagnostics;
 using SkyNet.Formats;
+using SkyNet.Game.Audio;
 using SkyNet.Game.Campaign;
 using SkyNet.Game.Menu;
 
@@ -38,12 +39,16 @@ internal sealed partial class AppHost
             return false;
         }
 
-        Log.Info("Movie", $"{file}: {vid.FrameCount} frames, {vid.Seconds:0.0} s, sound {vid.Audio.Length / Math.Max(vid.AudioRate, 1.0):0.0} s");
+        // Future Shock's BEGIN / END have no sound blocks: their RAW cues instead.
+        var cues = vid.AudioRate == 0 ? MovieCues.Soundtrack(Path.GetFileNameWithoutExtension(file), vid, n => sounds?.Get(n)) : null;
+        var sound = cues != null ? cues.Frames / (double)cues.SampleRate : vid.Audio.Length / Math.Max(vid.AudioRate, 1.0);
+        Log.Info("Movie", $"{file}: {vid.FrameCount} frames, {vid.Seconds:0.0} s, sound {sound:0.0} s{(cues != null ? " (cues)" : "")}");
         audio.Mixer.SetBusPaused(Bus.Music, true);
         // The music comes back however it closes; then() only when it ended or was skipped.
         menu.Push(new MovieScreen(vid, audio.Mixer, then)
         {
             Place = place,
+            Soundtrack = cues,
             Released = () => audio.Mixer.SetBusPaused(Bus.Music, false),
         });
         ReleaseMouse();

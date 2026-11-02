@@ -24,7 +24,7 @@ namespace SkyNet.Game.Baking;
 public static class MapBaker
 {
     /// <summary>The baker's own version: bump it when what a bake produces changes (a stale block is rebaked).</summary>
-    public const string ToolVersion = "2";
+    public const string ToolVersion = "3";
 
     /// <summary>The side of the map cells the static batch is split by, world units.</summary>
     public const float CellSize = 1024f;
@@ -303,7 +303,7 @@ public static class MapBaker
             var item = SpriteRules.IsItem(e.SpriteIndex);
             var scale = item ? Level.ItemScale : Level.SpriteScale;
             var size = new Vector2(t.Width * scale, t.Height * scale);
-            float baseY = map.IsOutdoor && wld != null ? (float)wld.HeightAt(e.X, e.Z) : -e.Y - Level.IndoorSpriteLift;
+            var baseY = SpriteRules.Foot(e, map.IsOutdoor ? wld : null);
             var phase = t.Animated && !item ? e.FileOffset % t.Frames : 0;
             if (!groups.TryGetValue((e.SpriteIndex, phase), out var list))
             {

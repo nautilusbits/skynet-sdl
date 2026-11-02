@@ -81,8 +81,9 @@ dropped by the title, a new game, a load), CREDITS / END at the campaign's end t
 CREDITS after the title's idle time (focused window only). Any new key, click or pad button skips
 a movie after its first 0.5 s (`MovieScreen.ArmSeconds`; auto-repeat does not). The names sit in
 `MissionTable.SkyNet` (`BriefingMovie`, `WinMovie`, from the rows above). None plays under a demo,
-a recording, a capture or a deathmatch (`MoviesAllowed`). Not done: the hidden title hotspot, the
-idle clock on the other front-end menus, BEGIN / END's RAW sound cues (0x143fba), the text scroller
+a recording, a capture or a deathmatch (`MoviesAllowed`). BEGIN / END have no sound blocks: their
+RAW cues (0x143fba, table 0x3559e) are mixed into one track (`MovieCues`). Not done: the hidden
+title hotspot, the idle clock on the other front-end menus, the text scroller
 when CREDITS.VID is missing.
 
 ## Open questions

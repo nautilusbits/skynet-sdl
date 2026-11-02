@@ -655,6 +655,12 @@ public sealed partial class Enemy
         // looks (staggered, <see cref="SenseCount"/>); a clear way keeps the course.
         var sign = speed < 0f ? -1f : 1f;
         var look = MathF.Max(MathF.Abs(speed) * FlyLookSeconds, FlyLookMin);
+        if (Homes(see))
+        {
+            // A mine looks no further than the soldier: a wall behind him is no obstacle (#23).
+            look = MathF.Min(look, Flat(player - Position).Length());
+        }
+
         if (_avoidT > 0f)
         {
             _avoidT -= dt;
@@ -673,7 +679,8 @@ public sealed partial class Enemy
 
         Yaw = Wrap(Approach(Yaw, wantYaw, TurnRate * dt * (_avoidT > 0f ? AvoidTurnBoost : 1f)));
         hull = Hull();
-        var motion = Forward * (speed * dt) + new Vector3(0f, Lift(dt, speed, see, player), 0f);
+        var way = _avoidT > 0f ? Forward : MineWay(see, player - Position);
+        var motion = way * (speed * dt) + new Vector3(0f, Lift(dt, speed, see, player), 0f);
         _blocked = Slide(hull, motion);
     }
 
@@ -750,9 +757,8 @@ public sealed partial class Enemy
             return Math.Clamp(dy, -speed * dt, speed * dt);
         }
 
-        var fl = MathF.Max(SurfaceAt(Position), SurfaceAt(Position + Forward * FlyerLookahead));
-        var need = MathF.Max(fl + FlyerMinAlt - Position.Y, (_climbTo ?? float.NegativeInfinity) - Position.Y);
-        return need > 0f ? MathF.Min(need, FlyerClimbSpeed * dt) : 0f;
+        var need = MathF.Max(HoverNeed(), (_climbTo ?? float.NegativeInfinity) - Position.Y);
+        return Math.Clamp(need, -FlyerSinkSpeed * dt, FlyerClimbSpeed * dt);
     }
 
     /// <summary>Moves the hull by <paramref name="motion"/>, sliding along what it meets; true when it met something.</summary>
