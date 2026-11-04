@@ -3,8 +3,18 @@ using RetroEng.Physics;
 
 namespace SkyNet.Game.Collision;
 
+/// <summary>Which faces <see cref="SpriteFloor.Below"/> stands on.</summary>
+public enum FloorFaces
+{
+    /// <summary>Every face, the ground's too.</summary>
+    Any,
+    /// <summary>The placed meshes' alone (owner a MAP offset): not the WLD ground (owner −1).</summary>
+    Meshes,
+}
+
 /// <summary>
-/// The floor a sprite drawn as a model stands on indoors. The billboard's foot is the record's Y
+/// The floor a sprite drawn as a model stands on indoors, and an outdoor item on a roof or a beam
+/// (<see cref="SpriteRules.Foot"/>). The billboard's foot is the record's Y
 /// less <see cref="Level.IndoorSpriteLift"/>, which suits a tall picture but sinks a flat model:
 /// litter records sit about 8 above the floor, cans about 13. So the model looks for the highest
 /// face pointing up straight under the record, from <see cref="Above"/> over it to
@@ -24,11 +34,13 @@ public static class SpriteFloor
     public const float Above = 4f;
 
     /// <summary>The top of the highest upward face straight under <paramref name="record"/> (level
-    /// axes, Y up) within the window; null: none.</summary>
-    public static float? Below(CollisionWorld world, Vector3 record)
+    /// axes, Y up) within the window (<paramref name="above"/> over it to <paramref name="reach"/>
+    /// under it), of the <paramref name="faces"/> asked; null: none.</summary>
+    public static float? Below(CollisionWorld world, Vector3 record, FloorFaces faces = FloorFaces.Any,
+        float above = Above, float reach = Reach)
     {
-        var top = record.Y + Above;
-        var bottom = record.Y - Reach;
+        var top = record.Y + above;
+        var bottom = record.Y - reach;
         var tris = new List<Triangle>();
         world.Gather(new Box(new Vector3(record.X - 0.5f, bottom - 1f, record.Z - 0.5f),
             new Vector3(record.X + 0.5f, top + 1f, record.Z + 0.5f)), tris);
@@ -36,7 +48,7 @@ public static class SpriteFloor
         float? best = null;
         foreach (var tri in tris)
         {
-            if (tri.Cross.Y <= 0f || !Intersect.Ray(from, -Vector3.UnitY, tri, out var d))
+            if ((faces == FloorFaces.Meshes && tri.Owner < 0) || tri.Cross.Y <= 0f || !Intersect.Ray(from, -Vector3.UnitY, tri, out var d))
             {
                 continue;
             }

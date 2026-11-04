@@ -16,6 +16,9 @@ internal sealed partial class AppHost
     /// <summary>A level load slower than this so far shows its next stages (a quick one never flashes).</summary>
     private const double LongLoadMs = 250.0;
 
+    /// <summary>A long step's loading frames this far apart (a bake waiting on its worker).</summary>
+    private static readonly TimeSpan LoadingFrameGap = TimeSpan.FromMilliseconds(100);
+
     // The band, the line and the bar on the DOS 320 x 200 screen.
     private static readonly Rectangle LoadingBand = new(0, 166, 320, 34);
     private static readonly Rectangle LoadingLine = new(8, 168, 304, 14);
@@ -69,6 +72,15 @@ internal sealed partial class AppHost
             window.PumpEvents(input);
         }
 
+        PaintLoading(text, fraction);
+        renderer.Present(new View(Matrix4x4.Identity, Matrix4x4.Identity, Vector3.Zero), new Vector4(0f, 0f, 0f, 1f));
+        loadingFrames++;
+        loadingTicks += Stopwatch.GetTimestamp() - started;
+    }
+
+    /// <summary>A loading frame's canvas (the title, <paramref name="text"/>, the bar) queued, not presented.</summary>
+    private void PaintLoading(string text, float fraction)
+    {
         menuPainter.Use(null);
         menuPainter.FillWindow(MenuPainter.Black);
         menuPainter.Image(MenuLayout.TitleImage, MenuLayout.TitlePalette, 0, 0);
@@ -81,10 +93,6 @@ internal sealed partial class AppHost
         {
             menuPainter.Fill(LoadingBar with { Width = filled }, MenuPainter.TextGreen);
         }
-
-        renderer.Present(new View(Matrix4x4.Identity, Matrix4x4.Identity, Vector3.Zero), new Vector4(0f, 0f, 0f, 1f));
-        loadingFrames++;
-        loadingTicks += Stopwatch.GetTimestamp() - started;
     }
 
     /// <summary>The loading frames of <paramref name="load"/> and their cost into the log.</summary>

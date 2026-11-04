@@ -29,6 +29,7 @@ internal static class AppZones
     public static readonly ZoneId RobotMeshes = ZoneId.Of("Robot meshes");
     public static readonly ZoneId WarmUp = ZoneId.Of("Warm up");
     public static readonly ZoneId UploadFlush = ZoneId.Of("Upload flush");
+    public static readonly ZoneId Reflections = ZoneId.Of("Reflections");
     public static readonly ZoneId MusicStart = ZoneId.Of("Music start");
 
     public static readonly ZoneId SaveGame = ZoneId.Of("Save game");

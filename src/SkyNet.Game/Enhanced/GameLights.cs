@@ -4,6 +4,9 @@ using SkyNet.Game.Weapons;
 
 namespace SkyNet.Game.Enhanced;
 
+/// <summary>The game a frame shows: a network game's weapon lights cast no shadows (GitHub #17).</summary>
+public enum PlayKind { Campaign, Network }
+
 /// <summary>
 /// The shots' own light in the enhanced look, made each frame from the weapons' effects and the
 /// bolts in flight (the Godot port's ENHANCED muzzle_flash.gd, explosion.gd and projectile.gd,
@@ -11,8 +14,9 @@ namespace SkyNet.Game.Enhanced;
 /// Godot's colours are sRGB, linear here.
 /// <code>
 ///   muzzle flash   1.2 → 0 over its 0.08 s, 600 u, the shot's colour
-///   explosion      3.0 → 0 down its frames (every impact and blast, the robots' deaths too),
+///   explosion      3.0 → 0 down its frames (every blast, the robots' deaths too),
 ///                  max(radius · 5, 600) u, (1, 0.7, 0.4)
+///   bullet hit     0.5 → 0 over 0.08 s, 140 u, the explosion's colour (a hand laser's hit)
 ///   bolt in flight 0.5, dark at the muzzle and full 260 u on (it never lights its shooter),
 ///                  max(splash, 420) u, the bolt's colour
 ///   laser / plasma by its class and colour (<see cref="ShotLightTable"/>, a mod's lights/shots.json),
@@ -23,8 +27,15 @@ namespace SkyNet.Game.Enhanced;
 /// </summary>
 public static class GameLights
 {
+    /// <summary>Explosions shadowed at once, the newest (brightest) first (GitHub #17). The engine
+    /// shadows at most 2 lights a frame, each about as dear as the other; one blast leaves the
+    /// other slot to the soldier's flash.</summary>
+    public const int ShadowedBlasts = 1;
+
     public const float FlashIntensity = 1.2f, FlashRange = 600f;
     public const float ExplosionIntensity = 3f, ExplosionRangeScale = 5f, ExplosionRangeMin = 600f;
+    /// <summary>A bullet's hit: a hand laser's (it lit like a grenade, an uzi's burst flooded rooms).</summary>
+    public const float HitIntensity = 0.5f, HitRange = 140f, HitLife = 0.08f;
     /// <summary>projectile.gd LIGHT_ENERGY and LIGHT_RAMP.</summary>
     public const float BoltIntensity = 0.5f, BoltRamp = 260f, BoltRangeMin = 420f;
 
@@ -69,6 +80,11 @@ public static class GameLights
             RetroEng.Render.Lights.LightFalloff.EnergyAtRef(ExplosionIntensity * k));
     }
 
+    /// <summary>A bullet's hit: <see cref="HitIntensity"/> fading to 0 over <see cref="HitLife"/>.</summary>
+    public static PointLight HitLight(Effect e) =>
+        new(e.Position, Explosion, HitRange,
+            RetroEng.Render.Lights.LightFalloff.EnergyAtRef(HitIntensity * MathF.Max(0f, 1f - e.Age / HitLife)));
+
     /// <summary>A bolt's light (null for a lobbed body or a hitscan record), ramped over the first
     /// <see cref="BoltRamp"/> units of its flight: a laser's (and any bolt a mod names) from
     /// <paramref name="table"/> (default <see cref="ShotLightTable.Current"/>), else 0.5 over
@@ -104,25 +120,34 @@ public static class GameLights
     }
 
     /// <summary>Adds the weapons' lights that shine now to <paramref name="into"/>. A shot whose
-    /// table light has an impact flash lights its impact with that, not the explosion's. Muzzle
-    /// flashes and explosions cast shadows at <paramref name="shadows"/> High only (GitHub #5): the
-    /// engine's 2 shadowed lights cost about 3 ms a frame in a fire fight, too much for a phone.</summary>
-    public static void Append(List<PointLight> into, WeaponSystem weapons, ShotLightTable? table = null, ShadowQuality shadows = ShadowQuality.Off)
+    /// table light has an impact flash lights its impact with that, not the explosion's. Shadows at
+    /// <paramref name="shadows"/> High only (GitHub #5: a phone's Low can't spare the ~3 ms) and in a
+    /// <see cref="PlayKind.Campaign"/> only (GitHub #17): the soldier's own muzzle flash and the newest
+    /// <see cref="ShadowedBlasts"/> explosions; others' flashes, impacts and bolts light shadowless.</summary>
+    public static void Append(List<PointLight> into, WeaponSystem weapons, ShotLightTable? table = null, ShadowQuality shadows = ShadowQuality.Off,
+        PlayKind play = PlayKind.Campaign)
     {
         table ??= ShotLightTable.Current;
-        var casts = shadows == ShadowQuality.High;
+        var casts = shadows == ShadowQuality.High && play == PlayKind.Campaign;
+
+        // Explosions before the newest ShadowedBlasts light shadowless.
+        var blasts = 0;
         foreach (var e in weapons.Effects)
         {
-            if (e.Done || (e.Animated && e.Ammo != null && table.For(e.Ammo) is { ImpactLife: > 0f }))
+            blasts += e.Kind == EffectKind.Explosion && EffectLight(e, table).Energy > 0f ? 1 : 0;
+        }
+
+        var unshadowed = blasts - ShadowedBlasts;
+        foreach (var e in weapons.Effects)
+        {
+            var light = EffectLight(e, table);
+            if (light.Energy <= 0f)
             {
                 continue;
             }
 
-            var light = e.Animated ? ExplosionLight(e) : e.Bank == WeaponSystem.FlashBank ? FlashLight(e) : default;
-            if (light.Energy > 0f)
-            {
-                into.Add(light with { CastsShadow = casts });
-            }
+            var shadowed = e.Kind == EffectKind.OwnFlash || (e.Kind == EffectKind.Explosion && unshadowed-- <= 0);
+            into.Add(light with { CastsShadow = casts && shadowed });
         }
 
         foreach (var p in weapons.Projectiles)
@@ -140,5 +165,22 @@ public static class GameLights
                 into.Add(light);
             }
         }
+    }
+
+    /// <summary>An effect's light: an explosion's or a muzzle flash's (zero energy: none, or its
+    /// shot's table impact flash lights it instead).</summary>
+    private static PointLight EffectLight(Effect e, ShotLightTable table)
+    {
+        if (e.Done || (e.Animated && e.Ammo != null && table.For(e.Ammo) is { ImpactLife: > 0f }))
+        {
+            return default;
+        }
+
+        if (e.Animated && e.Kind == EffectKind.Impact)
+        {
+            return HitLight(e);
+        }
+
+        return e.Animated ? ExplosionLight(e) : e.Bank == WeaponSystem.FlashBank ? FlashLight(e) : default;
     }
 }

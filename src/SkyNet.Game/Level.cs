@@ -15,6 +15,12 @@ namespace SkyNet.Game;
 /// <summary>RENDER DETAIL (SKYNET.EXE v1.01 table 0x61a00): the far clip and where the depth cue starts.</summary>
 public enum Detail { Low, Medium, High }
 
+/// <summary>What a level draws, for its shadow casters' promise (<see cref="Level.CasterOf"/>).</summary>
+public enum LevelDraw { World, Ground, Mover, Sprite, Replacement, Robot }
+
+/// <summary>Whether a draw has kept its pose for <see cref="Level.RestFrames"/> frames.</summary>
+public enum Motion { Moving, AtRest }
+
 /// <summary>
 /// One map on the renderer, in the original palette look: the WLD ground (outdoor maps), the
 /// variant-1 meshes (shared models drawn instanced), the variant-3 sprites as billboards turned
@@ -127,6 +133,11 @@ public sealed partial class Level
     /// <summary>The meshes that move, change stage or vanish (<see cref="BehaviourModel.IsDynamic"/>):
     /// one mesh per stage each, built where the map placed them and drawn through <see cref="Poses"/>.</summary>
     private readonly List<(int Offset, ModelMesh?[] Stages)> _dynamic = [];
+    /// <summary>Each mover's stages as static casters (drawn while it is at rest), its last pose and
+    /// the frames it has kept it.</summary>
+    private readonly List<ModelMesh?[]> _dynamicAtRest = [];
+    private EntityPose[] _lastPoses = [];
+    private int[] _restFrames = [];
     private ModelMesh? _sky;
     /// <summary>The enhanced look's dusk sky, drawn in place of <see cref="_sky"/> (<see cref="SunsetSky"/>).</summary>
     private MeshHandle _duskSky;
@@ -219,6 +230,12 @@ public sealed partial class Level
     public Vector4 HazeColour { get; private set; }
     /// <summary>The enhanced look's sky on a dusk map (<see cref="SunsetSky"/>); null on the others.</summary>
     internal SunsetLook? DuskLook { get; private set; }
+    /// <summary>The enhanced look's baked bounced light (<see cref="IrradianceFiles"/>), in place of its
+    /// even ambient; null: none baked. One instance a map, so it uploads once.</summary>
+    public IrradianceVolume? Irradiance { get; set; }
+    /// <summary>The map's reflection probes for the enhanced look (captured at load or read from the
+    /// cache: ReflectionFiles); null without. One list kept, so the probes upload once.</summary>
+    public IReadOnlyList<ReflectionProbe>? ReflectionProbes { get; set; }
     public float CueStart => MathF.Min(DetailCueStart[(int)Detail], Far);
 
     private Level(Renderer renderer, GameData data, int number, MapFile map, MapBlock block, bool staticRobots, TimeSpan bake, KeptSurfaces? kept)
@@ -261,7 +278,7 @@ public sealed partial class Level
         PrefetchHd(textures, block);
         if (Outdoor)
         {
-            Wld = data.LoadWld(number);
+            Wld = data.LoadWldFor(number)?.Wld;
             if (Wld != null && block.Terrain != null)
             {
                 Ground = new Terrain(renderer, textures, Palette, block.Terrain);
@@ -389,6 +406,23 @@ public sealed partial class Level
     /// (missions 5-8; the Godot port treats every map of those decades the same).</summary>
     public static bool IsDusk(int map) => DuskMaps.Contains(map / 10 * 10);
 
+    /// <summary>A draw's shadow caster: <see cref="Caster.Static"/> (its depth kept in the lamps' still
+    /// maps) for the world mesh and the ground, the same every frame, and a mover (door, crate, lift)
+    /// <see cref="Motion.AtRest"/>: one that starts moving leaves the still maps, which the engine then
+    /// draws again. A texture of more than one <paramref name="frames"/> changes the draw, as do
+    /// billboards, replacements' levels of detail and robots: dynamic.</summary>
+    public static Caster CasterOf(LevelDraw draw, int frames = 1, Motion motion = Motion.Moving) =>
+        frames > 1 ? Caster.Dynamic : draw switch
+        {
+            LevelDraw.World or LevelDraw.Ground => Caster.Static,
+            LevelDraw.Mover when motion == Motion.AtRest => Caster.Static,
+            _ => Caster.Dynamic,
+        };
+
+    /// <summary>Frames a mover keeps its pose before it counts as at rest (half a second at 60 Hz:
+    /// a slow door doesn't flip between still and moving).</summary>
+    public const int RestFrames = 30;
+
     private long Now => ClockMs ?? _clock.ElapsedMilliseconds;
 
     /// <summary>Copies what the simulation moves (<see cref="Poses"/>, <see cref="HiddenSprites"/>,
@@ -492,10 +526,20 @@ public sealed partial class Level
             DrawParts(_world, now);
         }
 
+        if (_lastPoses.Length != _dynamic.Count)
+        {
+            (_lastPoses, _restFrames) = (new EntityPose[_dynamic.Count], new int[_dynamic.Count]);
+        }
+
         for (var d = 0; d < _dynamic.Count; d++)
         {
             var (offset, stages) = _dynamic[d];
             var pose = frame.Poses[d];
+
+            // A mover that kept its pose draws as a static caster (the lamps' still maps keep it).
+            _restFrames[d] = pose == _lastPoses[d] ? Math.Min(_restFrames[d] + 1, RestFrames) : 0;
+            _lastPoses[d] = pose;
+            stages = _restFrames[d] >= RestFrames ? _dynamicAtRest[d] : stages;
             if (pose.Visible && !DrawReplacedStage(offset, pose.Stage, pose.Delta) && stages[Math.Clamp(pose.Stage, 0, stages.Length - 1)] is { } mesh)
             {
                 foreach (var part in mesh.Parts)
@@ -662,6 +706,7 @@ public sealed partial class Level
             var stages = d.Stages.Select(s => s == null ? null
                 : StaticBatch.Build(renderer, Palette, RenderState.Solid, s.Select(b => Bucket(textures, b)), vertexShade)).ToArray();
             _dynamic.Add((d.Offset, stages));
+            _dynamicAtRest.Add([.. stages.Select(AtRest)]);
         }
 
         IEnumerable<BlockBucket> buckets = block.World;
@@ -675,8 +720,16 @@ public sealed partial class Level
             buckets = Merge(block.World, block.Robots);
         }
 
-        _world = StaticBatch.Build(renderer, Palette, RenderState.Solid, buckets.Select(b => Bucket(textures, b)), vertexShade);
+        _world = StaticBatch.Build(renderer, Palette, RenderState.Solid, buckets.Select(b => Bucket(textures, b)), vertexShade,
+            draw: LevelDraw.World);
     }
+
+    /// <summary>A mover's stage as static casters (<see cref="CasterOf"/>, <see cref="Motion.AtRest"/>): the same mesh.</summary>
+    private static ModelMesh? AtRest(ModelMesh? stage) => stage == null ? null
+        : new ModelMesh(stage.Mesh, [.. stage.Parts.Select(p => p with
+        {
+            Material = p.Material with { Caster = CasterOf(LevelDraw.Mover, p.Texture?.Frames ?? 1, Motion.AtRest) },
+        })], stage.Triangles);
 
     /// <summary>DOS FUN_0014e100: R = Rz(roll)·Rx(pitch)·Ry(−yaw) in DOS axes; under (x, −y, −z)
     /// that is Rz(−roll)·Rx(pitch)·Ry(yaw) (column vectors), so for row vectors Ry·Rx·Rz(−roll).</summary>

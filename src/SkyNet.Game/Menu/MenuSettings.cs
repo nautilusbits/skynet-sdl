@@ -193,6 +193,12 @@ public sealed class MenuSettings
     /// stay inside the lens (the engine's 70% reached past it in a phone viewer).</summary>
     public int HudSize { get; set; } = DefaultHudSize;
 
+    /// <summary>How far the HUD and menus sit above a viewer's eye centre, in percent of its half-height
+    /// (3D VIEW's HUD HEIGHT): the panel at the bottom sat too low in a headset.</summary>
+    public int HudLift { get; set; } = DefaultHudLift;
+
+    public const int DefaultHudLift = 15;
+    public const int MaxHudLift = 30;
     public const int DefaultHudSize = 60;
     public const int MinHudSize = 30;
     public const int MaxHudSize = 100;
@@ -212,7 +218,7 @@ public sealed class MenuSettings
     /// <summary>The viewer's lens from <see cref="Viewer"/> (custom: <see cref="LensK1"/>, <see cref="LensK2"/>).</summary>
     public RetroEng.Render.LensProfile Lens() =>
         (RetroEng.Render.LensProfile.Preset(Viewer) ?? new RetroEng.Render.LensProfile(LensK1 / 100f, LensK2 / 100f))
-            with { CanvasScale = HudSize / 100f };
+            with { CanvasScale = HudSize / 100f, CanvasLift = HudLift / 100f };
 
     /// <summary>The stereo eyes' distance apart in world units (the soldier's eye is 75 high: 3 ≈ 6.4 cm).</summary>
     public int StereoSeparation { get; set; } = DefaultStereoSeparation;
@@ -430,6 +436,10 @@ public static class SettingsStore
     public const string FileName = "skynet-csharp-settings.json";
     public const string Format = "skynet-csharp-settings";
     public const int Version = 2;
+    /// <summary>The folder in <see cref="UserFolder"/> of what the game generates.</summary>
+    public const string CacheName = "cache";
+    /// <summary>The console's history in the cache.</summary>
+    private const string History = "console-history.txt";
 
     /// <summary>Files before this version saved LowRes as the default: they get HiRes once.</summary>
     private const int HiResHudVersion = 2;
@@ -444,6 +454,9 @@ public static class SettingsStore
     public static string AppDataFolder =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData, Environment.SpecialFolderOption.DoNotVerify),
             Folder);
+
+    /// <summary>What the game generates (baked maps and light, reflections): cache/ in <see cref="UserFolder"/>.</summary>
+    public static string CacheFolder => Path.Combine(UserFolder, CacheName);
 
     /// <summary>The settings file in <see cref="UserFolder"/>.</summary>
     public static string DefaultPath => Path.Combine(UserFolder, FileName);
@@ -470,23 +483,22 @@ public static class SettingsStore
     }
 
     /// <summary>Copies the settings, the console history and the saves an older build kept in
-    /// <see cref="AppDataFolder"/> into <see cref="UserFolder"/>, each only where the new place has
+    /// <see cref="AppDataFolder"/> into <see cref="UserFolder"/> (the history into its cache), each only where the new place has
     /// none yet; the old files stay. Returns how many files were copied.</summary>
-    public static int CopyFromAppData()
+    public static int CopyFromAppData() => CopyFromAppData(AppDataFolder, UserFolder);
+
+    /// <summary><see cref="CopyFromAppData()"/> from the folder <paramref name="from"/> into <paramref name="to"/>.</summary>
+    public static int CopyFromAppData(string from, string to)
     {
-        var from = AppDataFolder;
-        var to = UserFolder;
         if (string.Equals(Path.GetFullPath(from).TrimEnd(Path.DirectorySeparatorChar), Path.GetFullPath(to).TrimEnd(Path.DirectorySeparatorChar),
                 StringComparison.OrdinalIgnoreCase) || !Directory.Exists(from))
         {
             return 0;
         }
 
-        var copied = 0;
-        foreach (var name in new[] { FileName, "console-history.txt" })
-        {
-            copied += CopyIfAbsent(Path.Combine(from, name), Path.Combine(to, name));
-        }
+        var copied = CopyIfAbsent(Path.Combine(from, FileName), Path.Combine(to, FileName));
+        // The history straight into the cache, where the console keeps it.
+        copied += CopyIfAbsent(Path.Combine(from, History), Path.Combine(to, CacheName, History));
 
         var saves = Path.Combine(from, "saves");
         if (Directory.Exists(saves))
@@ -625,6 +637,7 @@ public static class SettingsStore
             s.LensK1 = Int(root, "lensK1", s.LensK1, 0, MenuSettings.MaxLensK);
             s.LensK2 = Int(root, "lensK2", s.LensK2, 0, MenuSettings.MaxLensK);
             s.HudSize = Int(root, "hudSize", s.HudSize, MenuSettings.MinHudSize, MenuSettings.MaxHudSize);
+            s.HudLift = Int(root, "hudLift", s.HudLift, 0, MenuSettings.MaxHudLift);
             s.HeadTracking = Enum(root, "headTracking", s.HeadTracking);
             s.Aim = Enum(root, "aim", s.Aim);
             s.ScreenBrightness = Enum(root, "screenBrightness", s.ScreenBrightness);
@@ -755,6 +768,7 @@ public static class SettingsStore
             w.WriteNumber("lensK1", s.LensK1);
             w.WriteNumber("lensK2", s.LensK2);
             w.WriteNumber("hudSize", s.HudSize);
+            w.WriteNumber("hudLift", s.HudLift);
             w.WriteString("headTracking", s.HeadTracking.ToString().ToLowerInvariant());
             w.WriteString("aim", s.Aim.ToString().ToLowerInvariant());
             w.WriteString("screenBrightness", s.ScreenBrightness.ToString().ToLowerInvariant());

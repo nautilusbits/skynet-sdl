@@ -92,7 +92,6 @@ internal static class AppTools
 
     internal static float Wrap(float degrees) => ((degrees % 360f) + 360f) % 360f;
 
-    // console-history.txt beside the settings file (beside the game).
     // The window of a settings file: windowed at its size, borderless over the desktop, or exclusive
     // fullscreen in its mode (none: the desktop's).
     internal static DisplaySetup DisplayOf(MenuSettings s) => new(s.WindowMode switch
@@ -102,15 +101,36 @@ internal static class AppTools
         _ => Fullscreen.Off,
     }, s.WindowSize, s.FullscreenSize);
 
-    internal static string ConsoleHistoryPath(string settingsPath) =>
-        Path.Combine(Path.GetDirectoryName(settingsPath) ?? ".", "console-history.txt");
+    // console-history.txt in logs/ beside the settings file (it is no generated cache: the owner keeps
+    // it); an older build's beside the settings or in cache/ moves there.
+    internal static string ConsoleHistoryFile(string settingsPath)
+    {
+        var dir = Path.GetDirectoryName(settingsPath) ?? ".";
+        var file = Path.Combine(dir, LogsName, ConsoleHistoryName);
+        SkyNet.Game.Storage.CacheMigration.Move(Path.Combine(dir, ConsoleHistoryName), file, SkyNet.Game.Storage.CacheFile.Personal);
+        SkyNet.Game.Storage.CacheMigration.Move(Path.Combine(dir, SettingsStore.CacheName, ConsoleHistoryName), file, SkyNet.Game.Storage.CacheFile.Personal);
+        try
+        {
+            // The history saves into it from the first command on.
+            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            Log.Warn("App", $"The console's history cannot be kept ({e.GetType().Name})");
+        }
+
+        return file;
+    }
+
+    private const string ConsoleHistoryName = "console-history.txt";
+    private const string LogsName = "logs";
 
     // --bake / --rebake: the map blocks of SkyNET's data and of Future Shock's beside it, then exit.
     internal static int GenHires(GameData data, string modsDir, string? banks)
     {
         var only = banks?.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
             .Select(b => int.Parse(b, System.Globalization.CultureInfo.InvariantCulture)).ToHashSet();
-        var job = SkyNet.Game.Mods.HiresJob.Start(data, Path.GetFullPath(modsDir), Path.Combine(AppContext.BaseDirectory, "cache"),
+        var job = SkyNet.Game.Mods.HiresJob.Start(data, Path.GetFullPath(modsDir), SettingsStore.CacheFolder,
             SkyNet.Upscale.UpscalerSource.Default, only);
         job.Wait();
         Console.WriteLine(job.Status);
@@ -140,7 +160,7 @@ internal static class AppTools
 
         foreach (var d in sets)
         {
-            using var store = new BlockStore(modsDir, d);
+            using var store = new BlockStore(modsDir, SettingsStore.CacheFolder, d);
             var clock = Stopwatch.StartNew();
             var stale = store.Stale(all);
             Log.Info("Bake", $"{Path.GetFileName(store.ZipPath)}: {stale.Count} map blocks to bake (checked in {clock.Elapsed.TotalMilliseconds:0} ms)");
@@ -160,6 +180,48 @@ internal static class AppTools
         }
 
         return 0;
+    }
+
+    // --bake-irradiance MAP|all: each map's irradiance volume (IrradianceScene → IrradianceBake) into
+    // the cache, keyed as a game load keys it (IrradianceFiles: the block the game loads); a line per map.
+    internal static int BakeIrradiance(GameData data, string modsDir, string which)
+    {
+        var maps = which == Options.AllMaps ? MapBaker.MapNumbers(data) : [int.Parse(which, CultureInfo.InvariantCulture)];
+        var cacheFile = Path.Combine(SettingsStore.CacheFolder, SkyNet.Game.Storage.DataVersions.CacheName);
+        var fingerprint = SkyNet.Game.Storage.DataVersions.Fingerprint(SkyNet.Game.Storage.DataVersions.Check(data.Dir, data.Game, cacheFile).Files);
+        using var store = new BlockStore(modsDir, SettingsStore.CacheFolder, data);
+        store.Bake(store.Stale());
+        store.Mount();
+        var failed = 0;
+        foreach (var number in maps)
+        {
+            var clock = Stopwatch.StartNew();
+            if (data.LoadMap(number) is not { } map || (store.Load(number) ?? MapBaker.Bake(data, number)) is not { } block
+                || IrradianceScene.Build(data, block, map, number) is not { } input)
+            {
+                Log.Warn("Bake", $"MAP.{number:D3}: no map, block or triangles; skipped");
+                failed++;
+                continue;
+            }
+
+            var prepared = clock.Elapsed.TotalSeconds;
+            var volume = IrradianceBake.Bake(input.Meshes, input.Lamps, input.Settings);
+            var baked = clock.Elapsed.TotalSeconds - prepared;
+            var key = IrradianceFiles.KeyOf(fingerprint, IrradianceFiles.MapHashOf(block));
+            var file = IrradianceFiles.PathOf(SettingsStore.CacheFolder, data.Game, key, number);
+            if (!IrradianceFiles.Write(volume, file))
+            {
+                failed++;
+                continue;
+            }
+
+            Log.Info("Bake", string.Create(CultureInfo.InvariantCulture,
+                $"MAP.{number:D3} {input.Preset}: {input.Triangles} triangles, {input.Lamps.Length} lamps; {volume.SizeX}x{volume.SizeY}x{volume.SizeZ} probes " +
+                $"every {volume.Spacing:0} u; input {prepared:0.0} s, bake {baked:0.0} s; " +
+                $"{new FileInfo(file).Length / 1024} KB {Path.GetRelativePath(SettingsStore.UserFolder, file)}"));
+        }
+
+        return failed == maps.Length ? 1 : 0;
     }
 
     // --play-script without a window: the session alone, every step and map change printed.

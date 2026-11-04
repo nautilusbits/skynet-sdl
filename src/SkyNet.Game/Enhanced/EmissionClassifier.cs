@@ -48,21 +48,28 @@ public static class EmissionClassifier
     /// <summary>Whether an 8-bit colour is lit: Godot's integer luma (77, 151, 28) / 256, raised to
     /// 85 % of the brightest channel when that is more (a saturated warning strip counts as a lamp
     /// at a lower brightness than a white one), at or above <see cref="Cut8"/>.</summary>
-    public static bool IsLit(byte r, byte g, byte b)
+    public static bool IsLit(byte r, byte g, byte b) => IsLit(r, g, b, Cut8);
+
+    /// <summary><see cref="IsLit(byte, byte, byte)"/> at a cut of 0-255.</summary>
+    public static bool IsLit(byte r, byte g, byte b, int cut8)
     {
         var l = (r * 77 + g * 151 + b * 28) >> 8;
         var top = Math.Max(r, Math.Max(g, b)) * 85 / 100;
-        return Math.Max(l, top) >= Cut8;
+        return Math.Max(l, top) >= cut8;
     }
 
     /// <summary>The lit flag of every palette index (index 0 included; the caller skips it).</summary>
-    public static bool[] LitTable(Palette palette)
+    public static bool[] LitTable(Palette palette) => LitTable(palette, EmissionCut);
+
+    /// <summary><see cref="LitTable(Palette)"/> at a cut of 0-1 (a texture just under the cut, made a lamp by name).</summary>
+    public static bool[] LitTable(Palette palette, float cut)
     {
+        var cut8 = (int)(cut * 255.0);
         var lit = new bool[Palette.Colors];
         for (var i = 0; i < Palette.Colors; i++)
         {
             var (r, g, b) = palette[i];
-            lit[i] = IsLit(r, g, b);
+            lit[i] = IsLit(r, g, b, cut8);
         }
 
         return lit;

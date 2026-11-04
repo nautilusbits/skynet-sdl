@@ -197,7 +197,8 @@ public sealed partial class Level
         IEnumerable<BlockBucket> buckets = staticRobots ? Merge(world2, block.Robots) : world2;
         // Nothing hidden (only dynamic props replaced): the DOS world mesh serves both looks.
         _worldEnhanced = removed == 0 ? _world
-            : StaticBatch.Build(renderer, Palette, RenderState.Solid, buckets.Select(b => Bucket(textures, b)), _shading != null);
+            : StaticBatch.Build(renderer, Palette, RenderState.Solid, buckets.Select(b => Bucket(textures, b)), _shading != null,
+                draw: LevelDraw.World);
         HiddenTriangles = removed;
         Log.Info("Mods", $"MAP.{Number:D3}: {ReplacedProps} props ({_dynamicReplacements.Count} of them dynamic) of " +
             $"{meshes.Count(m => m.Value != null)} models replaced in the enhanced look " +

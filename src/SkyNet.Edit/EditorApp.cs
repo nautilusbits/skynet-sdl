@@ -129,7 +129,7 @@ internal sealed partial class EditorApp : IDisposable
     /// (as the game does); null when the folder cannot be written (maps then bake from the raw files).</summary>
     public static BlockStore? OpenBlocks(string modsDir, GameData data)
     {
-        var store = new BlockStore(modsDir, data);
+        var store = new BlockStore(modsDir, SettingsStore.CacheFolder, data);
         try
         {
             if (store.Stale() is { Count: > 0 } stale)

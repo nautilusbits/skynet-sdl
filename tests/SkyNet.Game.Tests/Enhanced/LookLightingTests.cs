@@ -30,7 +30,8 @@ public class LookLightingTests
     {
         var lighting = LookLighting.For(LightPreset.Interior, null, 3992f, 1.2f);
         Assert.Equal(Vector3.Zero, lighting.Sun);
-        Assert.Equal(ShadowQuality.Off, lighting.ShadowQuality);
+        // No sun's cascades; the lamps' and the flash's shadows at the quality asked (#17).
+        Assert.Equal((Shadows.Off, ShadowQuality.High), (lighting.SunShadows, lighting.ShadowQuality));
         Assert.Equal(LookLighting.IndoorAmbient * LookLighting.InteriorAmbientMood, lighting.Sky);
         Assert.Equal(LookLighting.IndoorAmbient * LookLighting.InteriorAmbientMood, lighting.Ground);
         Assert.Equal(Vector3.UnitY, lighting.Up);

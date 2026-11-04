@@ -136,6 +136,17 @@ public sealed class CampaignControls
             select, thrown >= 0 ? Inventory.ThrowKeys[thrown] : -1, cycle);
     }
 
+    /// <summary>Whether Fire or Throw is held in <paramref name="tick"/>.</summary>
+    public bool TriggersHeld(in TickInput tick) => tick.IsDown(Fire) || tick.IsDown(Throw);
+
+    /// <summary><paramref name="tick"/> without Fire and Throw: the click that closed a menu (BEGIN,
+    /// RETURN) is still held as play resumes and must not shoot (#30).</summary>
+    public TickInput WithoutTriggers(in TickInput tick)
+    {
+        var triggers = TickInput.Bit(Fire) | TickInput.Bit(Throw);
+        return tick with { Down = tick.Down & ~triggers, Pressed = tick.Pressed & ~triggers };
+    }
+
     /// <summary>One tick of <paramref name="session"/> from <paramref name="tick"/> (with
     /// <paramref name="weapons"/> as <see cref="WeaponInput(in TickInput)"/> made it, or changed by a
     /// scripted run).</summary>

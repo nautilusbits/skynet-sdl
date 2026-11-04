@@ -200,7 +200,7 @@ public static class SpriteModels
             var animated = Gltf.LoadAnimated(bytes, uri => files.TryReadAllBytes(Folder + uri));
             if (animated.Clips.Count > 0)
             {
-                var lods = AnimatedLods.Merge(animated, AnimatedLevels(files, name[..^extension.Length]), LodSettings.Default, path);
+                var lods = AnimatedLods.Merge(animated, AnimatedLevels(files, name[..^extension.Length], path), LodSettings.Default, path);
                 return new SpriteModel
                 {
                     Sprite = sprite, Row = row, Animated = lods.Model, Box = RestBox(animated), Lods = lods,
@@ -226,12 +226,13 @@ public static class SpriteModels
 
     /// <summary>An animated sprite model's levels of detail: <c>NAME.lod1.glb</c>... up to the first
     /// missing or broken one.</summary>
-    private static List<AnimatedModel> AnimatedLevels(VirtualFileSystem files, string name)
+    private static List<AnimatedModel> AnimatedLevels(VirtualFileSystem files, string name, string main)
     {
         var lods = new List<AnimatedModel>();
         for (var level = 1; level <= LodSettings.MaxLevels; level++)
         {
-            if (files.TryReadAllBytes($"{Folder}{LodSettings.FileName(name, level)}.glb") is not { } bytes)
+            var path = $"{Folder}{LodSettings.FileName(name, level)}.glb";
+            if (!LodSettings.SameMod(files, main, path) || files.TryReadAllBytes(path) is not { } bytes)
             {
                 break;
             }

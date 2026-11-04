@@ -68,6 +68,21 @@ public static class DataVersions
         return new DataCheck(game, files, differs) { Skipped = skipped };
     }
 
+    /// <summary>The fingerprint's length (hex digits: 64 bits).</summary>
+    public const int FingerprintLength = 16;
+
+    /// <summary>A short name for the data release <paramref name="files"/> hold: the first
+    /// <see cref="FingerprintLength"/> hex digits of the SHA-256 of their names and hashes, by name,
+    /// the optional archives left out (one release with or without them is the same data).
+    /// Keys what is baked from the data (<see cref="Enhanced.IrradianceFiles"/>).</summary>
+    public static string Fingerprint(IEnumerable<DataFile> files)
+    {
+        var lines = files.Where(f => !Optional.Contains(f.Name)).OrderBy(f => f.Name, StringComparer.Ordinal)
+            .Select(f => $"{f.Name}\t{f.Sha256}\n");
+        var hash = SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(string.Concat(lines)));
+        return Convert.ToHexStringLower(hash)[..FingerprintLength];
+    }
+
     /// <summary>The names that differ from the release with the fewest differences: changed,
     /// missing or extra, sorted. Every name when no release is known.</summary>
     internal static IReadOnlyList<string> Differs(IReadOnlyList<DataFile> files, IReadOnlyList<IReadOnlyList<DataFile>> releases)

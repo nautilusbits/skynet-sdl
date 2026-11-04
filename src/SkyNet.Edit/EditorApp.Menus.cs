@@ -715,7 +715,7 @@ internal sealed partial class EditorApp
 
     private void OpenModsWindow()
     {
-        _catalog = ModCatalog.Scan(_modsDir, _systemMods);
+        _catalog = ModCatalog.Scan(_modsDir, SettingsStore.CacheFolder, _systemMods);
         _modEdit = [.. ModOrder.Effective(_prefs.Mods, _options.Mod != null ? ModOrder.Parse(_options.Mod) : null, _systemMods)];
         _showMods = true;
     }

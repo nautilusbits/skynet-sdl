@@ -1,4 +1,5 @@
 using System.Numerics;
+using RetroEng.Platform;
 using RetroEng.Render;
 using SkyNet.Formats;
 using SkyNet.Game.Menu;
@@ -16,7 +17,8 @@ public enum LightPreset { Night, Dusk, Interior }
 /// <code>
 ///   night:    moon (pale blue) along −MoonDirection ─┐
 ///   dusk:     warm sun from the dome's bright texels ─┼─ + sky / ground hemisphere ─► Lighting
-///   interior: no sun, INDOOR_AMBIENT_ENHANCED ───────┘    exposure = BRIGHTNESS × ExposureMood
+///   interior: no sun, INDOOR_AMBIENT_ENHANCED ───────┘    exposure = auto × BRIGHTNESS, AgX, grade
+///   baked bounced light (Level.Irradiance, IrradianceScene) ─► in place of the hemisphere where it reaches
 /// </code>
 /// </summary>
 public static class LookLighting
@@ -55,11 +57,36 @@ public static class LookLighting
 
     /// <summary>The mood: the enhanced look darker than the Godot port's light it started from, the
     /// night moodier. The light all around (sky / ground hemisphere, an interior's ambient) and the
-    /// moon / sun are scaled down, the exposure a little; the point lights (lamps, fires, muzzle
+    /// moon / sun are scaled down; the point lights (lamps, fires, muzzle
     /// flashes, explosions) keep their energy, so they stand out more, and the HUD (the canvas) is
-    /// not exposed at all. BRIGHTNESS and AMBIENT still scale on top.</summary>
-    public const float NightAmbientMood = 0.5f, DuskAmbientMood = 0.7f, InteriorAmbientMood = 0.45f;
-    public const float MoonMood = 0.7f, DuskSunMood = 0.85f, ExposureMood = 0.85f;
+    /// not exposed at all. BRIGHTNESS and AMBIENT still scale on top. The exposure's mood is the
+    /// auto exposure's key now (ExposureMood 1: the presets' own).</summary>
+    public const float NightAmbientMood = 0.4f, DuskAmbientMood = 0.7f, InteriorAmbientMood = 0.45f;
+    public const float MoonMood = 0.7f, DuskSunMood = 0.85f, ExposureMood = 1f;
+
+    /// <summary>The auto exposure per preset (AgX curve): the scene's log-mean luminance taken to
+    /// Key, the gain kept in Min..Max. The keys sit far below mid grey (0.18): the art is dark and
+    /// the look moody; a key of 0.18 would light every map like noon. Night lowest, so the dark
+    /// stays dark and the lamps stand out; interiors moody but readable; dusk the brightest. Max
+    /// 1.25 keeps a dark room dark (the owner found 2 lit the maps too evenly); Min 0.25 lets a
+    /// blast or a lit hall darken the view.</summary>
+    private static readonly AutoExposure NightExposure = new() { Key = 0.0105f, Min = 0.25f, Max = 1.25f };
+    private static readonly AutoExposure DuskExposure = new() { Key = 0.0375f, Min = 0.25f, Max = 1.25f };
+    private static readonly AutoExposure InteriorExposure = new() { Key = 0.024f, Min = 0.25f, Max = 1.25f };
+
+    /// <summary>The baked bounced light's strength per preset (<see cref="Lighting.IrradianceScale"/>,
+    /// times AMBIENT). The bake is the frame's own light, checked: bounced ≈ 0.1 × direct, as the
+    /// DOS art's albedo (≈ 0.13) gives. Interiors lift it ×3 (first baked in at ×8, which lit the
+    /// rooms evenly), so the lamps, now shadowed, light the room with darkness between them.</summary>
+    public const float NightBounce = 1f, DuskBounce = 1f, InteriorBounce = 3f;
+
+    /// <summary>The preset's <see cref="InteriorBounce"/>, <see cref="NightBounce"/> or <see cref="DuskBounce"/>.</summary>
+    public static float BounceOf(LightPreset preset) => preset switch
+    {
+        LightPreset.Night => NightBounce,
+        LightPreset.Dusk => DuskBounce,
+        _ => InteriorBounce,
+    };
 
     /// <summary>The night sky's star field (<see cref="StarField"/>): its brightness, and the disc
     /// round the moon kept clear (radians: the moon's half width, 57 texels / 200 / 2, and a margin).</summary>
@@ -69,6 +96,77 @@ public static class LookLighting
     private const float BrightFraction = 0.01f;
     /// <summary>Samples per triangle edge on the dome.</summary>
     private const int SampleSteps = 6;
+
+    /// <summary>The lit haze per preset (<see cref="VolumetricLight"/>): a dusty interior, a light
+    /// cool haze at night, a thinner warm one at dusk with a share of the sun's shafts. Densities
+    /// are per unit (a room is ~1000 u: the interior's dims what is 1000 u off by ~27 %); the aim
+    /// is the lamps' pools and shafts in the air, not fog.</summary>
+    public readonly record struct Haze(float Density, Vector3 Colour, float Anisotropy, float Distance, float Sun);
+
+    private static readonly Haze InteriorHaze = new(0.00032f, new Vector3(1f, 0.94f, 0.86f), 0.3f, 2000f, 0f);
+    private static readonly Haze NightHaze = new(0.00012f, new Vector3(0.85f, 0.9f, 1f), 0.3f, 3000f, 0f);
+    private static readonly Haze DuskHaze = new(0.0001f, new Vector3(1f, 0.9f, 0.8f), 0.3f, 3000f, 0.3f);
+
+    /// <summary>The preset's lit haze.</summary>
+    public static Haze HazeOf(LightPreset preset) => preset switch
+    {
+        LightPreset.Night => NightHaze,
+        LightPreset.Dusk => DuskHaze,
+        _ => InteriorHaze,
+    };
+
+    /// <summary>The preset's lit haze on <paramref name="os"/>: shadowed shafts (High) on desktop with
+    /// shadows on, the unshadowed closed form (Low) on phones or without shadowed lights to march
+    /// through; none with PARTICLES Off (the air's effects all go with it).</summary>
+    public static VolumetricLight? VolumetricOf(LightPreset preset, Os os, ShadowQuality shadows, ParticleLevel particles)
+    {
+        if (particles == ParticleLevel.Off)
+        {
+            return null;
+        }
+
+        var haze = HazeOf(preset);
+        return new VolumetricLight(haze.Density)
+        {
+            Colour = haze.Colour,
+            Anisotropy = haze.Anisotropy,
+            Distance = haze.Distance,
+            Sun = haze.Sun,
+            Quality = os == Os.Android || shadows == ShadowQuality.Off ? VolumetricQuality.Low : VolumetricQuality.High,
+        };
+    }
+
+    /// <summary>The reflections' fade into a probe's box (units) and, on High, how rough a surface
+    /// still takes the screen's reflections and how far their rays go (units: a large room).</summary>
+    public const float ReflectionFade = 64f, ScreenRoughness = 0.5f, ScreenDistance = 1500f;
+
+    /// <summary>The map's reflections from its probes (<see cref="Level.ReflectionProbes"/>): the probes
+    /// and the screen's half-resolution reflections (High) on desktop; the probes alone (Low) on
+    /// phones, and where the player asked for the cheap look (SHADOWS Off, DETAIL Low). None without probes.</summary>
+    public static Reflections? ReflectionsOf(IReadOnlyList<ReflectionProbe>? probes, Os os, ShadowQuality shadows, Detail detail)
+    {
+        if (probes is not { Count: > 0 })
+        {
+            return null;
+        }
+
+        var cheap = os == Os.Android || shadows == ShadowQuality.Off || detail == Detail.Low;
+        return new Reflections(probes)
+        {
+            Quality = cheap ? ReflectionQuality.Low : ReflectionQuality.High,
+            Fade = ReflectionFade,
+            ScreenRoughness = ScreenRoughness,
+            ScreenDistance = ScreenDistance,
+        };
+    }
+
+    /// <summary>The preset's auto exposure: the same instance every call.</summary>
+    public static AutoExposure ExposureOf(LightPreset preset) => preset switch
+    {
+        LightPreset.Night => NightExposure,
+        LightPreset.Dusk => DuskExposure,
+        _ => InteriorExposure,
+    };
 
     /// <summary>A map's preset: indoors interior; outdoors dusk on the dome's maps, else night.</summary>
     public static LightPreset PresetOf(int map, bool outdoor) =>
@@ -87,6 +185,12 @@ public static class LookLighting
             with
             {
                 Clouds = SkyClouds(level),
+                // The baked bounced light, where the map has one (else the even ambient).
+                Irradiance = level.Irradiance,
+                // The lamps' light in the air.
+                Volumetric = VolumetricOf(PresetOf(level.Number, level.Outdoor), OsInfo.Current, settings.Shadows, settings.Particles),
+                // The map's captured probes on its glossy surfaces.
+                Reflections = ReflectionsOf(level.ReflectionProbes, OsInfo.Current, settings.Shadows, settings.Detail),
                 SurfaceRelief = settings.Relief != ReliefLevel.Off, ReliefStrength = strength, ReliefFill = fill,
                 // Phones: 4 shadow fetches a pixel, not 9 (their texture rate and bandwidth).
                 ShadowFilter = OperatingSystem.IsAndroid() ? ShadowFilter.Narrow : ShadowFilter.Wide,
@@ -127,7 +231,8 @@ public static class LookLighting
         float ambient = 1f, bool occlusion = true, bool glow = true) =>
         For(PresetOf(level.Number, level.Outdoor), level.DuskSunDirection, level.Far, exposure, shadows, ambient, occlusion, glow);
 
-    /// <param name="shadows">The sun's shadows outdoors (interiors have no sun: off).</param>
+    /// <param name="shadows">The shadows' quality: the sun's outdoors, the shadowed point lights' everywhere
+    /// (interiors have no sun: its cascades off, the lamps' and the flash's shadows on).</param>
     /// <param name="ambient">The sky / ground hemisphere scaled (ENHANCED OPTIONS' AMBIENT, 1: as is).</param>
     /// <param name="occlusion">The ambient occlusion on (ENHANCED OPTIONS' AMBIENT OCCLUSION).</param>
     /// <param name="glow">The glow on (ENHANCED OPTIONS' GLOW).</param>
@@ -141,12 +246,23 @@ public static class LookLighting
             _ => (-Vector3.UnitY, Vector3.Zero, IndoorAmbient, IndoorAmbient, InteriorAmbientMood),
         };
         return new Lighting(direction, sun, sky * (ambient * mood), ground * (ambient * mood),
-            preset == LightPreset.Interior ? ShadowQuality.Off : shadows, ShadowDistance, glow ? Glow : 0f, Vector4.Zero, 0f)
+            shadows, ShadowDistance, glow ? Glow : 0f, Vector4.Zero, 0f)
         {
+            SunShadows = preset == LightPreset.Interior ? Shadows.Off : Shadows.On,
+            // The lamps' shadowed slots (LampShadows picks the lamps), fading as they change hands.
+            PointShadowCount = LampShadows.SlotsFor(shadows),
+            PointShadowFade = LampShadows.FadeSeconds,
             Up = Vector3.UnitY,
             Exposure = exposure * ExposureMood,
+            // The modern film look: AgX, the exposure adapting to the scene, the preset's grade.
+            ToneCurve = ToneCurve.AgX,
+            AutoExposure = ExposureOf(preset),
+            IrradianceScale = BounceOf(preset) * ambient,
+            Grade = LookGrade.Of(preset),
             Stars = preset == LightPreset.Night ? new StarField(StarBrightness, Vector3.UnitY, Level.MoonDirection(), MoonClearRadius) : null,
             ShadowReach = far,
+            // Faceted ground lit by smooth normals: no dark bands where its own shadow meets the light.
+            ShadowTerminator = ShadowTerminator.Fade,
             OcclusionRadius = OcclusionRadius,
             OcclusionStrength = occlusion ? EngineDefaults.OcclusionStrength : 0f,
             GlowIntensity = glow ? EngineDefaults.GlowIntensity : 0f,

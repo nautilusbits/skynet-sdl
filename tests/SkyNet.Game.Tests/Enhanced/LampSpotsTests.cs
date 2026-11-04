@@ -116,9 +116,57 @@ public class LampSpotsTests(ITestOutputHelper output)
     [InlineData("""{ "lamps": [ { "texture": "x" } ] }""")]
     [InlineData("""{ "lamps": [ { "colour": 3 } ] }""")]
     [InlineData("""{ "lamps": [ { "shape": "round" } ] }""")]
-    [InlineData("""{ "lights": [] }""")]
+    [InlineData("""{ "glows": [] }""")]
     public void BadFilesAreRefused(string json) =>
         Assert.Throws<JsonDataException>(() => LampSpots.Parse(Encoding.UTF8.GetBytes(json)));
+
+    [Fact]
+    public void HandLightsLandOnTheirMapOnly()
+    {
+        var json = """
+            { "lamps": [ { "model": "LAMP" } ],
+              "lights": [ { "map": 191, "position": [100, 200, -300], "colour": [1, 0, 0], "intensity": 0.2, "range": 700 },
+                          { "map": 192, "position": [0, 50, 0] } ] }
+            """;
+        var bytes = Encoding.UTF8.GetBytes(json);
+        Assert.Single(LampSpots.Parse(bytes));
+        var rows = LampSpots.Lights(bytes);
+
+        // MAP.191's row is a steady omni of its own colour, intensity and range; none on MAP.193.
+        var lamp = Assert.Single(EmissiveLamps.Hand(rows, 191));
+        Assert.Equal(new Vector3(100, 200, -300), lamp.Position);
+        Assert.Empty(EmissiveLamps.Hand(rows, 193));
+        var all = new List<PointLight>();
+        new LevelLights([], [lamp], 191, []).Append(all, 0f, null);
+        var l = Assert.Single(all);
+        Assert.False(l.IsSpot);
+        Assert.Equal(new Vector3(1, 0, 0), l.Colour);
+        Assert.Equal(LightFalloff.EnergyAtRef(0.2f), l.Energy, 1e-4f);
+        Assert.Equal(700f, l.Range);
+
+        // Left out: the art lamps' white at 0.10, range 900.
+        var d = Assert.Single(EmissiveLamps.Hand(rows, 192));
+        Assert.Equal(EmissiveLamps.Colour, d.Colour);
+        Assert.Equal(LightFalloff.EnergyAtRef(EmissiveLamps.IntensityAtRef), d.Energy, 1e-4f);
+        Assert.Equal(900f, d.Range);
+    }
+
+    [Theory]
+    [InlineData("""{ "lights": [ { "position": [0, 0, 0] } ] }""")]
+    [InlineData("""{ "lights": [ { "map": 191 } ] }""")]
+    [InlineData("""{ "lights": [ { "map": 191, "position": [0, 0] } ] }""")]
+    [InlineData("""{ "lights": [ { "map": 191, "position": [0, 0, 0], "cone": 30 } ] }""")]
+    public void BadLightsAreRefused(string json) =>
+        Assert.Throws<JsonDataException>(() => LampSpots.Lights(Encoding.UTF8.GetBytes(json)));
+
+    /// <summary>The shipped hand lights light the dark rooms the art leaves (docs/plans/dark-interiors.md).</summary>
+    [Fact]
+    public void ShippedHandLights()
+    {
+        Assert.NotEmpty(EmissiveLamps.Hand(LampSpots.ShippedLights(GameKind.FutureShock), 191));
+        Assert.Empty(EmissiveLamps.Hand(LampSpots.ShippedLights(GameKind.FutureShock), 199));
+        Assert.NotEmpty(EmissiveLamps.Hand(LampSpots.ShippedLights(GameKind.SkyNet), 286));
+    }
 
     /// <summary>How many lamps go spot on the campaign's maps, a deathmatch arena and Future Shock's
     /// first maps with lamps (the counts are reported, a few bounds checked).</summary>

@@ -294,7 +294,7 @@ public class EnhancedOptionsTests : IDisposable
         Assert.Equal((0f, 0f, 0f), (off.OcclusionStrength, off.GlowIntensity, off.Glow));
 
         var indoor = LookLighting.For(LightPreset.Interior, null, 2000f, 1f, ShadowQuality.High, 0.5f);
-        Assert.Equal(ShadowQuality.Off, indoor.ShadowQuality);   // no sun indoors, whatever SHADOWS says
+        Assert.Equal((Shadows.Off, ShadowQuality.High), (indoor.SunShadows, indoor.ShadowQuality));   // no sun indoors; SHADOWS sizes the lamps' shadows
         Assert.Equal(LookLighting.IndoorAmbient * (0.5f * LookLighting.InteriorAmbientMood), indoor.Sky);
         Assert.Equal(1.5f, new MenuSettings { Ambient = 150 }.AmbientScale);
         Assert.Equal(Vector3.UnitY, indoor.Up);

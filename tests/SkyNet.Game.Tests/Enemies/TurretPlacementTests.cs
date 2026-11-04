@@ -4,6 +4,7 @@ using SkyNet.Game.Behaviour;
 using SkyNet.Game.Collision;
 using SkyNet.Game.Enemies;
 using SkyNet.Game.Tests.Behaviour;
+using SkyNet.Game.Weapons;
 
 namespace SkyNet.Game.Tests.Enemies;
 
@@ -135,4 +136,53 @@ public class TurretPlacementTests
             Assert.Equal(tank.Position, At(robots, marker).Position);
         }
     }
+
+    /// <summary>Future Shock MAP.032's hvytrrt (type 22) under the corridor ceiling (32 u up): the type's
+    /// roll 1024 (params 1-3 = pitch, yaw, roll, copied to the actor by 0x129a9d) hangs it upside
+    /// down, its base up against the ceiling and its guns under it.</summary>
+    [BehaviourDataFact]
+    public void FutureShockMap032HungTurretHangsUpsideDown()
+    {
+        if (FutureShock() is not { } data)
+        {
+            return;
+        }
+
+        var turret = At(Populate(data, 32), HungTurret);
+        Assert.True(Vector3.TransformNormal(Vector3.UnitY, turret.Root.World).Y < -0.99f, $"up {turret.Root.World}");
+        Assert.True(turret.Centre.Y > turret.Position.Y, $"centre {turret.Centre}");      // the base above, up to the ceiling
+    }
+
+    /// <summary>The hung turret looks from under its origin (its eye turns with it), under the
+    /// ceiling, and fires at the soldier down the corridor.</summary>
+    [BehaviourDataFact]
+    public void FutureShockMap032HungTurretFiresDownTheCorridor()
+    {
+        if (FutureShock() is not { } data)
+        {
+            return;
+        }
+
+        var map = data.LoadMap(32)!;
+        var behaviour = new LevelBehaviour(map, BehaviourModel.LoadTransfrm(data), new MissionProgress(5));
+        var (world, _) = LevelCollision.Build(data, map, null, behaviour.IsDynamic);
+        world.Add(behaviour.BuildColliders(data));
+        var soldier = new Soldier { Feet = new Vector3(10752f, -192f, -11452f) };    // 500 u down the corridor
+        var weapons = new WeaponSystem(WeaponTable.Load(data), world) { Player = soldier };
+        var robots = new Robots(SkyNet.Data.GameTables.Ais, new EnemyModels(data), world, weapons);
+        robots.Populate(map);
+        var turret = At(robots, HungTurret);
+        for (var i = 0; i < 35 * 8 && turret.ShotsFired == 0; i++)
+        {
+            robots.Tick(1f / 35f, soldier.Feet);
+        }
+
+        Assert.True(turret.Sees, "no sight");
+        Assert.True(turret.ShotsFired > 0);
+        var gun = turret.Turrets.First(t => t.Fire != null);
+        var toSoldier = Vector3.Normalize(soldier.Feet + new Vector3(0f, Enemy.AimHeight, 0f) - gun.World.Translation);
+        Assert.True(Vector3.Dot(gun.Forward, toSoldier) > 0.9f, $"gun forward {gun.Forward}, soldier {toSoldier}");
+    }
+
+    private const int HungTurret = 0x05604;
 }

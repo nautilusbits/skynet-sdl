@@ -339,6 +339,11 @@ internal sealed partial class AppHost
         // DOS swaps the whole VGA palette to SKYNTWTR.COL while the head is under.
         s.Underwater = session.Breath.IsUnder;
 
+        // DOS's red flash of a hit lived through; a deathmatch has its own (DmHud), death its own.
+        var flash = session.HitFlash;
+        s.HitFlashRow = dm == null && soldier.Alive ? flash.Row : null;
+        s.HitFlashStrength = s.HitFlashRow != null ? flash.Strength : 0f;
+
         // DOS's end banner (FUN_00121fe3): WELLDONE.IMG / FAILED.IMG; the text when the data lacks the art.
         s.Banner = session.BannerImage;
         s.BannerText = s.Banner != null ? session.Phase == SessionPhase.Failed ? "MISSION FAILED" : "WELL DONE"
@@ -401,7 +406,8 @@ internal sealed partial class AppHost
         }
 
         using var zone = Prof.Zone(AppZones.GatherLights);
-        effects.Collect(s.Lights, level!, data, s.AnimationMs / 1000f, renderer.Lighting!.ShadowQuality, session.Behaviour, weapons);
+        effects.Collect(s.Lights, level!, data, s.AnimationMs / 1000f, s.Eye, renderer.Lighting!.ShadowQuality,
+            dm != null ? PlayKind.Network : PlayKind.Campaign, session.Behaviour, weapons);
         (s.LightReach, s.LightBudget) = (level!.Far, level.LightBudget);
 
         // A mod's weather: its own clock (held while the game is), presentation only.
@@ -592,6 +598,8 @@ internal sealed partial class AppHost
                     DrawScope(s, width, height);
                 }
             }
+
+            DrawHitFlash(s, map);
 
             using var hudZone = Prof.Zone(AppZones.DrawHud);
             hud.Style = s.HudStyle;

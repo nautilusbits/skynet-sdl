@@ -6,13 +6,14 @@ using RetroEng.Editor;
 using RetroEng.Render;
 using SkyNet.Formats;
 using SkyNet.Game.Menu;
+using SkyNet.Game.Storage;
 
 namespace SkyNet.Edit;
 
 /// <summary>Where the editor was when it closed: the mission (or arena) open, its shown instance and the camera.</summary>
 public sealed record EditorPlace(GameKind Game, int Number, bool Arena, string? Instance, Vector3? Eye = null, float Yaw = 0f, float Pitch = 0f);
 
-/// <summary>The editor's preferences (Settings window, View menu, toolbar, panels), kept in SkyNetEdit.json
+/// <summary>The editor's preferences (Settings window, View menu, toolbar, panels), kept in cache/SkyNetEdit.json
 /// beside the exe: read at start, written a moment after they change and on exit. The command line
 /// overrides them for its run.</summary>
 public sealed class EditorPrefs
@@ -148,7 +149,31 @@ public sealed class EditorPrefs
         (s.AmbientOcclusion, s.Glow, s.Relief, s.Particles) = (AmbientOcclusion, Glow, Relief, Particles);
     }
 
-    public static string DefaultPath => Path.Combine(AppContext.BaseDirectory, FileName);
+    /// <summary>SkyNetEdit.json beside the game's settings file (the layout beside it: SkyNetEdit.imgui.ini).</summary>
+    public static string DefaultPath => Path.Combine(SettingsStore.UserFolder, FileName);
+
+    /// <summary>The panel layout's extension beside the preferences (EditorApp.Layout).</summary>
+    public const string LayoutExtension = ".imgui.ini";
+
+    /// <summary>Moves the preferences and layout an older build kept beside the exe or in the cache
+    /// to beside the settings (<see cref="CacheMigration.Move"/>: the newer copy wins).</summary>
+    public static void MoveBesideSettings()
+    {
+        foreach (var dir in new[] { AppContext.BaseDirectory, SettingsStore.CacheFolder })
+        {
+            CacheMigration.Move(Path.Combine(dir, FileName), DefaultPath, CacheFile.Personal);
+            CacheMigration.Move(Path.Combine(dir, Path.ChangeExtension(FileName, LayoutExtension)), Path.ChangeExtension(DefaultPath, LayoutExtension), CacheFile.Personal);
+        }
+
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(DefaultPath)!);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            Log.Warn("Edit", $"The editor's settings folder cannot be made ({e.GetType().Name})");
+        }
+    }
 
     /// <summary>Settings > Reset settings: every setting back to its default. Kept: the layout (the window's
     /// place, the panels shown: View > Reset layout's), the history (recent missions, where the editor was)

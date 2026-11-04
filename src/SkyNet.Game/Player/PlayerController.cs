@@ -30,6 +30,8 @@ public interface IPlayerMover
 /// units (Godot's floor_snap_length);</item>
 /// <item>a grounded body stopped by a wall tries to step up: rise 80 (then 48, 24, 12), advance,
 /// drop onto a walkable floor at least 2 units above the feet;</item>
+/// <item>in the air and not rising, a body stopped by a wall steps onto a walkable floor up to
+/// 25 above its feet (DOS's floor re-find): a jump reaches a ledge 66 up;</item>
 /// <item>crouch drops the eye to 35 at 100 u/s (the body stays);</item>
 /// <item>noclip flies along the view at 3500 u/s (× 2.5 running) through everything.</item>
 /// </list>
@@ -53,6 +55,9 @@ public sealed partial class PlayerController
     public const float FootMaxSlopeDegrees = 40f;
     public const float StepHeight = 80f;
     public static readonly float[] StepRises = [StepHeight, 48f, 24f, 12f];
+    /// <summary>A body in the air and not rising steps onto a walkable floor up to this far above
+    /// its feet (DOS FUN_0012b18c, 0x12b6c0: the floor re-find's 25): a jump's 41 reaches a ledge 66 up.</summary>
+    public const float LedgeRise = 25f;
     public const float StepProbe = 14f;
     public const float FloorSnap = 150f;
     public const float FallSafeSpeed = 396f;
@@ -271,6 +276,10 @@ public sealed partial class PlayerController
         if (onFloorBefore && moving > 1f && OnWall)
         {
             StepUp(h, moving * dt);
+        }
+        else if (!onFloorBefore && !OnFloor && Velocity.Y <= 0f && (OnWall || OnCeiling) && want.Length() > 1f)
+        {
+            GrabLedge(Vector3.Normalize(want) * MathF.Max(want.Length() * dt, StepProbe));
         }
 
         TrackStuck(dt, want.Length() > 1f, Vector3.Distance(Position, before));
@@ -499,6 +508,36 @@ public sealed partial class PlayerController
         FloorNormal = hit.Normal;
         FloorOwner = hit.Owner;
         return true;
+    }
+
+    /// <summary>DOS's floor re-find in the air (FUN_0012b18c, 0x12b6c0): from the apex on, a body
+    /// stopped by a ledge's edge or underside stands on its top when that is walkable and at most
+    /// <see cref="LedgeRise"/> above the feet one step ahead. The ledge's underside is no ceiling
+    /// here (DOS ignores ceilings); the spot on top must be free.</summary>
+    private void GrabLedge(Vector3 fwd)
+    {
+        var at = Position + fwd + new Vector3(0f, LedgeRise, 0f);
+        if (_world.Depenetrate(Body, at, Skin).LengthSquared() > 1e-6f)
+        {
+            return;
+        }
+
+        if (!_world.GroundProbe(Body, at, LedgeRise, out var hit) || hit.Normal.Y < FloorMinY)
+        {
+            return;
+        }
+
+        var landing = at - new Vector3(0f, MathF.Max(hit.Time - Skin, 0f), 0f);
+        if (landing.Y - Position.Y < 2f)
+        {
+            return;
+        }
+
+        Position = landing;
+        Velocity = Velocity with { Y = 0f };
+        OnFloor = true;
+        FloorNormal = hit.Normal;
+        FloorOwner = hit.Owner;
     }
 
     /// <summary>How far the body gets along <paramref name="motion"/> (units, short of a hit by the skin).</summary>

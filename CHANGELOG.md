@@ -3,6 +3,41 @@
 Version in `Directory.Build.props`. Each batch of changes raises it: a fix
 the patch number, a feature the minor. Releases on GitHub start at 1.0.0.
 
+## 1.5.0 (2026-11-04)
+
+ENHANCED gets new lighting; fixes from GitHub issues. RetroEng 0.59.0.
+
+- ENHANCED lighting:
+  - Bounced light: each map bakes an irradiance volume once, at its
+    first ENHANCED load ("PREPARING LIGHTING"), kept in cache/.
+  - Lamps from the art: lit panels, strips and pendant bulbs make
+    lamps where the maps had none (interiors that were black are lit);
+    data/lights holds per-texture rows and hand-placed lights, and a
+    mod can add its own.
+  - Shadows: map lamps cast them indoors and out (16 at SHADOWS High,
+    8 at Low), fading in and out; the muzzle flash shadows indoors
+    (#17).
+  - Lit haze: lamps and the sun show in the air (PARTICLES Off turns
+    it off).
+  - Reflections on metal, glass and other glossy surfaces.
+  - AgX tone curve, auto exposure and a colour grade per time of day.
+  - Muzzle flashes built from particles; shot and hit lights dimmer.
+- The view flashes red on a hit the soldier survives (#22).
+- Ceiling guns hang upside down (#23); crate drops land on the floor
+  (#27); the soldier steps onto ledges in mid-air as in DOS (#28).
+- Arrows scroll the tactical dossier text (#29); the click that closes
+  a menu no longer fires the gun (#30).
+- Robots block the soldier; a blocked arrival drops to the floor below
+  (Future Shock mission 5 can be finished); the status line says how
+  many objectives are left.
+- Future Shock: v1.30's briefing archive is the known one; maps
+  without a ground file get a borrowed one.
+- Generated files (baked maps, light bakes, reflections) live in
+  cache/; the system mods are no longer listed under MODS.
+- Mods: a model's LODs come only from its own mod.
+- 3D VIEW: HUD HEIGHT lifts the HUD and menus in a headset.
+- Maps and light bakes are prepared again once.
+
 ## 1.4.0 (2026-11-03)
 
 Fixes from GitHub issues, a data version check, and a HUD size for

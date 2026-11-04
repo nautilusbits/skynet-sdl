@@ -20,7 +20,7 @@
 // F1-F5 pick the thrown item (molotov, pipe bomb, grenade, canister, satchel); RUN held when a
 // rocket leaves the barrel rides the rocket eye.
 // ` (the key left of 1, ~ with Shift) drops the developer console: the log as it comes, commands
-// with Tab completion and a history (console-history.txt beside the settings); `help` lists them.
+// with Tab completion and a history (cache/console-history.txt beside the settings); `help` lists them.
 // The game is paused while it is down, as the Godot port's. bind <key> <command...> makes a key run
 // a console line in play, as Quake's (bind <key> +action adds it to a game action; unbind, bindlist);
 // the binds and every action's keys are in the settings file ("commandBinds", "bindings"), written

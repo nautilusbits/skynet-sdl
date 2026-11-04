@@ -3,6 +3,7 @@ using RetroEng.Content;
 using RetroEng.Json;
 using RetroEng.Render;
 using RetroEng.Render.Lights;
+using SkyNet.Formats;
 using SkyNet.Game.Mods;
 
 namespace SkyNet.Game.Enhanced;
@@ -20,8 +21,12 @@ public enum LampKind { Omni, Spot }
 /// <param name="Srgb">The colour, sRGB 0-1.</param>
 /// <param name="Intensity">The intensity at 150 u (<see cref="LightFalloff.EnergyAtRef"/>).</param>
 /// <param name="Cone">A spot's outer half angle, degrees; <paramref name="Inner"/> where it is full.</param>
+/// <param name="Cut">With <paramref name="Texture"/>: its texels at or over this brightness (0-1) are
+/// lit, making a texture just under the classifier's cut a lamp (read when the map is baked, from
+/// the game's shipped rows: <see cref="LampSpots.Shipped"/>).</param>
 public sealed record LampOverride(int? Map = null, int? Key = null, string? Model = null, int? Texture = null, LampKind? Kind = null,
-    Vector3? Direction = null, float? Cone = null, float? Inner = null, Vector3? Srgb = null, float? Intensity = null, float? Range = null)
+    Vector3? Direction = null, float? Cone = null, float? Inner = null, Vector3? Srgb = null, float? Intensity = null, float? Range = null,
+    float? Cut = null)
 {
     /// <summary>Whether it applies to a light of <paramref name="map"/>, record <paramref name="key"/>,
     /// <paramref name="model"/> (null: a map light) and <paramref name="texture"/>.</summary>
@@ -32,13 +37,19 @@ public sealed record LampOverride(int? Map = null, int? Key = null, string? Mode
         && (Texture is not { } t || (model != null && t == texture));
 }
 
+/// <summary>One row of a lights file's <c>lights</c>: an omni placed by hand in a room the art leaves
+/// dark. Null: the art lamps' (<see cref="EmissiveLamps.Colour"/>, <see cref="EmissiveLamps.IntensityAtRef"/>,
+/// <see cref="LampSpots.HandRange"/>).</summary>
+/// <param name="Position">World position (Y up, as <c>tp</c> takes it).</param>
+internal sealed record HandLight(int Map, Vector3 Position, Vector3? Srgb, float? Intensity, float? Range);
+
 /// <summary>
 /// Spot lights for the enhanced look's lamps. An art lamp (<see cref="EmissiveLamps"/>) whose lit
 /// triangles face one way (<see cref="LampLight.Coherence"/> at least <see cref="MinCoherence"/>: a
 /// ceiling strip, a wall fitting, a street lamp's head) becomes a shadowless spot along the way they
 /// face, with a soft cone; a bulb or panel lit all round, a fire and a MAP light stay omni:
 /// <code>
-///   fire, no facing, coherence &lt; 0.8 ─────────────► omni
+///   fire, no facing, coherence &lt; 0.8, facing up ──► omni
 ///   facing down (ceiling, a street lamp's head) ────► spot along it, full to 45°, dark at 88° (the walls lit, not its ceiling)
 ///   any other way (a wall fitting, lifted under the top) ► spot along it, full to 35°, dark at 85°
 /// </code>
@@ -60,10 +71,13 @@ public static class LampSpots
     public const float CeilingInner = 45f, CeilingOuter = 88f, WallInner = 35f, WallOuter = 85f;
     /// <summary>A forced spot without a direction known points down with this cone.</summary>
     public const float DefaultInner = 35f, DefaultOuter = 75f;
+    /// <summary>A hand light's range when its row gives none.</summary>
+    internal const float HandRange = 900f;
 
-    /// <summary>Whether an art lamp is derived a spot (above).</summary>
+    /// <summary>Whether an art lamp is derived a spot (above). A floor panel's lamp stays omni: a spot
+    /// along its facing lit the ceiling only.</summary>
     public static bool IsSpot(in LampLight lamp) =>
-        !lamp.Flicker && lamp.Coherence >= MinCoherence && lamp.Facing.LengthSquared() > 0.25f;
+        !lamp.Flicker && lamp.Coherence >= MinCoherence && lamp.Facing.LengthSquared() > 0.25f && lamp.Facing.Y < EmissiveLamps.FloorNy;
 
     /// <summary>A lamp's light: <paramref name="colour"/> (linear) at its place, a spot when
     /// <see cref="IsSpot"/>.</summary>
@@ -128,12 +142,12 @@ public static class LampSpots
     public static List<LampOverride> Parse(ReadOnlySpan<byte> utf8)
     {
         var root = JsonItem.Parse(utf8).AsObject();
-        ShotLightTable.Only(root, "lamps");
+        ShotLightTable.Only(root, "lamps", "lights");
         var rows = new List<LampOverride>();
         foreach (var item in root.Opt("lamps")?.Items ?? [])
         {
             var o = item.AsObject();
-            ShotLightTable.Only(o, "map", "key", "model", "texture", "kind", "direction", "cone", "inner", "colour", "intensity", "range");
+            ShotLightTable.Only(o, "map", "key", "model", "texture", "kind", "direction", "cone", "inner", "colour", "intensity", "range", "cut");
             LampKind? kind = o.Opt("kind")?.AsString().ToLowerInvariant() switch
             {
                 null => null,
@@ -144,10 +158,34 @@ public static class LampSpots
             var direction = o.Opt("direction") is { } d ? Direction(d) : (Vector3?)null;
             rows.Add(new LampOverride(o.Opt("map")?.AsInt(), o.Opt("key")?.AsInt(), o.Opt("model")?.AsString().Replace(".3D", "", StringComparison.OrdinalIgnoreCase),
                 o.Opt("texture") is { } t ? TextureWord(t) : null, kind, direction, ShotLightTable.Float(o, "cone"), ShotLightTable.Float(o, "inner"),
-                ShotLightTable.Colour(o, "colour"), ShotLightTable.Float(o, "intensity"), ShotLightTable.Float(o, "range")));
+                ShotLightTable.Colour(o, "colour"), ShotLightTable.Float(o, "intensity"), ShotLightTable.Float(o, "range"),
+                ShotLightTable.Float(o, "cut")));
         }
 
         return rows;
+    }
+
+    /// <summary>Reads a lights file's hand lights (<see cref="HandLight"/>). <see cref="JsonDataException"/>
+    /// when they do not read.</summary>
+    internal static List<HandLight> Lights(ReadOnlySpan<byte> utf8)
+    {
+        var root = JsonItem.Parse(utf8).AsObject();
+        var lights = new List<HandLight>();
+        foreach (var item in root.Opt("lights")?.Items ?? [])
+        {
+            var o = item.AsObject();
+            ShotLightTable.Only(o, "map", "position", "colour", "intensity", "range");
+            var p = o.Member("position");
+            if (p.Items.Count != 3)
+            {
+                throw p.Error("\"position\" is [x, y, z] (y up)");
+            }
+
+            lights.Add(new HandLight(o.Member("map").AsInt(), new Vector3((float)p.Items[0].AsDouble(), (float)p.Items[1].AsDouble(), (float)p.Items[2].AsDouble()),
+                ShotLightTable.Colour(o, "colour"), ShotLightTable.Float(o, "intensity"), ShotLightTable.Float(o, "range")));
+        }
+
+        return lights;
     }
 
     /// <summary>A texture as a word (bank &lt;&lt; 7 | record) or "BANK/RECORD".</summary>
@@ -176,44 +214,72 @@ public static class LampSpots
         return v.LengthSquared() > 1e-12f && float.IsFinite(v.X + v.Y + v.Z) ? Vector3.Normalize(v) : throw d.Error("\"direction\" must not be zero");
     }
 
-    // The mods read and what they gave, as one immutable reference: read from any thread (workers too).
-    private sealed record Loaded(IReadOnlyList<LampOverride> Value, VirtualFileSystem? From);
+    /// <summary>The game's shipped rows (data/lights, embedded; none for a game without a file).
+    /// Only their texture cuts are read, when a map is baked.</summary>
+    internal static IReadOnlyList<LampOverride> Shipped(GameKind game) => ShippedBytes(game) is { } bytes ? Parse(bytes) : [];
 
-    private static Loaded _box = new([], null);
+    /// <summary>The game's shipped hand lights (data/lights, embedded), read when a map is baked.</summary>
+    internal static IReadOnlyList<HandLight> ShippedLights(GameKind game) => ShippedBytes(game) is { } bytes ? Lights(bytes) : [];
+
+    private static byte[]? ShippedBytes(GameKind game)
+    {
+        var name = game switch
+        {
+            GameKind.SkyNet => "lights/skynet.json",
+            GameKind.FutureShock => "lights/futureshock.json",
+            _ => null,
+        };
+        using var s = name == null ? null : typeof(LampSpots).Assembly.GetManifestResourceStream(name);
+        if (s == null)
+        {
+            return null;
+        }
+
+        using var m = new MemoryStream();
+        s.CopyTo(m);
+        return m.ToArray();
+    }
+
+    // The mods read and what they gave, as one immutable reference: read from any thread (workers too).
+    private sealed record Loaded(IReadOnlyList<LampOverride> Value, IReadOnlyList<HandLight> Lights, VirtualFileSystem? From);
+
+    private static Loaded _box = new([], [], null);
 
     /// <summary>The rows of the mounted mods' file (the highest mod with it wins); none without one,
     /// or when it does not read (logged).</summary>
-    public static IReadOnlyList<LampOverride> Current
-    {
-        get
-        {
-            var vfs = ModContent.Files;
-            var cached = Volatile.Read(ref _box);
-            if (!ReferenceEquals(vfs, cached.From))
-            {
-                cached = new Loaded(Load(vfs), vfs);
-                Volatile.Write(ref _box, cached);
-            }
+    public static IReadOnlyList<LampOverride> Current => Mounted().Value;
 
-            return cached.Value;
+    /// <summary>The hand lights of the mounted mods' file (as <see cref="Current"/>).</summary>
+    internal static IReadOnlyList<HandLight> CurrentLights => Mounted().Lights;
+
+    private static Loaded Mounted()
+    {
+        var vfs = ModContent.Files;
+        var cached = Volatile.Read(ref _box);
+        if (!ReferenceEquals(vfs, cached.From))
+        {
+            cached = Load(vfs);
+            Volatile.Write(ref _box, cached);
         }
+
+        return cached;
     }
 
-    private static IReadOnlyList<LampOverride> Load(VirtualFileSystem? vfs)
+    private static Loaded Load(VirtualFileSystem? vfs)
     {
         if (vfs?.TryReadAllBytes(FileName) is not { } bytes)
         {
-            return [];
+            return new Loaded([], [], vfs);
         }
 
         try
         {
-            return Parse(bytes);
+            return new Loaded(Parse(bytes), Lights(bytes), vfs);
         }
         catch (Exception e) when (e is JsonDataException or System.Text.Json.JsonException)
         {
             RetroEng.Diagnostics.Log.Warn("Mods", $"{FileName}: {e.Message}; the lamps stay as derived");
-            return [];
+            return new Loaded([], [], vfs);
         }
     }
 }

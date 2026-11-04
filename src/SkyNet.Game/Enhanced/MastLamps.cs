@@ -74,7 +74,7 @@ public static class MastLamps
 
             if (!wldLoaded)
             {
-                wld = data.LoadWld(number);
+                wld = data.LoadWldFor(number)?.Wld;
                 wldLoaded = true;
             }
 

@@ -34,6 +34,13 @@ public sealed class WeaponRenderer
     private Vector3 _ambient;
     private readonly Enhanced.ImpactEffects _effects = new();
     private readonly Enhanced.FireFlames _fireFlames = new();
+    private readonly Enhanced.MuzzleFlashes _muzzleFlashes = new();
+    /// <summary>The own shot's flash the last <see cref="Draw(WeaponFrame, Vector3, OwnFlashes)"/> saw (none: null): a 3D gun's flash (<see cref="DrawFlash"/>) burns as it.</summary>
+    private EffectPose? _ownFlash;
+    /// <summary>A 3D gun's flash triangles (<see cref="DrawFlash"/>), made once.</summary>
+    private readonly (MeshHandle Mesh, Enhanced.GunFlashGeometry Geometry) _gunFlash;
+    /// <summary>One white texel and its palette: the gun flash's colour is its vertices' and its material's.</summary>
+    private readonly (TextureHandle Texture, TextureHandle Palette) _white;
     private readonly List<Enhanced.FireFlame> _dropFlames = [];
     /// <summary>The frame <see cref="Draw(WeaponSystem, Vector3)"/> captures into (a draw on the simulation's thread).</summary>
     private readonly WeaponFrame _frame = new();
@@ -61,6 +68,11 @@ public sealed class WeaponRenderer
             new Vertex(new Vector3(0.5f, 0.5f, 0f), new Vector2(1f, 0f)),
             new Vertex(new Vector3(-0.5f, 0.5f, 0f), new Vector2(0f, 0f)),
         ], [0, 1, 2, 0, 2, 3]);
+        var flash = Enhanced.MuzzleFlashes.GunFlashMesh();
+        _gunFlash = (renderer.CreateMesh(flash.Vertices), flash);
+        var white = new byte[256 * 4];
+        white.AsSpan(4, 4).Fill(255);
+        _white = (renderer.CreateIndexTexture(1, 1, [1]), renderer.CreatePalette(white));
     }
 
     /// <summary>The map's scope was released: the drops' models, sprites and bolts made in it are made
@@ -118,7 +130,6 @@ public sealed class WeaponRenderer
         if (Sprite(WeaponSystem.FlashBank, 0) is { } flash)
         {
             materials.Add(Look(flash.Material, effect: true));
-            materials.Add(Look(Glow(flash).Material, effect: true));
         }
 
         foreach (var t in ImpactPieces.Types)
@@ -193,7 +204,7 @@ public sealed class WeaponRenderer
         frame.Effects.Clear();
         foreach (var e in weapons.Effects)
         {
-            frame.Effects.Add(new EffectPose(e.Kind, e.Bank, e.Record, e.Size, e.Frame, e.Position));
+            frame.Effects.Add(new EffectPose(e.Kind, e.Bank, e.Record, e.Size, e.Frame, e.Position, e.Ammo, e.Age, e.Direction, e.Seed));
         }
 
         frame.Projectiles.Clear();
@@ -230,6 +241,12 @@ public sealed class WeaponRenderer
         {
             frame.Blasts.Add(new BlastPose(b.At, b.Radius, b.Seed, b.Age));
         }
+
+        frame.Smokes.Clear();
+        foreach (var m in weapons.Smokes)
+        {
+            frame.Smokes.Add(new SmokePose(m.At, m.Direction, m.Size, m.Seed, m.Age));
+        }
     }
 
     /// <summary>Queues the effects, lobbed bodies and bolts as <paramref name="weapons"/> caught them;
@@ -239,15 +256,30 @@ public sealed class WeaponRenderer
         // The enhanced look with PARTICLES on draws impacts as dust (DrawPuffs) and explosions as
         // fireballs and smoke (DrawBlasts); their DOS sprites only otherwise.
         var generated = _spriteTint != null && Particles != Menu.ParticleLevel.Off;
+        var particleFlash = Enhanced.MuzzleFlashes.ArtOf(LookNow) == Enhanced.FlashArt.Particles;
+        _ownFlash = null;
         foreach (var e in weapons.Effects)
         {
-            if (generated && e.Kind is not (EffectKind.Flash or EffectKind.OwnFlash))
+            var flash = e.Kind is EffectKind.Flash or EffectKind.OwnFlash;
+            if (e.Kind == EffectKind.OwnFlash)
+            {
+                _ownFlash = e;
+            }
+
+            if (generated && !flash)
             {
                 continue;
             }
 
             if (e.Kind == EffectKind.OwnFlash && own == OwnFlashes.Hidden)
             {
+                continue;
+            }
+
+            // The enhanced look's flash: particles, not the DOS flare.
+            if (flash && particleFlash)
+            {
+                _muzzleFlashes.Add(ShotOf(e, e.Position, e.Size), eye);
                 continue;
             }
 
@@ -259,8 +291,13 @@ public sealed class WeaponRenderer
             var max = MathF.Max(s.Texture.Width, s.Texture.Height);
             var scale = e.Size / MathF.Max(max, 1f);
             var frame = Math.Min(e.Frame, s.Texture.Frames - 1);
-            var flash = e.Kind is EffectKind.Flash or EffectKind.OwnFlash;
-            DrawBillboard(flash && _spriteTint != null ? Glow(s) : s, eye, e.Position, s.Texture.Width * scale, s.Texture.Height * scale, frame, effect: true);
+            DrawBillboard(s, eye, e.Position, s.Texture.Width * scale, s.Texture.Height * scale, frame, effect: true);
+        }
+
+        _muzzleFlashes.Flush(_renderer);
+        if (particleFlash)
+        {
+            _muzzleFlashes.DrawSmoke(_renderer, weapons.Smokes, _ambient);
         }
 
         foreach (var p in weapons.Projectiles)
@@ -380,26 +417,62 @@ public sealed class WeaponRenderer
         _fireFlames.Draw(_renderer, _dropFlames, Particles, eye, nowMs / 1000f, outdoor: true);
     }
 
-    /// <summary>Queues the DOS muzzle flare (<see cref="WeaponSystem.FlashBank"/>) <paramref name="size"/>
-    /// units across at <paramref name="at"/>, facing <paramref name="eye"/>: a 3D gun's own flash, drawn in its
-    /// inset over the gun (no depth test: a gun held along the view hides its own muzzle).</summary>
+    /// <summary>Queues a 3D gun's own muzzle flash (the enhanced look's, <see cref="Enhanced.MuzzleFlashes.GunFlashMesh"/>)
+    /// <paramref name="size"/> units across at <paramref name="at"/>, facing <paramref name="eye"/>, in its inset over
+    /// the gun (no depth test: a gun held along the view hides its own muzzle; an inset draws no particles):
+    /// as the own shot's flash (its colour, seed and age), none once that burnt out.</summary>
     public void DrawFlash(Vector3 at, float size, Vector3 eye)
     {
-        if (size <= 0f || Sprite(WeaponSystem.FlashBank, 0) is not { } s)
+        if (size <= 0f || _ownFlash is not { } own || Enhanced.MuzzleFlashes.ArtOf(LookNow) != Enhanced.FlashArt.Particles)
         {
             return;
         }
 
-        var scale = size / MathF.Max(MathF.Max(s.Texture.Width, s.Texture.Height), 1f);
-        var glow = Glow(s);
-        var over = (glow.Texture, glow.Material with { State = glow.Material.State with { Depth = Depth.Off } });
-        DrawBillboard(over, eye, at, s.Texture.Width * scale, s.Texture.Height * scale, 0, effect: true);
+        var heat = Enhanced.MuzzleFlashes.HeatOf(own.Age);
+        if (heat <= 0f)
+        {
+            return;
+        }
+
+        // Facing the eye, turned and sized by the shot's seed.
+        var shape = Enhanced.MuzzleFlashes.ShapeOf(own.Seed);
+        var back = eye - at;
+        back = back.LengthSquared() > 1e-6f ? Vector3.Normalize(back) : Vector3.UnitZ;
+        var up0 = MathF.Abs(back.Y) > 0.99f ? Vector3.UnitZ : Vector3.UnitY;
+        var right0 = Vector3.Normalize(Vector3.Cross(up0, back));
+        var up1 = Vector3.Cross(back, right0);
+        var right = right0 * MathF.Cos(shape.Turn) + up1 * MathF.Sin(shape.Turn);
+        var up = Vector3.Cross(back, right);
+        size *= shape.Scale;
+        Matrix4x4 Scaled(float k) => new(
+            right.X * size * k, right.Y * size * k, right.Z * size * k, 0f,
+            up.X * size * k, up.Y * size * k, up.Z * size * k, 0f,
+            back.X, back.Y, back.Z, 0f,
+            at.X, at.Y, at.Z, 1f);
+
+        // Glow, petals, then the white-hot core, all added.
+        var colour = Enhanced.MuzzleFlashes.ColourOf(own.Ammo);
+        var hot = Enhanced.MuzzleFlashes.HotOf(colour);
+        var g = _gunFlash.Geometry;
+        var (first, count) = g.Variants[shape.Variant];
+        _renderer.Draw(_gunFlash.Mesh, 0, g.FanCount, GunFlashMaterial(colour * (GunGlow * heat)), 0, Scaled(1.1f));
+        _renderer.Draw(_gunFlash.Mesh, first, count, GunFlashMaterial(colour * (GunPetals * heat)), 0, Scaled(1.4f));
+        _renderer.Draw(_gunFlash.Mesh, 0, g.FanCount, GunFlashMaterial(hot * (GunCore * heat)), 0, Scaled(0.4f));
     }
 
-    /// <summary>A muzzle flash in the enhanced look: added to the scene, so the flare's dark rim and
-    /// the hard edge of its cut-out (an upscaled DOS sprite's square) do not show.</summary>
-    private static (GpuTexture Texture, Material Material) Glow((GpuTexture Texture, Material Material) s) =>
-        (s.Texture, s.Material with { State = s.Material.State with { Queue = Queues.Transparent, Blend = Blend.Add, Depth = Depth.Test } });
+    // A 3D gun's flash: a flat colour added over the gun (inset: an 8-bit frame, no GLOW).
+    private const float GunGlow = 0.9f, GunPetals = 1.4f, GunCore = 1.6f;
+    private static readonly RenderState GunFlashState = new(Queues.Transparent, Cull.None, Blend.Add, Depth.Off);
+
+    private Material GunFlashMaterial(Vector3 colour) =>
+        new(_white.Texture, _white.Palette, new Vector4(colour, 1f), 1, GunFlashState, Shading.Unlit);
+
+    /// <summary>The look the effects are drawn in now (<see cref="Apply"/>).</summary>
+    private Menu.Look LookNow => _spriteTint != null ? Menu.Look.Enhanced : Menu.Look.Original;
+
+    /// <summary>A flash effect as <see cref="Enhanced.MuzzleFlashes"/> draws it: at <paramref name="at"/>, <paramref name="size"/> across.</summary>
+    private static Enhanced.MuzzleShot ShotOf(in EffectPose e, Vector3 at, float size) =>
+        new(at, e.Direction, size, Enhanced.MuzzleFlashes.ColourOf(e.Ammo), e.Seed, e.Age);
 
     private void DrawBillboard((GpuTexture Texture, Material Material) s, Vector3 eye, Vector3 at, float width, float height, int frame,
         bool effect = false)
@@ -419,7 +492,8 @@ public sealed class WeaponRenderer
 }
 
 /// <summary>An effect sprite as caught for a frame (<see cref="Effect"/>).</summary>
-public readonly record struct EffectPose(EffectKind Kind, int Bank, int Record, float Size, int Frame, Vector3 Position);
+public readonly record struct EffectPose(EffectKind Kind, int Bank, int Record, float Size, int Frame, Vector3 Position,
+    AmmoRecord? Ammo = null, float Age = 0f, Vector3 Direction = default, int Seed = 0);
 
 /// <summary>A projectile as caught for a frame (<see cref="Projectile"/>).</summary>
 public readonly record struct ProjectilePose(bool Lobbed, AmmoRecord Ammo, Vector3 Position, Vector3 Velocity);
@@ -429,6 +503,9 @@ public readonly record struct PuffPose(Vector3 At, Vector3 Normal, Vector3 Incom
 
 /// <summary>An explosion as caught for a frame (<see cref="BlastCloud"/>).</summary>
 public readonly record struct BlastPose(Vector3 At, float Radius, int Seed, float Age);
+
+/// <summary>A shot's muzzle smoke as caught for a frame (<see cref="MuzzleSmoke"/>).</summary>
+public readonly record struct SmokePose(Vector3 At, Vector3 Direction, float Size, int Seed, float Age);
 
 /// <summary>What <see cref="WeaponRenderer"/> draws of a <see cref="WeaponSystem"/>, copied by
 /// <see cref="WeaponRenderer.Capture"/> (pooled): drawn on another thread while the next tick runs
@@ -441,6 +518,7 @@ public sealed class WeaponFrame
     internal int PieceCount;
     internal readonly List<PuffPose> Puffs = [];
     internal readonly List<BlastPose> Blasts = [];
+    internal readonly List<SmokePose> Smokes = [];
 
     /// <summary>The impact pieces' slots caught (read those with <see cref="ImpactPieces.Piece.Active"/> set).</summary>
     internal ReadOnlySpan<ImpactPieces.Piece> Slots => Pieces.AsSpan(0, PieceCount);

@@ -26,6 +26,7 @@ namespace SkyNet.Game.Campaign;
 ///   wait S               S seconds with no input
 ///   god on|off           the soldier takes no damage (on by default: a script plays the
 ///                        route, the robots shoot back); off lets a script test death
+///   hurt N               N points through the armour, no tick (a screenshot of the red flash)
 ///   robots               lists the map's robots (name, feet, alive) in the log
 ///   meet NAME [D]        stands the feet D (default 400) in front of the nearest live robot
 ///                        whose name holds NAME, facing it, and settles 0.5 s
@@ -129,6 +130,9 @@ public sealed class PlayScript
                 return null;
             case "god":
                 s.Soldier.God = w[1] is "on" or "1" or "yes";
+                return null;
+            case "hurt":
+                s.Soldier.Hurt(float.Parse(w[1], c));
                 return null;
             case "robots":
                 foreach (var r in s.Robots?.All ?? [])

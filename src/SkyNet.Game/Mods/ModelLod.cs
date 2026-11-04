@@ -1,4 +1,5 @@
 using System.Numerics;
+using RetroEng.Content;
 using RetroEng.Json;
 
 namespace SkyNet.Game.Mods;
@@ -27,6 +28,12 @@ internal sealed record LodSettings(float[] Screen, float Hysteresis)
 
     /// <summary>A level's file name without the extension: ("HUMMER", 1) → "HUMMER.lod1".</summary>
     public static string FileName(string name, int level) => $"{name}.lod{level}";
+
+    /// <summary>Whether the level <paramref name="level"/> comes from the same mod as its model
+    /// <paramref name="main"/>: a lower mod's levels were made and placed for its own model (a T3 HK
+    /// over skynet-hd's HK levels drew them ~30 times too big).</summary>
+    public static bool SameMod(VirtualFileSystem files, string main, string level) =>
+        string.Equals(files.Resolve(main)?.Name, files.Resolve(level)?.Name, StringComparison.Ordinal);
 
     /// <summary>A sidecar's <c>"lod"</c>: <c>{"screen": [0.25, 0.08], "hysteresis": 0.1}</c> (each key
     /// optional) or <c>"off"</c>; a bad value throws <see cref="FormatException"/>.</summary>

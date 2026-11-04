@@ -74,7 +74,7 @@ internal static class GameMain
 
         var options = Options.Parse(gameArgs, out var badCommandLine);
         using var logScope = new LogScope();
-        var tool = options is { WalkTest: not null } or { FireTest: true } or { MusicWav: not null } or { PlayScript: not null, Screenshot: null };
+        var tool = options is { BakeIrradiance: not null } or { WalkTest: not null } or { FireTest: true } or { MusicWav: not null } or { PlayScript: not null, Screenshot: null };
         // A player's run (no frame count, no menu script): a crash shows a message box. Automated runs
         // must not stop on one.
         var interactive = options is { Frames: int.MaxValue, MenuScript: null, PlayScript: null };
@@ -136,11 +136,19 @@ internal static class GameMain
             Log.Info("App", $"Data: {data.Game} in a folder named {LogHeader.FolderName(data.Dir)}");
         }
 
-        // The map blocks live in the mods folder beside the game (docs/formats/map-block.md).
+        // The mods folder beside the game; the map blocks are baked into the cache (docs/formats/map-block.md).
         var modsDir = options.ModsDir ?? Path.Combine(AppContext.BaseDirectory, "mods");
+        // Older builds' light bakes beside the game: the cache holds them now.
+        SkyNet.Game.Enhanced.IrradianceFiles.RemoveLegacy(SettingsStore.UserFolder);
+
         if (options.Bake)
         {
             return BakeAll(data, modsDir, options.Rebake);
+        }
+
+        if (options.BakeIrradiance is { } irradianceMaps)
+        {
+            return BakeIrradiance(data, modsDir, irradianceMaps);
         }
 
         if (options.GenHires is { } hiresMods)

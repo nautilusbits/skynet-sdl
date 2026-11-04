@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Text;
 using RetroEng.Content;
 using RetroEng.Diagnostics;
+using RetroEng.Physics;
 using RetroEng.Render;
 using SkyNet.Data;
 using SkyNet.Formats;
@@ -24,7 +25,7 @@ namespace SkyNet.Game.Baking;
 public static class MapBaker
 {
     /// <summary>The baker's own version: bump it when what a bake produces changes (a stale block is rebaked).</summary>
-    public const string ToolVersion = "3";
+    public const string ToolVersion = "8";
 
     /// <summary>The side of the map cells the static batch is split by, world units.</summary>
     public const float CellSize = 1024f;
@@ -93,7 +94,13 @@ public static class MapBaker
         MapGround? layer = null;
         if (outdoor)
         {
+            // No WLD of its own (Future Shock's MAP.001, 003, 029, 040, 080, 114, 171): the best fit's, as the game loads.
             var wldName = $"WLD.{number:D3}";
+            if (inputs.Read(wldName) == null && data.LoadWldFor(number) is { } fit)
+            {
+                wldName = $"WLD.{fit.Suffix}";
+            }
+
             wld = inputs.Read(wldName) is { } wb ? WldTerrain.Parse(wb) : null;
             if (wld != null)
             {
@@ -185,11 +192,12 @@ public static class MapBaker
         var modelCountWithRobots = surfaces.Where(s => s.Value != null).Select(s => s.Key)
             .Union(robotSurfaces.Where(s => s.Value != null).Select(s => s.Key), StringComparer.OrdinalIgnoreCase).Count();
 
-        var (sprites, spriteCount, pickups) = BakeSprites(map, textures, wld);
-        var created = textures.Created;
-
         var colliders = new List<BlockCollider>();
         var collisionMissing = BakeColliders(map, inputs, colliders);
+
+        // The items on roofs and beams stand on the meshes' tops.
+        var (sprites, spriteCount, pickups) = BakeSprites(map, textures, wld, Meshes(colliders));
+        var created = textures.Created;
         var lamps = EmissiveLamps.ForMap(data, map, number, LevelLights.ArtLampMaxFraction);
 
         // Everything else read: the texture banks (the ground's tiles, the models', the sprites').
@@ -284,7 +292,7 @@ public static class MapBaker
     }
 
     /// <summary>The billboards as Level groups them: by sprite index and phase, in key order.</summary>
-    private static (BlockSpriteGroup[], int Count, int Pickups) BakeSprites(MapFile map, TextureStore textures, WldTerrain? wld)
+    private static (BlockSpriteGroup[], int Count, int Pickups) BakeSprites(MapFile map, TextureStore textures, WldTerrain? wld, CollisionWorld meshes)
     {
         var groups = new Dictionary<(int Index, int Phase), List<(Vector3 Centre, Vector2 Size, int Offset)>>();
         int count = 0, pickups = 0;
@@ -303,7 +311,7 @@ public static class MapBaker
             var item = SpriteRules.IsItem(e.SpriteIndex);
             var scale = item ? Level.ItemScale : Level.SpriteScale;
             var size = new Vector2(t.Width * scale, t.Height * scale);
-            var baseY = SpriteRules.Foot(e, map.IsOutdoor ? wld : null);
+            var baseY = SpriteRules.Foot(e, map.IsOutdoor ? wld : null, meshes);
             var phase = t.Animated && !item ? e.FileOffset % t.Frames : 0;
             if (!groups.TryGetValue((e.SpriteIndex, phase), out var list))
             {
@@ -323,6 +331,22 @@ public static class MapBaker
             .Select(g => new BlockSpriteGroup(g.Key.Index, g.Key.Phase, [.. g.Value]))
             .ToArray();
         return (result, count, pickups);
+    }
+
+    /// <summary>The collision world of the baked meshes alone (no ground), as the level collides with them.</summary>
+    private static CollisionWorld Meshes(List<BlockCollider> colliders)
+    {
+        var triangles = new List<Triangle>();
+        foreach (var c in colliders)
+        {
+            for (var i = 0; i + 2 < c.Corners.Length; i += 3)
+            {
+                triangles.Add(new Triangle(c.Corners[i], c.Corners[i + 1], c.Corners[i + 2], c.Offset));
+            }
+        }
+
+        var world = new CollisionWorld();
+        return triangles.Count > 0 ? world.Add(new TriangleGrid(triangles, LevelCollision.GridCell)) : world;
     }
 
     /// <summary>Every placed variant-1 mesh's frame-0 triangles, as <see cref="LevelCollision.Build"/>

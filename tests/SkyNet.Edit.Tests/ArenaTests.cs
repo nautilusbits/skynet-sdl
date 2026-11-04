@@ -16,14 +16,15 @@ namespace SkyNet.Edit.Tests;
 public sealed class ArenaTests : IDisposable
 {
     private const int Map = 605;
-    private readonly string _mods = Directory.CreateTempSubdirectory("skynet-edit-arena-").FullName;
+    // The mods folder inside its own folder: the editor bakes the system ZIPs into cache/ beside it.
+    private readonly string _mods = Directory.CreateDirectory(Path.Combine(Directory.CreateTempSubdirectory("skynet-edit-arena-").FullName, "mods")).FullName;
 
     public void Dispose()
     {
         ModContent.Unmount();
         try
         {
-            Directory.Delete(_mods, recursive: true);
+            Directory.Delete(Path.GetDirectoryName(_mods)!, recursive: true);
         }
         catch (IOException)
         {

@@ -142,6 +142,9 @@ public class SessionCommandsTests
         Assert.Equal(["health 500 / 1000, armour 0 %"], registry.Run("health 500"));
         Assert.Equal(["health 1000 / 1000, armour 100 %"], registry.Run("surgery"));
         Assert.Equal("Usage: health [points]", registry.Run("health 5000")[^1]);
+        registry.Run("armor 0");
+        Assert.Equal(["health 900 / 1000, armour 0 %"], registry.Run("hurt 100"));
+        Assert.True(session.HitFlash.Active);
 
         registry.Run("tp 100 200 -300 90");
         Assert.Equal(new Vector3(100f, 200f, -300f), session.Player.Position);

@@ -112,7 +112,7 @@ public sealed class MapBlockTests(ITestOutputHelper output) : IDisposable
         }
 
         int[] maps = [216, 217];
-        using var store = new BlockStore(_temp, data);
+        using var store = new BlockStore(_temp, Path.Combine(_temp, ".cache"), data);
         store.Bake(maps);
         using (var zip = ZipPack.Open(store.ZipPath))
         {
@@ -205,7 +205,7 @@ public sealed class MapBlockTests(ITestOutputHelper output) : IDisposable
         }
 
         // The system ZIP is baked from the shipped tables; a mod's tables refuse only the blocks they change.
-        using var store = new BlockStore(_temp, data);
+        using var store = new BlockStore(_temp, Path.Combine(_temp, ".cache"), data);
         store.Bake(maps);
         Assert.Empty(store.Stale(only: maps));
         store.Mount();
@@ -348,7 +348,7 @@ public sealed class MapBlockTests(ITestOutputHelper output) : IDisposable
         }
 
         int[] maps = [211, 213];
-        using var store = new BlockStore(_temp, data);
+        using var store = new BlockStore(_temp, Path.Combine(_temp, ".cache"), data);
         Assert.Equal(maps, store.Stale(only: maps));
         Assert.Equal(2, store.Bake(maps));
         Assert.Empty(store.Stale(only: maps));
@@ -409,10 +409,11 @@ public sealed class MapBlockTests(ITestOutputHelper output) : IDisposable
         var data = GameData.Open(dataDir)!;
         var mods = Path.Combine(_temp, "mods");
         int[] maps = [211, 213];
-        using var store = new BlockStore(mods, data);
+        using var store = new BlockStore(mods, Path.Combine(mods, ".cache"), data);
         Assert.Equal(2, store.Bake(maps));
         Assert.Empty(store.Stale(only: maps));
-        Assert.Equal(["skynet"], new ContentRoot(mods).Discover().Select(m => m.Name));
+        // The system ZIP is in the cache, not a mod in the mods folder.
+        Assert.Empty(new ContentRoot(mods).Discover());
 
         // MAP.211's block goes stale behind the stamp's back: same ZIP size and time.
         var zipTime = File.GetLastWriteTimeUtc(store.ZipPath);
@@ -436,7 +437,7 @@ public sealed class MapBlockTests(ITestOutputHelper output) : IDisposable
                 expected = [];
                 break;
             case StampChange.Stamp:
-                foreach (var f in Directory.EnumerateFiles(mods, "*.stamp"))
+                foreach (var f in Directory.EnumerateFiles(store.CacheDirectory, "*.stamp"))
                 {
                     File.WriteAllText(f, "another build");
                 }
@@ -479,7 +480,7 @@ public sealed class MapBlockTests(ITestOutputHelper output) : IDisposable
         }
 
         int[] maps = [211, 213];
-        using (var store = new BlockStore(_temp, data))
+        using (var store = new BlockStore(_temp, Path.Combine(_temp, ".cache"), data))
         {
             Assert.Equal(2, store.Bake(store.Stale(only: maps)));
             // The first start then generates the mission files into the same ZIP.
@@ -487,7 +488,7 @@ public sealed class MapBlockTests(ITestOutputHelper output) : IDisposable
         }
 
         // MAP.211's block goes stale behind the stamp's back: only a full check would see it.
-        var zipPath = new BlockStore(_temp, data).ZipPath;
+        var zipPath = new BlockStore(_temp, Path.Combine(_temp, ".cache"), data).ZipPath;
         var zipTime = File.GetLastWriteTimeUtc(zipPath);
         var zipBytes = File.ReadAllBytes(zipPath);
         string hash;
@@ -502,7 +503,7 @@ public sealed class MapBlockTests(ITestOutputHelper output) : IDisposable
         File.SetLastWriteTimeUtc(zipPath, zipTime);
 
         // The next start takes the stamp: no check.
-        using var next = new BlockStore(_temp, data);
+        using var next = new BlockStore(_temp, Path.Combine(_temp, ".cache"), data);
         Assert.Empty(next.Stale(only: maps));
     }
 
@@ -515,7 +516,7 @@ public sealed class MapBlockTests(ITestOutputHelper output) : IDisposable
         }
 
         int[] maps = [211, 213];
-        using var store = new BlockStore(_temp, data);
+        using var store = new BlockStore(_temp, Path.Combine(_temp, ".cache"), data);
         store.Bake(maps);
         var seen = new List<(int, int)>();
         Assert.Empty(store.Stale(only: maps, progress: (done, total) => seen.Add((done, total))));
@@ -540,7 +541,7 @@ public sealed class MapBlockTests(ITestOutputHelper output) : IDisposable
         }
 
         int[] maps = [211, 213];
-        using var store = new BlockStore(_temp, data);
+        using var store = new BlockStore(_temp, Path.Combine(_temp, ".cache"), data);
         File.WriteAllText(store.LegacyPakPath, "RPAK from an older build");
         store.Bake(maps);
         Assert.False(File.Exists(store.LegacyPakPath)); // the old cache is gone once the ZIP is there
@@ -578,7 +579,7 @@ public sealed class MapBlockTests(ITestOutputHelper output) : IDisposable
             return;
         }
 
-        using var store = new BlockStore(_temp, data);
+        using var store = new BlockStore(_temp, Path.Combine(_temp, ".cache"), data);
         store.Bake([210, 211]);
         store.Mount();
         Assert.Equal(210, store.Load(210)!.Number);
@@ -611,7 +612,7 @@ public sealed class MapBlockTests(ITestOutputHelper output) : IDisposable
         foreach (var mode in new[] { ZipCompression.Stored, ZipCompression.Deflate })
         {
             var dir = Path.Combine(_temp, mode.ToString());
-            using var store = new BlockStore(dir, data) { Compression = mode };
+            using var store = new BlockStore(dir, Path.Combine(dir, ".cache"), data) { Compression = mode };
             store.Bake(maps);
             store.Mount();
             output.WriteLine($"{mode}: zip {new FileInfo(store.ZipPath).Length / 1024} KB");

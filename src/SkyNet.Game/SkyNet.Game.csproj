@@ -11,6 +11,9 @@
   <ItemGroup>
     <EmbeddedResource Include="..\..\data\materials\skynet.json" LogicalName="materials/skynet.json" />
     <EmbeddedResource Include="..\..\data\materials\futureshock.json" LogicalName="materials/futureshock.json" />
+    <!-- The game's lamp rows: textures just under the emissive cut made lamps (Enhanced/LampSpots.cs Shipped). -->
+    <EmbeddedResource Include="..\..\data\lights\skynet.json" LogicalName="lights/skynet.json" />
+    <EmbeddedResource Include="..\..\data\lights\futureshock.json" LogicalName="lights/futureshock.json" />
     <!-- The enhanced night's moon: the LRO near side, 128 x 128 grey (NASA SVS 4720, public domain; THIRD-PARTY-NOTICES.txt). -->
     <EmbeddedResource Include="..\..\data\sky\moon_near_side.gray" LogicalName="sky/moon.gray" />
   </ItemGroup>

@@ -4,6 +4,7 @@ using RetroEng.Physics;
 using SkyNet.Formats;
 using SkyNet.Game.Collision;
 using SkyNet.Game.Player;
+using SkyNet.Game.Tests.Behaviour;
 
 namespace SkyNet.Game.Tests;
 
@@ -125,6 +126,87 @@ public class PlayerControllerTests
         Assert.InRange(ticks * Dt, 2 * PlayerController.JumpSpeed / PlayerController.Gravity - 3 * Dt,
             2 * PlayerController.JumpSpeed / PlayerController.Gravity + 3 * Dt);
         Assert.Equal(0f, p.FallDamage);
+    }
+
+    [Theory]
+    [InlineData(50)]
+    [InlineData(25)]
+    public void JumpApexIsDosAtItsFrameRate(int fps)
+    {
+        // DOS (FUN_0012b18c): vy += g·dt, then y += vy·dt; a grounded tick zeroes gravity
+        // (LAB_0012bbbc), so the launch tick rises v·dt. dt = 1/fps, fps capped at 50.
+        var dosApex = 0f;
+        var y = 0f;
+        var vy = PlayerController.JumpSpeed;
+        var g = 0f;
+        while (vy > 0f)
+        {
+            vy -= g / fps;
+            y += vy / fps;
+            dosApex = MathF.Max(dosApex, y);
+            g = PlayerController.Gravity;
+        }
+
+        var p = Standing(Floor());
+        var apex = 0f;
+        p.Step(Hold(Keys.Jump), Dt, Keys);
+        for (var i = 0; i < 60; i++)
+        {
+            apex = MathF.Max(apex, p.Position.Y);
+            p.Step(Hold(), Dt, Keys);
+        }
+
+        // 60 Hz: 41.4; DOS 50 fps 41.8, 25 fps 43.2: the port never jumps higher than DOS.
+        Assert.InRange(dosApex - apex, 0f, 2f);
+    }
+
+    /// <summary>A platform (y 0, z ≥ −40), a pit (y −200), then a shelf <paramref name="top"/> up
+    /// from z = −100 reaching down to <paramref name="under"/>: by default a 10-unit slab like
+    /// MAP.051's well, with nothing under it to stand on.</summary>
+    private static IEnumerable<Triangle> Shelf(float top = 58f, float under = 48f)
+    {
+        return Quad(new(-500, 0, 500), new(500, 0, 500), new(500, 0, -40), new(-500, 0, -40))
+            .Concat(Quad(new(-500, -200, -40), new(500, -200, -40), new(500, 0, -40), new(-500, 0, -40)))
+            .Concat(Floor(-200f))
+            .Concat(Quad(new(-500, under, -100), new(500, under, -100), new(500, top, -100), new(-500, top, -100)))
+            .Concat(Quad(new(-500, top, -100), new(500, top, -100), new(500, top, -400), new(-500, top, -400)))
+            .Concat(Quad(new(-500, under, -400), new(500, under, -400), new(500, under, -100), new(-500, under, -100)));
+    }
+
+    [Fact]
+    public void ARunningJumpGrabsAShelfAboveTheApex()
+    {
+        // DOS (FUN_0012b18c, 0x12b6c0): a body not rising steps onto a walkable floor up to 25
+        // above its feet; apex ≈ 41 + 25 reaches the 58 shelf.
+        var p = Standing(Shelf());
+        var jumped = false;
+        for (var i = 0; i < 120 && !(jumped && p.OnFloor); i++)
+        {
+            var jump = !jumped && p.Position.Z < -30f;
+            jumped |= jump;
+            p.Step(jump ? Hold(Keys.Forward, Keys.Run, Keys.Jump) : Hold(Keys.Forward, Keys.Run), Dt, Keys);
+        }
+
+        Run(p, 30, Hold());
+        Assert.True(jumped);
+        Assert.InRange(p.Position.Y, 57f, 59f);
+        Assert.True(p.OnFloor);
+    }
+
+    [Fact]
+    public void AShelfTooHighIsNotGrabbed()
+    {
+        // A wall to the pit floor, 70 high: 29 over the apex, past the 25 DOS steps onto.
+        var p = Standing(Shelf(top: 70f, under: -200f));
+        var jumped = false;
+        for (var i = 0; i < 120; i++)
+        {
+            var jump = !jumped && p.Position.Z < -30f;
+            jumped |= jump;
+            p.Step(jump ? Hold(Keys.Forward, Keys.Run, Keys.Jump) : Hold(Keys.Forward, Keys.Run), Dt, Keys);
+        }
+
+        Assert.True(p.Position.Y < 0f, $"y {p.Position.Y}");
     }
 
     [Fact]
@@ -282,5 +364,33 @@ public class PlayerControllerTests
 
         Assert.InRange(p.Position.Y, 970f, 985f);
         Assert.True(p.OnFloor);
+    }
+
+    [Fact]
+    public void MAP051WellShelfIsReachedByARunningJump()
+    {
+        // Future Shock mission 5, MAP.051 (issue #28): a well with shelves spiralling up 58 apart;
+        // the player's save stands on one, facing the next (top 58 up, about 120 away).
+        if (BehaviourData.Dir is not { } dir || GameDataLocator.OtherGameDir(dir) is not { } fs
+            || GameData.Open(fs, dir) is not { } data || LevelCollision.Load(data, 51) is not { } level)
+        {
+            return;
+        }
+
+        var start = new Vector3(6915.27f, -98.75f, -8058.66f);
+        var p = new PlayerController(level.World);
+        p.Spawn(start + Vector3.UnitY, 0.6175f);
+        Run(p, 30, Hold());
+        Assert.InRange(p.Position.Y - start.Y, -1f, 1f);
+        var jumped = false;
+        for (var i = 0; i < 120 && !(jumped && p.OnFloor); i++)
+        {
+            var jump = !jumped && i >= 6;
+            jumped |= jump;
+            p.Step(jump ? Hold(Keys.Forward, Keys.Run, Keys.Jump) : Hold(Keys.Forward, Keys.Run), Dt, Keys);
+        }
+
+        Run(p, 30, Hold());
+        Assert.InRange(p.Position.Y - start.Y, 55f, 61f);
     }
 }

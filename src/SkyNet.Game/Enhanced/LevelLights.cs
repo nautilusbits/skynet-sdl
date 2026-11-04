@@ -77,8 +77,9 @@ public sealed class LevelLights
     /// <param name="overrides">The lamp overrides (null: the mounted mods', <see cref="LampSpots.Current"/>).</param>
     public LevelLights(IReadOnlyList<MapLight> map, IReadOnlyList<LampLight> lamps, int mapNumber = -1, IReadOnlyList<LampOverride>? overrides = null)
     {
-        _map = [.. map];
-        _lamps = [.. lamps];
+        _map = EmissiveLamps.AtBulbs(map, lamps);
+        // A mod's hand lights join the baked lamps (the shipped ones are baked in).
+        _lamps = [.. lamps, .. EmissiveLamps.Hand(LampSpots.CurrentLights, mapNumber)];
         overrides ??= LampSpots.Current;
         _lampLights = new PointLight[_lamps.Length];
         for (var i = 0; i < _lamps.Length; i++)
@@ -204,6 +205,23 @@ public sealed class LevelLights
         {
             var light = _lampLights[i];
             into.Add(_lamps[i].Flicker ? light with { Energy = light.Energy * EmissiveLamps.FlickerScale(seconds, _lamps[i].Phase) } : light);
+        }
+    }
+
+    /// <summary>The lights a bake sees (<see cref="IrradianceScene"/>): the map lights that start on,
+    /// the art lamps, the fires at their mean flicker (<see cref="EmissiveLamps.MeanFlicker"/>).</summary>
+    public void AppendSteady(List<PointLight> into)
+    {
+        Append(into, 0f, null);
+
+        // The lamps come last, in order: the fires' flicker at t = 0 replaced by its mean.
+        var lamps = into.Count - _lamps.Length;
+        for (var i = 0; i < _lamps.Length; i++)
+        {
+            if (_lamps[i].Flicker)
+            {
+                into[lamps + i] = _lampLights[i] with { Energy = _lampLights[i].Energy * EmissiveLamps.MeanFlicker };
+            }
         }
     }
 

@@ -17,7 +17,7 @@ internal static class NavCache
     private const long CacheAfterMs = 300;
     private const string Folder = "nav", Extension = ".nav", Zone = "Nav";
 
-    private static readonly string CacheDir = Path.Combine(AppContext.BaseDirectory, "cache", Folder);
+    private static readonly string CacheDir = Path.Combine(Menu.SettingsStore.CacheFolder, Folder);
 
     /// <summary>The mesh of <paramref name="world"/> for <paramref name="agent"/> at <paramref name="cells"/>:
     /// cached as <paramref name="name"/> (null: never cached).</summary>

@@ -26,7 +26,7 @@ internal static class KnownData
     private static readonly IReadOnlyList<DataFile>[] FutureShock =
     [
         [
-            new("MDMDBRIF.BSA", 171857, "1ace67ac45bf487c78c62826cc8f87573b3df54f28306613fcb55fa35c6d3a44"),
+            new("MDMDBRIF.BSA", 91978, "6ef3671e361a40602675964f617bd4f4e03dcade36c18c084754fe8042e2bc98"),
             new("MDMDENMS.BSA", 3536596, "7982cc1ef3e8dc293abcadeadeceef77b62207189e36ccab7a30733cc7b44356"),
             new("MDMDIMGS.BSA", 3651807, "c056becbcb5922f503c2f240b797bdf1b68a23d0a89afae122c744d5d50786ce"),
             new("MDMDMAPS.BSA", 6564216, "33c3061ab3342fe9bc6249ed1dda257a2d246016d4f3863a106d7443dfbf3dc3"),

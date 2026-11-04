@@ -74,6 +74,9 @@ internal sealed class FrameSnapshot
     public float PxPerMm;
     public readonly HudText HudText = new();
     public bool Underwater;
+    /// <summary>The survived hit's flash: its SHADE.003 row (null: none) and the enhanced look's strength.</summary>
+    public int? HitFlashRow;
+    public float HitFlashStrength;
 
     // The end banner: the art's name, else the text.
     public string? Banner;

@@ -62,9 +62,12 @@ public sealed class ShotLightTable
 
     public static readonly IReadOnlyDictionary<ShotClass, ShotClassLight> DefaultClasses = new Dictionary<ShotClass, ShotClassLight>
     {
-        [ShotClass.Hand] = new(500f, 0.7f, 450f, 1.6f, 0.12f),
-        [ShotClass.Heavy] = new(850f, 1.5f, 750f, 2.6f, 0.18f),
-        [ShotClass.Vehicle] = new(1300f, 2.6f, 1100f, 3.6f, 0.25f),
+        // Kept small: a pistol round's hit lit a whole room, and the robots' bolts in the haze
+        // turned rooms blue (owner, 2026-11-03).
+        [ShotClass.Hand] = new(250f, 0.45f, 140f, 0.6f, 0.08f),
+        [ShotClass.Heavy] = new(450f, 0.9f, 300f, 1.3f, 0.12f),
+        // The jeep's and HK's rapid bolts at 900 u / 2.0 tinted the whole screen blue (owner, 2026-11-03).
+        [ShotClass.Vehicle] = new(550f, 1.1f, 450f, 1.6f, 0.15f),
     };
 
     /// <summary>The robots' shots light at least as this class.</summary>

@@ -189,4 +189,36 @@ public class ModelLodLoadTests
             Directory.Delete(root, recursive: true);
         }
     }
+
+    /// <summary>A mod that replaces only NAME.glb doesn't draw a lower mod's NAME.lod1.glb at
+    /// distance: that level was made and placed for the other model (a T3 HK over skynet-hd's LODs
+    /// was drawn ~30 times its size; owner, 2026-11-03).</summary>
+    [Fact]
+    public void Levels_come_from_the_main_model_s_mod()
+    {
+        var root = Directory.CreateTempSubdirectory("skynet-lods-").FullName;
+        try
+        {
+            foreach (var (mod, files) in new[] { ("low", new[] { "PROP", "PROP.lod1" }), ("high", new[] { "PROP" }) })
+            {
+                var models = Path.Combine(root, mod, "models");
+                Directory.CreateDirectory(models);
+                foreach (var name in files)
+                {
+                    File.WriteAllBytes(Path.Combine(models, name + ".glb"), Gltf.WriteGlb([Triangle], [], []));
+                }
+            }
+
+            ModContent.Mount(root, ["low", "high"]);
+
+            var prop = ModContent.Model("PROP");
+            Assert.NotNull(prop);
+            Assert.Empty(prop.Lods);
+        }
+        finally
+        {
+            ModContent.Unmount();
+            Directory.Delete(root, recursive: true);
+        }
+    }
 }

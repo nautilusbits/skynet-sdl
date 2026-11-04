@@ -289,7 +289,8 @@ public class RobotTests
         var type = SkyNet.Data.GameTables.Ais.Types.First(t => t.Name == "hvytrrt").Index;
         var turret = robots.Add(type, Vector3.Zero);
         var head = turret.Turrets.First(t => (t.Type!.Axis ?? 1) == 1);
-        return (robots, turret, () => head == turret.Root ? turret.Yaw : head.Yaw);
+        // The head's facing in the world: type 22 hangs upside down, its own yaw mirrored.
+        return (robots, turret, () => MathF.Atan2(-head.Forward.X, -head.Forward.Z));
     }
 
     [Fact]

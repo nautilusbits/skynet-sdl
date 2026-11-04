@@ -180,7 +180,7 @@ public sealed class MissionFileTests(ITestOutputHelper output) : IDisposable
     {
         var mods = Path.Combine(_temp, "mods");
         Directory.CreateDirectory(mods);
-        using var store = new BlockStore(mods, BehaviourData.Data);
+        using var store = new BlockStore(mods, Path.Combine(mods, ".cache"), BehaviourData.Data);
         Assert.Equal(8, store.StaleMissions().Count);
         Assert.Equal(8, store.BakeMissions(store.StaleMissions()));
         Assert.Empty(store.StaleMissions());

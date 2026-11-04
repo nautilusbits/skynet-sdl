@@ -103,11 +103,12 @@ public sealed class StaticBatch
             vertexShade, shading);
 
     /// <summary>As above, each bucket with its spatial pieces (index ranges into its own indices, in
-    /// order, back to back; none: the part is culled by its box alone).</summary>
+    /// order, back to back; none: the part is culled by its box alone); <paramref name="draw"/> the
+    /// level's draw it is, for its shadow casters (<see cref="Level.CasterOf"/>; null: dynamic).</summary>
     public static ModelMesh? Build(Renderer renderer, TextureHandle palette, RenderState state,
         IEnumerable<(SurfaceKey Key, GpuTexture? Texture, IReadOnlyList<Vertex> Vertices, IReadOnlyList<uint> Indices,
             IReadOnlyList<MeshChunk>? Pieces)> buckets,
-        bool vertexShade = false, Shading shading = Shading.Lit)
+        bool vertexShade = false, Shading shading = Shading.Lit, LevelDraw? draw = null)
     {
         var vertices = new List<Vertex>();
         var indices = new List<uint>();
@@ -127,6 +128,11 @@ public sealed class StaticBatch
             if (vertexShade)
             {
                 material = material with { Shade = 0, VertexShade = true };
+            }
+
+            if (draw is { } d)
+            {
+                material = material with { Caster = Level.CasterOf(d, b.Texture?.Frames ?? 1) };
             }
 
             var chunks = b.Pieces is { Count: > 0 } pieces

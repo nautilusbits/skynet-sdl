@@ -16,8 +16,8 @@ mission from it.
 ## Where mission files live
 
 - `missions/MNN.json` (`M01` … `M08` for SkyNET, `M01` … `M19` for Future
-  Shock, by mission number) inside the system ZIP, `mods/skynet.zip` or
-  `mods/shock.zip`, beside the map blocks ([map-block.md](map-block.md)),
+  Shock, by mission number) inside the system ZIP, `cache/skynet.zip` or
+  `cache/shock.zip`, beside the map blocks ([map-block.md](map-block.md)),
   stored uncompressed.
 - A mod overrides one by carrying the same path, for example
   `mods/mymod/missions/M01.json`. A file that does not validate is logged

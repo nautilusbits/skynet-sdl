@@ -31,6 +31,10 @@ public sealed class Soldier(PlayerController player) : IDamageable
     /// FUN_00122b52); null: nothing listens.</summary>
     public Action? Pained { get; set; }
 
+    /// <summary>Called when any hit taken here leaves the soldier alive, silent ones too (DOS's red
+    /// flash, <see cref="HitFlash"/>); null: nothing listens.</summary>
+    public Action? Survived { get; set; }
+
     /// <summary>A network deathmatch: the server owns the bar, so every hit the soldier takes here
     /// (his own blast, a fall, the water) goes to it as points before the armour, and the bar comes
     /// back in the server's answer (the Godot port's fly_camera.gd take_damage under Net.active).
@@ -61,6 +65,11 @@ public sealed class Soldier(PlayerController player) : IDamageable
         if (Health < before)
         {
             Wounded?.Invoke(before - Health);
+        }
+
+        if (Alive)
+        {
+            Survived?.Invoke();
         }
 
         if (!silent && Alive)

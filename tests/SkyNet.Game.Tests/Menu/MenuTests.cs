@@ -466,9 +466,12 @@ public class MenuNavigationTests
         Assert.Equal("tactical", screen.Highlighted!.Id);
         menu.Update(Accept, Frame);
         Assert.Equal(MissionTab.Tactical, screen.Tab);
+        // #29: up / down scroll the dossier's text; the wheel and a click on the model change the unit.
         menu.Update(Down, Frame);
+        Assert.Equal(0, screen.Dossier);
+        menu.Update(new MenuInput { Wheel = -1f }, Frame);
         Assert.Equal(1, screen.Dossier);
-        menu.Update(Down, Frame);
+        menu.Update(new MenuInput { Wheel = -1f }, Frame);
         Assert.Equal(0, screen.Dossier);
 
         menu.Update(Right, Frame);

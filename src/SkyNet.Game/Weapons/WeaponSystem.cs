@@ -94,7 +94,9 @@ public sealed class WeaponSystem
     private readonly List<ImpactFlash> _impacts = [];
     private readonly List<BulletPuff> _puffs = [];
     private readonly List<BlastCloud> _blasts = [];
+    private readonly List<MuzzleSmoke> _smokes = [];
     private int _puffSeed;
+    private int _flashSeed;
     private Vector3 _eye;
 
     public WeaponSystem(WeaponTable table, CollisionWorld world, DamageTargets? targets = null, SoundBank? sounds = null)
@@ -129,6 +131,8 @@ public sealed class WeaponSystem
     public IReadOnlyList<BulletPuff> Puffs => _puffs;
     /// <summary>Explosions lately (the enhanced look's fireball and smoke; no simulation reads it).</summary>
     public IReadOnlyList<BlastCloud> Blasts => _blasts;
+    /// <summary>The shots' muzzle smoke lately (the enhanced look's; no simulation reads it).</summary>
+    public IReadOnlyList<MuzzleSmoke> Smokes => _smokes;
     /// <summary>The map's surface is metal (its footsteps', <see cref="Audio.PlayerSounds.Metal"/>): bullets throw sparks there.</summary>
     public bool MetalWorld { get; set; }
     /// <summary>The sparks and fragments thrown where shots strike (ammo +0x2a/+0x2e).</summary>
@@ -219,6 +223,15 @@ public sealed class WeaponSystem
             if (_blasts[i].Age >= BlastCloud.MaxLife)
             {
                 _blasts.RemoveAt(i);
+            }
+        }
+
+        for (var i = _smokes.Count - 1; i >= 0; i--)
+        {
+            _smokes[i].Age += dt;
+            if (_smokes[i].Age >= MuzzleSmoke.MaxLife)
+            {
+                _smokes.RemoveAt(i);
             }
         }
 
@@ -369,7 +382,7 @@ public sealed class WeaponSystem
         var shot = offset == Vector3.Zero ? fwd : ShotDirection(s.Eye, muzzle, fwd, w.Aimed);
         Shot?.Invoke(record, ammo.Family == AmmoFamily.Hitscan ? s.Eye : muzzle, ammo.Family == AmmoFamily.Hitscan ? fwd : shot);
         var flashAt = offset == Vector3.Zero ? MuzzlePoint(s, FlashAtGun, dt) : muzzle;
-        Flash(flashAt + shot * 70f, record == 4 ? 26f : 18f, ammo, EffectKind.OwnFlash);
+        Flash(flashAt + shot * 70f, record == 4 ? 26f : 18f, ammo, shot, EffectKind.OwnFlash);
 
         if (ammo.Family == AmmoFamily.Hitscan)
         {
@@ -436,7 +449,7 @@ public sealed class WeaponSystem
 
         if (ammo.Family == AmmoFamily.Hitscan)
         {
-            Flash(from + dir * (MuzzleAhead + FlashAtGun.Z + 70f), record == 4 ? 26f : 18f, ammo);
+            Flash(from + dir * (MuzzleAhead + FlashAtGun.Z + 70f), record == 4 ? 26f : 18f, ammo, dir);
             if (Trace(from, dir, HitscanReach, out var at, out var normal, out _, out var target, shooter, hostile: true) && target != Player)
             {
                 AddEffect(ammo.ImpactBank, at + normal, PuffRadius, kind: EffectKind.Impact);
@@ -447,7 +460,7 @@ public sealed class WeaponSystem
             return true;
         }
 
-        Flash(from + dir * 70f, 18f, ammo);
+        Flash(from + dir * 70f, 18f, ammo, dir);
         _projectiles.Add(new Projectile
         {
             Weapon = w, Ammo = ammo, Position = from, Velocity = dir * w.Speed + Vector3.UnitY * w.Lift, Source = shooter, Harmless = true,
@@ -556,7 +569,7 @@ public sealed class WeaponSystem
     public void EnemyFire(IDamageable source, AmmoRecord ammo, Vector3 muzzle, Vector3 dir, float speed)
     {
         Sounds?.Play3D(ammo.FireSound, muzzle, -7f);
-        Flash(muzzle, 30f, ammo);
+        Flash(muzzle, 30f, ammo, dir);
         if (ammo.Family == AmmoFamily.Hitscan)
         {
             if (!Trace(muzzle, dir, HitscanReach, out var at, out var normal, out var owner, out var target, source, true))
@@ -813,12 +826,24 @@ public sealed class WeaponSystem
         return hit.Owner >= 0 && hit.Owner == Targets.OwnerOf(target);
     }
 
-    private void Flash(Vector3 at, float size, AmmoRecord ammo, EffectKind kind = EffectKind.Flash)
+    private void Flash(Vector3 at, float size, AmmoRecord ammo, Vector3 dir, EffectKind kind = EffectKind.Flash)
     {
-        if (Vector3.Distance(at, _eye) >= 1f)
+        if (Vector3.Distance(at, _eye) < 1f)
         {
-            _effects.Add(new Effect { Bank = FlashBank, Position = at, Size = size, Life = FlashLife, Ammo = ammo, Kind = kind });
+            return;
         }
+
+        dir = dir.LengthSquared() > 1e-12f ? Vector3.Normalize(dir) : Vector3.Zero;
+        var seed = _flashSeed++;
+        _effects.Add(new Effect { Bank = FlashBank, Position = at, Size = size, Life = FlashLife, Ammo = ammo, Kind = kind, Direction = dir, Seed = seed });
+
+        // The enhanced look's wisp of smoke after it (the oldest goes when MaxKept are kept).
+        if (_smokes.Count >= MuzzleSmoke.MaxKept)
+        {
+            _smokes.RemoveAt(0);
+        }
+
+        _smokes.Add(new MuzzleSmoke { At = at, Direction = dir, Size = size, Seed = seed });
     }
 
     /// <summary>An effect animation (a robot's death: bank 358) of about <paramref name="radius"/>.</summary>
@@ -865,6 +890,7 @@ public sealed class WeaponSystem
         _impacts.Clear();
         _puffs.Clear();
         _blasts.Clear();
+        _smokes.Clear();
         Pieces.Clear();
     }
 }

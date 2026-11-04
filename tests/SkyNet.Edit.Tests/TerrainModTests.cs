@@ -80,7 +80,7 @@ public sealed class TerrainModTests : IDisposable
     public void A_block_baked_on_the_dos_ground_is_refused_while_a_mod_changes_it()
     {
         var data = GameData.Open(EditDocumentTests.DataDir!)!;
-        using var store = new BlockStore(_mods, data);
+        using var store = new BlockStore(_mods, Path.Combine(_mods, ".cache"), data);
         store.Bake([Map]);
         store.Mount();
         Assert.NotNull(store.Load(Map));

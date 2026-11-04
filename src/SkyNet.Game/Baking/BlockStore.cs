@@ -11,12 +11,12 @@ using SkyNet.Game.Campaign;
 namespace SkyNet.Game.Baking;
 
 /// <summary>
-/// The map blocks and mission files of one data set in the mods folder: the system mod
-/// <c>mods/&lt;dataset&gt;.zip</c> (<see cref="SystemModName"/>), a standard ZIP, holds a block per
+/// The map blocks and mission files of one data set: the system mod
+/// <c>cache/&lt;dataset&gt;.zip</c> (<see cref="SystemModName"/>, <see cref="CacheDirectory"/>), a standard ZIP, holds a block per
 /// map, baked on the player's machine from the player's data; the mods mount over it
 /// (<c>mods/&lt;dataset&gt;/maps/MAP.NNN.block</c> and user mods win).
 /// <see cref="Stale"/> lists the maps whose block is missing or no longer matches the data,
-/// <see cref="Bake"/> bakes them into the ZIP, <see cref="Mount"/> mounts the mods folder and
+/// <see cref="Bake"/> bakes them into the ZIP, <see cref="Mount"/> mounts it under the mods folder and
 /// <see cref="Load"/> reads a block through it.
 /// <para>The system ZIP is always baked from the shipped tables (<see cref="BakeTables.Shipped"/>),
 /// whatever <c>--mod</c> is in effect, so a mod never writes into it and switching mods never makes
@@ -24,7 +24,7 @@ namespace SkyNet.Game.Baking;
 /// <c>tables/enemy_types.json</c> moves a robot's model or segments) is not used: <see cref="Load"/>
 /// gives null and the level bakes that map in memory with the mod's tables.</para>
 /// </summary>
-public sealed class BlockStore(string modsDirectory, GameData data) : IDisposable
+public sealed class BlockStore(string modsDirectory, string cacheDirectory, GameData data) : IDisposable
 {
     private VirtualFileSystem? _vfs;
     private (int Number, MapBlock Block)? _last;
@@ -33,6 +33,8 @@ public sealed class BlockStore(string modsDirectory, GameData data) : IDisposabl
     public static string SystemModName(GameKind game) => game == GameKind.FutureShock ? "shock" : "skynet";
 
     public string ModsDirectory { get; } = Path.GetFullPath(modsDirectory);
+    /// <summary>Where the system ZIP and its stamp live.</summary>
+    public string CacheDirectory { get; } = Path.GetFullPath(cacheDirectory);
     public GameData Data => data;
     /// <summary>How the blocks and mission files are stored in the ZIP: stored (no compression), so
     /// reading one is a single positioned read with nothing to inflate (docs/formats/zip-mods.md).
@@ -40,8 +42,32 @@ public sealed class BlockStore(string modsDirectory, GameData data) : IDisposabl
     public ZipCompression Compression { get; set; } = ZipCompression.Stored;
     public System.IO.Compression.CompressionLevel CompressionLevel { get; set; } = System.IO.Compression.CompressionLevel.Fastest;
 
-    /// <summary>The system mod: <c>mods/&lt;dataset&gt;.zip</c>.</summary>
-    public string ZipPath => Path.Combine(ModsDirectory, SystemModName(data.Game) + ".zip");
+    /// <summary>The system mod: <c>cache/&lt;dataset&gt;.zip</c>.</summary>
+    public string ZipPath => Path.Combine(CacheDirectory, SystemModName(data.Game) + ".zip");
+
+    /// <summary>Where builds before the cache kept the system ZIP: <c>mods/&lt;dataset&gt;.zip</c>.</summary>
+    private string OldZipPath => Path.Combine(ModsDirectory, SystemModName(data.Game) + ".zip");
+
+    /// <summary>Moves an older build's system ZIP and its stamp from the mods folder into the cache
+    /// (<see cref="Storage.CacheMigration.Move"/>: the newer copy wins). Only a ZIP with its stamp
+    /// beside it is ours: a lone skynet.zip stays. Never throws: a ZIP left behind is baked again in
+    /// the cache (a stamp that does not match only costs a full check). Returns how many files moved.</summary>
+    public int MoveFromMods()
+    {
+        if (!File.Exists(OldZipPath) || !File.Exists(OldZipPath + StampSuffix))
+        {
+            return 0;
+        }
+
+        var moved = (Storage.CacheMigration.Move(OldZipPath, ZipPath, Storage.CacheFile.Rebuildable) ? 1 : 0)
+            + (Storage.CacheMigration.Move(OldZipPath + StampSuffix, StampPath, Storage.CacheFile.Rebuildable) ? 1 : 0);
+        if (moved > 0)
+        {
+            Log.Info("Bake", $"{Path.GetFileName(ZipPath)}: moved from the mods folder to the cache");
+        }
+
+        return moved;
+    }
 
     /// <summary>Where older builds kept the same content in their own container (RPAK); deleted once
     /// the ZIP is there (<see cref="RemoveLegacyPak"/>).</summary>
@@ -54,6 +80,7 @@ public sealed class BlockStore(string modsDirectory, GameData data) : IDisposabl
     /// not called when the stamp matches.</param>
     public IReadOnlyList<int> Stale(bool all = false, IEnumerable<int>? only = null, Action<int, int>? progress = null)
     {
+        MoveFromMods();
         var maps = only?.ToArray() ?? MapBaker.MapNumbers(data);
         _checked = (maps, maps);
         if (all || !File.Exists(ZipPath))
@@ -107,7 +134,8 @@ public sealed class BlockStore(string modsDirectory, GameData data) : IDisposabl
     private (int[] Maps, int[] Stale)? _checked;
 
     /// <summary>Beside the system ZIP: <see cref="Stamp"/> of the last check that found every block fresh.</summary>
-    private string StampPath => ZipPath + ".stamp";
+    private string StampPath => ZipPath + StampSuffix;
+    private const string StampSuffix = ".stamp";
 
     /// <summary>
     /// What the blocks of <paramref name="maps"/> depend on, cheap to gather: the maps, the format and
@@ -127,6 +155,8 @@ public sealed class BlockStore(string modsDirectory, GameData data) : IDisposabl
         }
 
         AppendEntries(text, ModsDirectory, NotAnInput);
+        var zip = new FileInfo(ZipPath);
+        text.Append(CultureInfo.InvariantCulture, $"zip {zip.Name} {(zip.Exists ? zip.Length : -1)} {(zip.Exists ? zip.LastWriteTimeUtc.Ticks : 0)}\n");
         return text.ToString();
     }
 
@@ -183,6 +213,7 @@ public sealed class BlockStore(string modsDirectory, GameData data) : IDisposabl
     {
         try
         {
+            Directory.CreateDirectory(CacheDirectory);
             File.WriteAllText(StampPath, stamp);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
@@ -208,6 +239,7 @@ public sealed class BlockStore(string modsDirectory, GameData data) : IDisposabl
     // An update of the system ZIP; a new ZIP when the one there does not open.
     private ZipPackWriter OpenWriter()
     {
+        Directory.CreateDirectory(CacheDirectory);
         try
         {
             return ZipPackWriter.Update(ZipPath);
@@ -510,20 +542,46 @@ public sealed class BlockStore(string modsDirectory, GameData data) : IDisposabl
         }
     }
 
-    /// <summary>Mounts the mods folder: the system ZIP (locked, lowest) and every user mod above it
-    /// (not the other data set's system mod).</summary>
+    /// <summary>Mounts the mods folder: the system mod (locked, lowest: <c>mods/&lt;dataset&gt;/</c> over
+    /// the cache's ZIP) and every user mod above it (not the other data set's system mod).</summary>
     public void Mount()
     {
         Unmount();
+        MoveFromMods();
         RemoveLegacyPak();
-        var system = File.Exists(ZipPath) || Directory.Exists(Path.Combine(ModsDirectory, SystemModName(data.Game)))
-            ? new[] { SystemModName(data.Game) } : [];
         // The other data set's system mod is not a user mod of this one (its missions/MNN.json
         // would shadow this game's).
         var others = new[] { GameKind.SkyNet, GameKind.FutureShock }.Select(SystemModName).ToHashSet(VfsPath.Comparer);
         var root = new ContentRoot(ModsDirectory);
         var user = root.Discover().Select(m => m.Name).Where(n => !others.Contains(n));
-        _vfs = root.Mount(system, user);
+        _vfs = root.Mount([], user);
+        if (SystemMount() is { } system)
+        {
+            _vfs.Mount(system, VirtualFileSystem.SystemPriority, SystemModName(data.Game), locked: true);
+        }
+    }
+
+    // The system mod's layers, highest first: a hand-made mods/<dataset>/ folder, then the cache's ZIP.
+    private IVfsMount? SystemMount()
+    {
+        var layers = new List<IVfsMount>();
+        var folder = Path.Combine(ModsDirectory, SystemModName(data.Game));
+        if (Directory.Exists(folder))
+        {
+            layers.Add(new FolderMount(folder));
+        }
+
+        if (File.Exists(ZipPath))
+        {
+            layers.Add(new ZipMount(ZipPath));
+        }
+
+        return layers.Count switch
+        {
+            0 => null,
+            1 => layers[0],
+            _ => new LayeredMount(SystemModName(data.Game), layers),
+        };
     }
 
     public void Unmount()

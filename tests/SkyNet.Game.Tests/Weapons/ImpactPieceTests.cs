@@ -191,6 +191,47 @@ public class ImpactPieceTests
     }
 
     /// <summary>
+    /// Issue #27: a crate's drop lies on the floor under it, not at the crate's centre. DOS
+    /// (FUN_00124619, v1.01) asks the floor probe 0x138d00 from 20 over to 160 under the record and
+    /// stands the picture 2 over the floor it finds. MAP.213's crates sit about 20 over its floor
+    /// (Y −256).
+    /// </summary>
+    [BehaviourDataFact]
+    public void ACrateDropLiesOnTheFloorUnderIt()
+    {
+        const int Crate = 0x262f;
+        const float Floor = -256f, Gap = 2f;
+        var session = new GameSession(BehaviourData.Data);
+        session.StartMission(session.Table.ByNumber(1)!.Value);
+        Assert.True(session.EnterMap(213, 0));
+        Assert.Null(session.Wld);
+
+        session.Behaviour!.Hit(Crate, 100000f);
+        Tick(session, Dt);
+
+        var drop = Assert.Single(session.Drops);
+        Assert.Equal(Floor + Gap, drop.At.Y, 0.5f);
+        Assert.Contains(session.PickupsLeft, p => p.Offset == drop.Id && MathF.Abs(p.At.Y - drop.At.Y) < 0.01f);
+    }
+
+    /// <summary>Outdoors the same probe meets the WLD ground: MAP.210's crate 0x98d9 stands on it.</summary>
+    [BehaviourDataFact]
+    public void AnOutdoorCrateDropLiesOnTheGround()
+    {
+        const int Crate = 0x98d9;
+        const float Gap = 2f;
+        var session = new GameSession(BehaviourData.Data);
+        session.StartMission(session.Table.ByNumber(1)!.Value);
+        Assert.Equal(210, session.MapNumber);
+
+        session.Behaviour!.Hit(Crate, 100000f);
+        Tick(session, Dt);
+
+        var drop = Assert.Single(session.Drops);
+        Assert.Equal((float)session.Wld!.HeightAt(drop.At.X, -drop.At.Z) + Gap, drop.At.Y, 0.5f);
+    }
+
+    /// <summary>
     /// The cars of MAP.210 as DOS breaks them: a TRANSFRM.PRS car (COPCAR0A) shows a bank-358 blast
     /// at each stage it steps while it has hit points (handler 0x120833), and blows up with its own
     /// blast when they run out (FUN_00124793, type 0: no drop); a plain car (CAR0S, destruction

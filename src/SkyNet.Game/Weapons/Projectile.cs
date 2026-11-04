@@ -89,6 +89,10 @@ public sealed class Effect
     /// <summary>What it shows: the enhanced look (with PARTICLES on) draws a shot's impact as
     /// <see cref="BulletPuff"/> dust and an explosion as a <see cref="BlastCloud"/>, not the sprite.</summary>
     public EffectKind Kind { get; init; }
+    /// <summary>A muzzle flash's shot way (unit; zero: unknown) and its seed (the enhanced look's
+    /// burst turns and spreads by it: no two shots alike).</summary>
+    public Vector3 Direction { get; init; }
+    public int Seed { get; init; }
 
     public int Frame => Animated ? (int)(Age * Fps) : 0;
     public bool Done => Age >= Life;
@@ -134,6 +138,23 @@ public sealed class BulletPuff
     public bool Metal { get; init; }
     /// <summary>The cloud's size factor (the shot's strength: a shotgun's is bigger).</summary>
     public float Scale { get; init; } = 1f;
+    public int Seed { get; init; }
+    public float Age { get; set; }
+}
+
+/// <summary>A shot's wisp of smoke at the muzzle (<see cref="WeaponSystem.Smokes"/>): the enhanced
+/// look's (<see cref="Enhanced.MuzzleFlashes"/>). Cosmetic: no simulation reads it.</summary>
+public sealed class MuzzleSmoke
+{
+    /// <summary>Seconds one is kept and how many at most (the oldest go first).</summary>
+    public const float MaxLife = 0.7f;
+    public const int MaxKept = 32;
+
+    public Vector3 At { get; init; }
+    /// <summary>The shot's way (unit; zero: unknown).</summary>
+    public Vector3 Direction { get; init; }
+    /// <summary>The flash's size (world units): the wisp's scale.</summary>
+    public float Size { get; init; }
     public int Seed { get; init; }
     public float Age { get; set; }
 }

@@ -14,7 +14,7 @@ behaviour; the behaviour model reads `MapFile` as before.
 ## Where blocks live
 
 - `maps/MAP.NNN.block` inside the system mod of the data set, the ZIP
-  `mods/skynet.zip` (SkyNET) or `mods/shock.zip` (Future Shock), beside
+  `cache/skynet.zip` (SkyNET) or `cache/shock.zip` (Future Shock), beside
   the game's exe ([zip-mods.md](zip-mods.md)). Stored uncompressed, so a
   block is one positioned read with nothing to inflate.
 - A mod overrides one by carrying the same path: `mods/skynet/maps/MAP.210.block`

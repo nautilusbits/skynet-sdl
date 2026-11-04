@@ -49,7 +49,7 @@ port's decode.
 | [formats/controls-dat.md](formats/controls-dat.md) | CONTROLS.DAT key bindings | partial | `ControlsDat` (17 scancodes) |
 | [formats/ais.md](formats/ais.md) | AIS enemy scripts, parameter blocks, animation and ammo tables (in the executable) | done | `AisData`, `LeExecutable` (parsing only, no VM) |
 | [formats/zip-mods.md](formats/zip-mods.md) | ZIP mods (standard ZIPs, the engine's manifest of SHA-256 and source hashes), the mods folder and mount order (system ZIP locked under user mods; a folder over its ZIP) | done | `ZipPack`, `ZipPackWriter`, `VirtualFileSystem`, `ContentRoot` |
-| [formats/map-block.md](formats/map-block.md) | The baked map block (`maps/MAP.NNN.block` in `mods/skynet.zip` / `shock.zip`): ground, static batch per texture and map cell, dynamic meshes, sprites, collision, lamps; source hash, first-run bake, `--bake` / `--rebake` | done | `MapBlock`, `MapBaker`, `BlockStore` |
+| [formats/map-block.md](formats/map-block.md) | The baked map block (`maps/MAP.NNN.block` in `cache/skynet.zip` / `shock.zip`): ground, static batch per texture and map cell, dynamic meshes, sprites, collision, lamps; source hash, first-run bake, `--bake` / `--rebake` | done | `MapBlock`, `MapBaker`, `BlockStore` |
 | [formats/mission.md](formats/mission.md) | The mission file (`missions/MNN.json` in the system ZIP, a mod overrides it): map instances on blocks, 0xF0 exits as links, start, briefing, vehicle, music, next mission, the torpedo ride; variant groups; saves by instance | done | `WorldDefinition` (RetroEng.Core), `MissionFile`, `MissionGenerator` |
 | formats/raw-vid.md | RAW sound effects, VID video | TODO | |
 | formats/save.md | DOS save games (not decoded; the Godot port uses its own format) | TODO | |

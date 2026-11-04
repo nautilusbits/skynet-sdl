@@ -1,4 +1,7 @@
+using System.Numerics;
+using RetroEng.Physics;
 using SkyNet.Formats;
+using SkyNet.Game.Collision;
 
 namespace SkyNet.Game;
 
@@ -41,14 +44,17 @@ public static class SpriteRules
     /// The level Y a map sprite's foot stands at. Indoors (<paramref name="ground"/> null) the record
     /// is <see cref="Level.IndoorSpriteLift"/> over its foot. Outdoors scenery stands on the terrain;
     /// an item (<see cref="IsItem"/>) keeps its record's height when that is above the terrain: items
-    /// lie on roofs, ruins and beams (issue #21), and the ones on the ground sit 0-23 over it.
+    /// lie on roofs, ruins and beams (issue #21), and the ones on the ground sit 0-23 over it. An
+    /// item over a mesh's top stands on it (<see cref="SpriteFloor.Below"/>, the ground left out, in
+    /// <paramref name="meshes"/>): a record is about half its picture over the surface (an ammo box
+    /// 4-7, a medkit 18-21), so a flat item 16 under it sank into a girder.
     /// <code>
-    ///   record ●          roof item: foot = record − 16
-    ///   ───────┴── roof
+    ///   record ●          roof item: foot = the mesh top under the record
+    ///   ───────┴── roof   (none within the reach: record − 16)
     ///   ~~~~~~~~~~~ terrain: the foot of a record lower than 16 over it
     /// </code>
     /// </summary>
-    public static float Foot(MapEntity e, WldTerrain? ground)
+    public static float Foot(MapEntity e, WldTerrain? ground, CollisionWorld? meshes)
     {
         var record = -e.Y - Level.IndoorSpriteLift;
         if (ground == null)
@@ -57,6 +63,13 @@ public static class SpriteRules
         }
 
         var terrain = (float)ground.HeightAt(e.X, e.Z);
-        return IsItem(e.SpriteIndex) ? MathF.Max(terrain, record) : terrain;
+        if (!IsItem(e.SpriteIndex))
+        {
+            return terrain;
+        }
+
+        // On a roof or a beam: its top; else the record's height, never under the ground.
+        var top = meshes != null ? SpriteFloor.Below(meshes, new Vector3(e.X, -e.Y, -e.Z), FloorFaces.Meshes) : null;
+        return top ?? MathF.Max(terrain, record);
     }
 }

@@ -167,30 +167,22 @@ public sealed class MissionScreen : MenuScreen
         }
     }
 
-    /// <summary>Down / up: scrolls the page's text, past its end to the next page (TACTICAL: the next dossier).</summary>
+    /// <summary>Down / up: scrolls the page's text, past its end to the next page (TACTICAL: the
+    /// dossier's text only; the wheel and a click on the model change the unit, #29).</summary>
     public void Step(int dir)
     {
-        if (Tab == MissionTab.Tactical)
-        {
-            NextDossier(dir);
-            return;
-        }
-
-        if (Tab != MissionTab.Briefing)
+        if (Tab is not (MissionTab.Briefing or MissionTab.Tactical))
         {
             return;
         }
 
-        var maxScroll = Math.Max(0, _lineCount - _visibleLines);
-        if (dir > 0 && Scroll < maxScroll)
+        // The text first; TACTICAL has no pages past its end.
+        if (ScrollText(dir) || Tab == MissionTab.Tactical)
         {
-            Scroll++;
+            return;
         }
-        else if (dir < 0 && Scroll > 0)
-        {
-            Scroll--;
-        }
-        else if (dir > 0 && Page < Pages.Count - 1)
+
+        if (dir > 0 && Page < Pages.Count - 1)
         {
             (Page, Scroll, _lineCount) = (Page + 1, 0, 0);
         }
@@ -198,6 +190,25 @@ public sealed class MissionScreen : MenuScreen
         {
             (Page, Scroll, _lineCount) = (Page - 1, 0, 0);
         }
+    }
+
+    /// <summary>One line of the shown text down or up; false at its end.</summary>
+    private bool ScrollText(int dir)
+    {
+        var maxScroll = Math.Max(0, _lineCount - _visibleLines);
+        if (dir > 0 && Scroll < maxScroll)
+        {
+            Scroll++;
+            return true;
+        }
+
+        if (dir < 0 && Scroll > 0)
+        {
+            Scroll--;
+            return true;
+        }
+
+        return false;
     }
 
     private void NextDossier(int dir)
@@ -218,10 +229,19 @@ public sealed class MissionScreen : MenuScreen
             return true;
         }
 
-        // The wheel scrolls as the arrows do.
+        // The wheel scrolls as the arrows do; on TACTICAL it changes the unit.
         if (input.Wheel != 0f)
         {
-            Step(input.Wheel < 0f ? 1 : -1);
+            var dir = input.Wheel < 0f ? 1 : -1;
+            if (Tab == MissionTab.Tactical)
+            {
+                NextDossier(dir);
+            }
+            else
+            {
+                Step(dir);
+            }
+
             return true;
         }
 

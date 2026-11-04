@@ -59,7 +59,7 @@ public sealed class RobotReplacement
         for (var level = 1; level <= LodSettings.MaxLevels; level++)
         {
             var path = $"models/{LodSettings.FileName(name + Suffix, level)}.glb";
-            if (vfs.TryReadAllBytes(path) is not { } bytes)
+            if (!LodSettings.SameMod(vfs, $"models/{name}{Suffix}.glb", path) || vfs.TryReadAllBytes(path) is not { } bytes)
             {
                 break;
             }

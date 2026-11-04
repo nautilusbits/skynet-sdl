@@ -194,7 +194,7 @@ public sealed class TriggerTests : IDisposable
 
         // The game's view of the mod: the mission file from the mods, the layer behind LoadMap.
         ModContent.Mount(_mods, ["e8"]);
-        using var store = new BlockStore(_mods, data);
+        using var store = new BlockStore(_mods, Path.Combine(_mods, ".cache"), data);
         store.Mount();
         var file = store.LoadMission(1)!;
         Assert.Equal(doc.Mission.ToJson(), file.ToJson());

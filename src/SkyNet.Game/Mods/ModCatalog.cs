@@ -89,8 +89,9 @@ public sealed record ModEntry(string Name, bool System, bool Folder, bool Zip, M
 public static class ModCatalog
 {
     /// <summary>Every mod in <paramref name="modsDirectory"/>, by name; <paramref name="systemMods"/>
-    /// are marked as system mods (not opened). A user mod that does not open is listed with the reason.</summary>
-    public static IReadOnlyList<ModEntry> Scan(string modsDirectory, IEnumerable<string> systemMods)
+    /// are marked as system mods (not opened), their ZIPs in <paramref name="cacheDirectory"/> counted. A user mod
+    /// that does not open is listed with the reason.</summary>
+    public static IReadOnlyList<ModEntry> Scan(string modsDirectory, string cacheDirectory, IEnumerable<string> systemMods)
     {
         var system = systemMods.ToHashSet(VfsPath.Comparer);
         IReadOnlyList<ModSource> found;
@@ -103,9 +104,15 @@ public static class ModCatalog
             return [];
         }
 
-        return found.Select(m => system.Contains(m.Name)
-            ? new ModEntry(m.Name, true, m.Folder != null, m.Archives.Count > 0, null, null, ModCarries.None)
-            : Read(m)).ToArray();
+        bool Cached(string name) => File.Exists(Path.Combine(cacheDirectory, name + ".zip"));
+        var entries = found.Select(m => system.Contains(m.Name)
+            ? new ModEntry(m.Name, true, m.Folder != null, m.Archives.Count > 0 || Cached(m.Name), null, null, ModCarries.None)
+            : Read(m)).ToList();
+
+        // A system mod with only its ZIP in the cache.
+        var named = entries.Select(e => e.Name).ToHashSet(VfsPath.Comparer);
+        entries.AddRange(system.Where(n => !named.Contains(n) && Cached(n)).Select(n => new ModEntry(n, true, false, true, null, null, ModCarries.None)));
+        return [.. entries.OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase)];
     }
 
     /// <summary>One user mod: opened, its <c>mod.json</c> read and its folders looked at.</summary>
@@ -235,13 +242,14 @@ public static class ModOrder
     }
 
     /// <summary>The screen's rows: the enabled mods found, the last-loaded (winning) first; then the
-    /// other user mods by name; then the system mods.</summary>
+    /// other user mods by name. The system mods (the baked maps, in the cache since they are
+    /// generated) are left out: always on, nothing to choose.</summary>
     public static IReadOnlyList<ModEntry> Rows(IReadOnlyList<string> enabled, IReadOnlyList<ModEntry> found)
     {
         var byName = found.ToDictionary(m => m.Name, VfsPath.Comparer);
         var on = enabled.Reverse().Select(n => byName.GetValueOrDefault(n)).OfType<ModEntry>().Where(m => !m.System).ToList();
         var onNames = on.Select(m => m.Name).ToHashSet(VfsPath.Comparer);
         var off = found.Where(m => !m.System && !onNames.Contains(m.Name)).OrderBy(m => m.Name, VfsPath.Comparer);
-        return [.. on, .. off, .. found.Where(m => m.System).OrderBy(m => m.Name, VfsPath.Comparer)];
+        return [.. on, .. off];
     }
 }

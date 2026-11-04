@@ -18,7 +18,7 @@ internal enum SyncOutcome
 
 /// <summary>
 /// Mirrors the player's mods folder (picked with SAF, or the picked SkyNET folder's mods/) into
-/// the game's mods folder, next to the system mods' baked maps the game writes there. The plan is
+/// the game's mods folder (the system mods' baked maps are in cache/ beside it). The plan is
 /// <see cref="ModMirror"/>'s; this class lists the picked tree and carries the plan out.
 /// The manifest (<c>mods-sync.txt</c> beside the mods folder) lists the files the sync copied: it
 /// never deletes anything else.

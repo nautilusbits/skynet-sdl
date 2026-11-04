@@ -347,7 +347,7 @@ public sealed class ModelReplacement
         for (var level = 1; level <= LodSettings.MaxLevels; level++)
         {
             var path = $"models/{LodSettings.FileName(name, level)}.glb";
-            if (vfs.TryReadAllBytes(path) is not { } bytes)
+            if (!LodSettings.SameMod(vfs, $"models/{name}.glb", path) || vfs.TryReadAllBytes(path) is not { } bytes)
             {
                 break;
             }

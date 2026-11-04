@@ -51,8 +51,13 @@ try
     }
 
     SdlLog.Install(verbose: false);
-    // The preferences (SkyNetEdit.json beside the exe, or --prefs); the command line overrides them.
+    // The preferences (cache/SkyNetEdit.json beside the exe, or --prefs); the command line overrides them.
     // --check-missions and --cycle-missions read them but never write them.
+    if (o.Prefs == null)
+    {
+        EditorPrefs.MoveBesideSettings();
+    }
+
     var prefsPath = o.Prefs ?? EditorPrefs.DefaultPath;
     var prefs = EditorPrefs.Load(prefsPath);
     // An offscreen run without its own --prefs (agents, screenshots) borrows the user's file: it neither
@@ -174,7 +179,7 @@ internal sealed record EditorOptions(int? Mission = null, string? Instance = nul
                                       from its top-left) once the camera is set and the window has its size
           --check-missions            opens every mission (of --game), each instance drawn once: exit 1 on an error
           --cycle-missions N,M,...    opens the missions in turn: exit 1 on an error or a leaked texture or mesh
-          --prefs <file>              the preferences file (default SkyNetEdit.json beside the editor; an
+          --prefs <file>              the preferences file (default cache/SkyNetEdit.json beside the editor; an
                                       --offscreen run without it neither takes the user's settings nor writes them)
           --open-menu <name>          that main menu shown open (screenshots)
           --move key,dx,dy,dz         moves entity key (its MAP offset) of the shown level by dx, dy, dz once open

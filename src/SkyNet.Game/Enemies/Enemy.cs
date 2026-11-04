@@ -82,6 +82,8 @@ public sealed partial class Enemy : IDamageable
     private float _stripT;
     private int _kamikaze = -1;
     private readonly float _rootRestYaw;
+    /// <summary>The root's pitch and roll after its yaw (<see cref="Tilt"/>).</summary>
+    private readonly Matrix4x4 _rootTilt;
     private readonly List<RetroEng.Physics.Triangle> _column = [];
 
     public Enemy(Robots ctx, int type, Vector3 position, float yaw, int markerOffset = -1)
@@ -92,6 +94,7 @@ public sealed partial class Enemy : IDamageable
         Type = type >= 0 && type < ais.Types.Length ? ais.Types[type] : null;
         Position = position;
         Yaw = _rootRestYaw = yaw;
+        _rootTilt = Tilt(Type);
         MarkerOffset = markerOffset;
         _senseCount = ctx.NextSensePhase();
         Root = new EnemyPart(type, Type, ctx.Models.Get(Type?.ModelFile ?? "", Type?.Look ?? ""), null, Vector3.Zero, 0f, 0f, 0f);
@@ -164,8 +167,25 @@ public sealed partial class Enemy : IDamageable
 
         var at = Interpolation.Lerp(PreviousPosition, Position, alpha);
         var yaw = at == Position ? Yaw : Interpolation.LerpAngle(PreviousYaw, Yaw, alpha);
-        return Matrix4x4.CreateRotationY(yaw) * Matrix4x4.CreateTranslation(at);
+        return Matrix4x4.CreateRotationY(yaw) * _rootTilt * Matrix4x4.CreateTranslation(at);
     }
+
+    /// <summary>
+    /// The type's pitch and roll (params 1 and 3; 0x129a9d copies params 1-3 to the actor's
+    /// pitch, yaw, roll), turned after the yaw as FUN_0014e100 does. The hung guns (h &lt; 0:
+    /// smltrrt 8/10/12/29, hvytrrt2 21, hvytrrt 22-24) carry roll 1024: upside down.
+    /// </summary>
+    private static Matrix4x4 Tilt(EnemyType? type)
+    {
+        if (type?.Params is not { Length: > 3 } p)
+        {
+            return Matrix4x4.Identity;
+        }
+
+        return Matrix4x4.CreateRotationX((float)MapFile.AngleRadians(p[1]))
+            * Matrix4x4.CreateRotationZ(-(float)MapFile.AngleRadians(p[3]));
+    }
+
     public float Hp { get; private set; }
     public float MaxHp { get; }
     public float MoveSpeed { get; }
@@ -242,7 +262,7 @@ public sealed partial class Enemy : IDamageable
     /// <summary>Places every segment in the world from the root's position and yaw.</summary>
     public void UpdateTransforms()
     {
-        Root.World = Matrix4x4.CreateRotationY(Yaw) * Matrix4x4.CreateTranslation(Position);
+        Root.World = Matrix4x4.CreateRotationY(Yaw) * _rootTilt * Matrix4x4.CreateTranslation(Position);
         foreach (var c in Root.Children)
         {
             Place(c);
@@ -563,7 +583,7 @@ public sealed partial class Enemy : IDamageable
     /// <summary>No level geometry between the actor's eye and the soldier's.</summary>
     public bool LineOfSight(Vector3 playerFeet)
     {
-        var from = Position + new Vector3(0f, EyeHeight, 0f);
+        var from = Position + Vector3.TransformNormal(new Vector3(0f, EyeHeight, 0f), _rootTilt);   // a hung gun's eye is under it
         var to = playerFeet + new Vector3(0f, AimHeight, 0f) - from;
         var d = to.Length();
         return d < 1f || !_ctx.World.Raycast(from, to / d, d - 1f, out _);
@@ -913,7 +933,7 @@ public sealed partial class Enemy : IDamageable
         var parentWorld = seg.Parent?.World ?? Matrix4x4.CreateRotationY(Yaw);
         if (seg == Root)
         {
-            parentWorld = Matrix4x4.Identity;
+            parentWorld = _rootTilt;    // the yaw turns inside the tilt: a hung gun's is mirrored
         }
 
         Matrix4x4.Invert(parentWorld with { M41 = 0f, M42 = 0f, M43 = 0f }, out var inv);

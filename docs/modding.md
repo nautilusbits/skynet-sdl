@@ -603,9 +603,13 @@ as a 3D model in the enhanced look, in place of its DOS art (`WEAPONnn.CFA`).
   and a night map would leave the gun near black, every surface also glows
   with `minLight` of its own base colour (added to its emission; the scene's
   light comes on top).
-- A shot's first frame draws the DOS muzzle flare (TEXTURE.219) at `muzzle`,
-  in the gun's layer, besides the shot's point light and the flare out in the
-  world. Put `muzzle` a little in front of the barrel's end. The pipe has none.
+- A shot's first frame draws the enhanced look's muzzle flash at `muzzle`, in
+  the gun's layer: a soft glow and tapered petals, turned per shot and tinted
+  by the shot (bullets fire-orange, lasers their bolt's colour), burning out in
+  a frame or two, besides the shot's point light. Out in the world (robots,
+  other players) the flash is particles with a burst along the barrel and a
+  wisp of smoke. No image: TEXTURE.219 is the original look's flare only. Put
+  `muzzle` a little in front of the barrel's end. The pipe has none.
 - It moves by itself, from the DOS art's animation clock: a shot kicks it
   back and its muzzle up (fast, then eased out over the shot's animation, so
   held fire keeps it shaking), the pipe swings across to the left and down
@@ -655,8 +659,8 @@ optional, an unknown key is an error (the DOS art stays):
 | `scale` | `0` | World units per glTF unit (about 40 for a model in metres); `0`: the longest side is 16 units. |
 | `rotation` | `[0, 0, 0]` | Degrees about X, then Y, then Z, applied first (to point a model's barrel along -Z). |
 | `pivot` | the box centre | The point the kick and the swing turn about, in the model's own space (the glTF file's coordinates). |
-| `muzzle` | none | Where the muzzle flare is drawn, in the model's own space; none: no flare. |
-| `flashSize` | `6` | The flare's size, world units. |
+| `muzzle` | none | Where the muzzle flash is drawn, in the model's own space; none: no flash. |
+| `flashSize` | `6` | The flash's size, world units. |
 | `recoilBack` | `2` | World units a shot pushes the gun back at the kick's peak. |
 | `recoilPitch` | `5` | Degrees a shot lifts the muzzle at the kick's peak. |
 | `swing` | `70` | Degrees of the pipe's swing (the pipe only). |
@@ -826,7 +830,7 @@ from a folder or a ZIP mod alike.
   $.rows[1].viewX (line 9, column 27): expected an integer, found "wide"`.
 - Mods without a `tables/` folder leave the shipped tables in effect.
 
-**Robots and the baked maps.** The system ZIP (`mods/skynet.zip`) is always
+**Robots and the baked maps.** The system ZIP (`cache/skynet.zip`) is always
 baked from the shipped tables, so a mod never writes into it. When a mod's
 `tables/enemy_types.json` changes what a map block holds (a robot type's
 model or child segments), the game does not use that block: it logs
@@ -996,8 +1000,9 @@ Radii are world units, intensities the light at 150 u, colours sRGB 0-1.
 
 `lights/lamps.json` overrides the lamps (`LampSpots`). An art lamp whose lit
 triangles all face one way (a ceiling fitting, a wall fitting, a street lamp's
-head) is a shadowless spot along that way, the others, the fires and the MAP
-lights are omni. A row matches by any of `map`, `key` (the record's MAP file
+head) is a shadowless spot along that way, the others (a lit floor panel or
+desk top too), the fires, the lit pendant sprites (204/11, 204/18, 204/19, matched
+by their sprite as `texture`) and the MAP lights are omni. A row matches by any of `map`, `key` (the record's MAP file
 offset: an art lamp's mesh, a MAP light's record), `model` (no `.3D`) and
 `texture` (a word or `"BANK/RECORD"`; `model` and `texture` never match a MAP
 light), all given must match, and sets any of `kind` (`spot` / `omni`),
@@ -1010,6 +1015,21 @@ light), all given must match, and sets any of `kind` (`spot` / `omni`),
 ```
 
 A file that does not read is logged under `[Mods]` and the defaults stay.
+The game's own rows (`data/lights/skynet.json` or `futureshock.json`, built in) may give a `texture`
+a `cut` (0-1): its texels that bright are lit, making a texture just under
+the classifier's cut a lamp when the map is baked; a mod's `cut` is not read.
+
+A `lights` array places omni lights by hand in rooms the art leaves dark: `map`
+and `position` ([x, y, z], y up, as the console's `tp` takes it) are needed,
+`colour` (default the art lamps' warm white), `intensity` (0.10) and `range`
+(900) are optional; `lamps` rows match them as lamps with no model or texture:
+
+```json
+{ "lights": [ { "map": 192, "position": [5950, 114, -7940], "colour": [1, 0.25, 0.2], "intensity": 0.1, "range": 900 } ] }
+```
+
+The game's own (data/lights) are baked with the map; a mod's are added when
+the map loads (a baked light volume already cached does not see them).
 
 ## Weather (ENHANCED look)
 

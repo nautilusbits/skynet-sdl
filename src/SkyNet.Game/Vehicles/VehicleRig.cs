@@ -25,7 +25,7 @@ public sealed class VehicleRig : IVehicleSaver
     public VehicleRig(GameSession session)
     {
         _session = session;
-        Controller = new VehicleController(session.World, session.Player)
+        Controller = new VehicleController(session.PlayerWorld, session.Player)
         {
             Sound = id => session.Sounds?.Play2D(id, -6f),
         };

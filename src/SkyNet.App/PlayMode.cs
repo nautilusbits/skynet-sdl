@@ -58,6 +58,13 @@ internal sealed partial class AppHost
 
         var tick = latched;
 
+        // The click that closed a menu is still held: no shot until it is let go (#30).
+        if (menuClick == MenuClick.Held)
+        {
+            menuClick = controls.TriggersHeld(tick) ? MenuClick.Held : MenuClick.LetGo;
+            tick = menuClick == MenuClick.Held ? controls.WithoutTriggers(tick) : tick;
+        }
+
         // A demo playing: its events, then its input instead of the player's.
         if (playback != null)
         {

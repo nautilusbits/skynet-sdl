@@ -39,7 +39,7 @@ public static class LevelCollision
             return null;
         }
 
-        var wld = map.IsOutdoor ? data.LoadWld(number) : null;
+        var wld = map.IsOutdoor ? data.LoadWldFor(number)?.Wld : null;
         var (world, stats) = Build(data, map, wld);
         return (world, map, wld, stats);
     }

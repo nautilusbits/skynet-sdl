@@ -36,7 +36,7 @@ internal static class TextureCache
     internal static string RootOf(string modsDirectory)
     {
         var folder = Encoding.UTF8.GetBytes(modsDirectory.ToUpperInvariant());
-        return Path.Combine(AppContext.BaseDirectory, "cache", "textures", Hash(folder)[..8]);
+        return Path.Combine(Menu.SettingsStore.CacheFolder, "textures", Hash(folder)[..8]);
     }
 
     /// <summary>A record's entry from mod <paramref name="mod"/>, one side at <paramref name="detail"/>.</summary>

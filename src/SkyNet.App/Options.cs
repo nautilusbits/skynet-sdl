@@ -41,10 +41,13 @@ internal sealed record Options(string? Data, int? Map, Vector3? Position, float?
     RetroEng.Platform.HeadTracking? Head = null, RetroEng.Platform.AimCoupling? Aim = null, string? Viewer = null,
     int? CanvasDepth = null, bool StereoGrid = false, bool Churn = false, LoopThreads Threads = LoopThreads.Split,
     float? ScreenMm = null, RenderStyle? Style = null, string? Capture = null, int CaptureFps = FrameCapture.DefaultFps, RobotAi? RobotAi = null,
-    bool FixedStep = false, string? LogDir = null, DepthSharing? DepthSharing = null)
+    bool FixedStep = false, string? LogDir = null, DepthSharing? DepthSharing = null, string? BakeIrradiance = null)
 {
     /// <summary>The animation clock (ms) under --freeze.</summary>
     public const long FrozenClockMs = 1000;
+
+    /// <summary>--bake-irradiance's word for every map.</summary>
+    public const string AllMaps = "all";
 
     /// <summary>The map without --map (the tools: --walk-test, --fire-test, --music-wav).</summary>
     public const int DefaultMap = 210;
@@ -152,10 +155,13 @@ internal sealed record Options(string? Data, int? Map, Vector3? Position, float?
            --aim coupled|decoupled    whether the head turns the aim (decoupled: the body follows slowly)
            --aa off|fxaa|msaa2|msaa4  ENHANCED OPTIONS' ANTI-ALIASING for this run (else the setting)
            --depth-sharing on|off     diagnostics: the ENHANCED scene pass reuses the depth pre-pass (default off)
-           --bake              bakes the map blocks that are missing or stale (mods/skynet.zip, and
-                               mods/shock.zip when Future Shock's data is beside) and exits; --rebake
+           --bake              bakes the map blocks that are missing or stale (cache/skynet.zip, and
+                               cache/shock.zip when Future Shock's data is beside) and exits; --rebake
                                bakes every map again. A normal start does the same for the game played
                                ("PREPARING GAME DATA" over the title) before the title comes up
+           --bake-irradiance MAP|all   bakes the ENHANCED look's bounced light of a map (or every map)
+                               into cache\lighting\<game>\<key>\MAP.NNN.reiv beside the game and exits
+                               (an ENHANCED load bakes a missing one itself: "PREPARING LIGHTING")
            --record NAME       records a demo from the start of --mission / --map to demos\NAME.sndemo
                                beside the game (written when the run ends or on `stop`; docs/demos.md)
            --playdemo NAME     plays demos\NAME.sndemo (a path works too) and reports a desync;
@@ -237,6 +243,7 @@ internal sealed record Options(string? Data, int? Map, Vector3? Position, float?
                     case "--playdemo": o = o with { PlayDemo = value ?? throw new FormatException("--playdemo needs a name") }; i++; break;
                     case "--timedemo": o = o with { PlayDemo = value ?? throw new FormatException("--timedemo needs a name"), TimeDemo = true }; i++; break;
                     case "--bake": o = o with { Bake = true }; break;
+                    case "--bake-irradiance": o = o with { BakeIrradiance = MapOrAll(value) }; i++; break;
                     case "--workers": o = o with { Workers = Math.Clamp(int.Parse(value!, c), 0, RetroEng.Jobs.JobSystem.MaxWorkers) }; i++; break;
                     // Hidden: the MODS screen's GENERATE HI-RES TEXTURES into <mods-dir> (settings untouched).
                     case "--gen-hires": o = o with { GenHires = value ?? throw new FormatException("--gen-hires needs a mods folder") }; i++; break;
@@ -416,6 +423,12 @@ internal sealed record Options(string? Data, int? Map, Vector3? Position, float?
 
         return o;
     }
+
+    // A map number or "all".
+    private static string MapOrAll(string? value) =>
+        value == AllMaps || int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out _)
+            ? value!
+            : throw new FormatException("--bake-irradiance takes a map number or all");
 
     private static int WindowSide(string? value)
     {

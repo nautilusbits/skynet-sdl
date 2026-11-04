@@ -24,7 +24,7 @@ internal sealed partial class EditorApp
     /// <summary>The layout file beside the preferences; none for a batch run, nor for an offscreen one
     /// without its own --prefs (it never touches the user's layout).</summary>
     private static string? LayoutFile(EditorOptions options, string? prefsPath) =>
-        prefsPath != null && (!options.Offscreen || options.Prefs != null) ? Path.ChangeExtension(prefsPath, ".imgui.ini") : null;
+        prefsPath != null && (!options.Offscreen || options.Prefs != null) ? Path.ChangeExtension(prefsPath, EditorPrefs.LayoutExtension) : null;
 
     /// <summary>The main window where it was last time (a shown window only).</summary>
     private void RestoreWindow()

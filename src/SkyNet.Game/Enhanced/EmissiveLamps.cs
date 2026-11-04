@@ -77,12 +77,17 @@ public readonly record struct FireSprite(int SpriteIndex, Vector3 Base, float Wo
 /// </summary>
 public static class EmissiveLamps
 {
-    /// <summary>main.gd EMIT_LIGHT_MAX: the lamp budget per level.</summary>
-    public const int MaxLamps = 128;
+    /// <summary>The lamp budget per level (main.gd EMIT_LIGHT_MAX was 128 and left FS MAP.129 dark).
+    /// The frame lights the nearest of them (<see cref="LightGather"/>, at most 256), so it bounds
+    /// the bake and the per-frame sort only.</summary>
+    public const int MaxLamps = 512;
     /// <summary>main.gd EMIT_LIGHT_SHADOWS: how many of the first lamps cast shadows in Godot.</summary>
     public const int ShadowLamps = 4;
     /// <summary>main.gd EMIT_CELL: the cell the lit points are gathered in, world units.</summary>
     public const float Cell = 900f;
+    /// <summary>Lamps of patches this close (one world cell, one facing) are one light, their energy
+    /// summed: overlapping copies of a fitting, lit as before at one cap slot.</summary>
+    public const float MergeCell = 200f;
     /// <summary>main.gd EMIT_DROP: how far in front of its patch a lamp hangs.</summary>
     public const float Drop = 60f;
     /// <summary>main.gd EMIT_LIGHT_COLOR.</summary>
@@ -95,6 +100,10 @@ public static class EmissiveLamps
     public const float RangeExtentScale = 1.2f, RangeBase = 600f, RangeMin = 750f, RangeMax = 3200f;
     /// <summary>main.gd EMIT_CEILING_NY: a patch whose world normal's Y is at or under −this is a ceiling.</summary>
     public const float CeilingNy = 0.5f;
+    /// <summary>A patch whose world normal's Y is at or over this is a floor panel or a desk top.</summary>
+    public const float FloorNy = 0.5f;
+    /// <summary>How far over a floor panel its lamp hangs (it lights the room, not the panel).</summary>
+    public const float FloorRise = 150f;
     /// <summary>main.gd EMIT_CEILING_GAP: a wall patch's lamp hangs at least this far under its mesh's top.</summary>
     public const float CeilingGap = 30f;
     /// <summary>main.gd EMIT_WALL_SCALE: a wall patch's lamp energy factor.</summary>
@@ -134,9 +143,24 @@ public static class EmissiveLamps
         [27662] = (FireKind.Flame, 1f),   // 216/014 a small flame
     };
 
+    /// <summary>A lit fixture sprite's steady lamp: colour (sRGB), intensity at 150 u, range, and
+    /// the bulb's height over the sprite's foot as a share of the sprite's height.</summary>
+    private readonly record struct Bulb(Vector3 Srgb, float Intensity, float Range, float Height);
+
+    /// <summary>The pendants of bank 204 drawn lit (204/15 broken and 204/17 switched off give none).</summary>
+    private static readonly IReadOnlyDictionary<int, Bulb> LitBulbs = new Dictionary<int, Bulb>
+    {
+        [26123] = new(new Vector3(1f, 0.94f, 0.84f), 0.15f, 700f, 0.2f),   // 204/011 short, white
+        [26130] = new(new Vector3(1f, 0.94f, 0.84f), 0.15f, 700f, 0.06f),  // 204/018 long, white
+        [26131] = new(new Vector3(1f, 0.25f, 0.2f), 0.15f, 700f, 0.06f),   // 204/019 long, red
+    };
+
     /// <summary>Whether a sprite carries a fire lamp: the Godot table, or a sprite DOS draws at full
     /// light (<see cref="SpriteRules.FullBright"/>: 192/0 and 192/2 are only there, as a flame).</summary>
     public static bool IsFire(int spriteIndex) => GodotFires.ContainsKey(spriteIndex) || SpriteRules.FullBright(spriteIndex);
+
+    /// <summary><see cref="FlickerScale"/>'s mean over time (its sines average out).</summary>
+    public const float MeanFlicker = 0.82f;
 
     /// <summary>fire_effect.gd _process: the energy factor at <paramref name="seconds"/>.</summary>
     public static float FlickerScale(float seconds, float phase) =>
@@ -245,7 +269,20 @@ public static class EmissiveLamps
     private readonly record struct CellLamp(float Weight, int Mesh, int Order, Vector3 Centre, Vector3 Normal, float Extent,
         float Coherence, int Texture);
 
-    /// <summary>The lamps of a level's emissive meshes: the brightest <see cref="MaxLamps"/> cells
+    /// <summary>Which way a lit patch faces in the world, which sets where its lamp hangs.</summary>
+    private enum Patch { Ceiling, Wall, Floor }
+
+    /// <summary>A merged lamp gathered over the mesh cells lit in its <see cref="MergeCell"/> (sums weighted by lit area).</summary>
+    private struct WorldCell
+    {
+        public float Weight, Heaviest, Extent, Energy;
+        public Vector3 Position, Facing, Coherent, Min, Max;
+        public CellLamp Main;
+        public bool Lifted;
+    }
+
+    /// <summary>The lamps of a level's emissive meshes: cells per mesh, merged per <see cref="MergeCell"/>
+    /// and facing (overlapping copies of a fitting share a lamp), the brightest <see cref="MaxLamps"/> kept
     /// (weight = lit area), ties kept in mesh and cell order. Deterministic.</summary>
     public static List<LampLight> Build(IReadOnlyList<EmissiveMesh> meshes)
     {
@@ -322,44 +359,100 @@ public static class EmissiveLamps
             }
         }
 
+        var merged = Merge(meshes, cells);
+
         // The brightest cells first, up to the budget (Godot's sort wasn't stable; this one is).
-        cells.Sort((x, y) =>
+        merged.Sort((x, y) =>
         {
             var c = y.Weight.CompareTo(x.Weight);
-            if (c == 0) c = x.Mesh.CompareTo(y.Mesh);
-            return c != 0 ? c : x.Order.CompareTo(y.Order);
+            if (c == 0) c = x.Main.Mesh.CompareTo(y.Main.Mesh);
+            return c != 0 ? c : x.Main.Order.CompareTo(y.Main.Order);
         });
 
-        var lamps = new List<LampLight>(Math.Min(cells.Count, MaxLamps));
-        foreach (var cell in cells)
+        var lamps = new List<LampLight>(Math.Min(merged.Count, MaxLamps));
+        foreach (var cell in merged.Take(MaxLamps))
         {
-            if (lamps.Count >= MaxLamps)
-            {
-                break;
-            }
-
-            var mesh = meshes[cell.Mesh];
-            var world = Vector3.Transform(cell.Centre + cell.Normal * Drop, mesh.World);
-            var intensity = IntensityAtRef;
-            // Which way the lit patch faces in the world. A ceiling fitting keeps its lamp Drop under
-            // it; anything else lends it to the ceiling above: at least CeilingGap under the top of
-            // its mesh, dimmer (a lit wall panel's own lamp made the wall the brightest thing).
-            var facing = Vector3.TransformNormal(cell.Normal, mesh.World);
-            facing = facing == Vector3.Zero ? facing : Vector3.Normalize(facing);
-            var lifted = facing.Y > -CeilingNy;
-            if (lifted)
-            {
-                world.Y = MathF.Max(world.Y, TopY(mesh) - CeilingGap);
-                intensity *= WallScale;
-            }
-
-            lamps.Add(new LampLight(world, Colour,
-                Math.Clamp(cell.Extent * RangeExtentScale + RangeBase, RangeMin, RangeMax),
-                LightFalloff.EnergyAtRef(intensity), Flicker: false, Lifted: lifted,
-                Facing: facing, Coherence: cell.Coherence, Model: mesh.Model, Texture: cell.Texture, Entity: mesh.Entity));
+            var mesh = meshes[cell.Main.Mesh];
+            var facing = cell.Facing == Vector3.Zero ? cell.Facing : Vector3.Normalize(cell.Facing);
+            var extent = cell.Extent + (cell.Max - cell.Min).Length();
+            lamps.Add(new LampLight(cell.Position / cell.Weight, Colour,
+                Math.Clamp(extent * RangeExtentScale + RangeBase, RangeMin, RangeMax),
+                cell.Energy, Flicker: false, Lifted: cell.Lifted,
+                Facing: facing, Coherence: Math.Clamp(cell.Coherent.Length() / cell.Weight, 0f, 1f), Model: mesh.Model,
+                Texture: cell.Main.Texture, Entity: mesh.Entity));
         }
 
         return lamps;
+    }
+
+    /// <summary>Each mesh cell's lamp placed in the world, merged with the others of its
+    /// <see cref="MergeCell"/> and facing (copies of a fitting overlapping in place). In first-seen order.</summary>
+    private static List<WorldCell> Merge(IReadOnlyList<EmissiveMesh> meshes, List<CellLamp> cells)
+    {
+        var merged = new List<WorldCell>();
+        var index = new Dictionary<(int, int, int, Patch), int>();
+        foreach (var cell in cells)
+        {
+            var mesh = meshes[cell.Mesh];
+            var patch = Vector3.Transform(cell.Centre, mesh.World);
+            var facing = Vector3.TransformNormal(cell.Normal, mesh.World);
+            facing = facing == Vector3.Zero ? facing : Vector3.Normalize(facing);
+            var (world, intensity, kind) = Place(mesh, cell, facing);
+            var lamp = new WorldCell
+            {
+                Weight = cell.Weight, Heaviest = cell.Weight, Extent = cell.Extent, Energy = LightFalloff.EnergyAtRef(intensity),
+                Position = world * cell.Weight, Facing = facing * cell.Weight, Coherent = facing * cell.Coherence * cell.Weight,
+                Min = world, Max = world, Main = cell, Lifted = kind == Patch.Wall,
+            };
+
+            var key = ((int)MathF.Floor(patch.X / MergeCell), (int)MathF.Floor(patch.Y / MergeCell), (int)MathF.Floor(patch.Z / MergeCell), kind);
+            if (!index.TryGetValue(key, out var at))
+            {
+                index[key] = merged.Count;
+                merged.Add(lamp);
+                continue;
+            }
+
+            var m = merged[at];
+            m.Weight += lamp.Weight;
+            m.Energy += lamp.Energy;
+            m.Position += lamp.Position;
+            m.Facing += lamp.Facing;
+            m.Coherent += lamp.Coherent;
+            m.Extent = MathF.Max(m.Extent, lamp.Extent);
+            m.Min = Vector3.Min(m.Min, world);
+            m.Max = Vector3.Max(m.Max, world);
+            if (lamp.Heaviest > m.Heaviest)
+            {
+                (m.Heaviest, m.Main) = (lamp.Heaviest, lamp.Main);
+            }
+
+            merged[at] = m;
+        }
+
+        return merged;
+    }
+
+    /// <summary>Where a cell's lamp hangs and its intensity. A ceiling fitting keeps its lamp Drop
+    /// under it; a wall patch lends it to the ceiling above: at least CeilingGap under the top of its
+    /// mesh, dimmer (a lit wall panel's own lamp made the wall the brightest thing); a floor panel or
+    /// desk top hangs it FloorRise over itself, dimmer, lighting the room around (lifted, it lit the
+    /// ceiling and left the floor black).</summary>
+    private static (Vector3 World, float Intensity, Patch Kind) Place(EmissiveMesh mesh, in CellLamp cell, Vector3 facing)
+    {
+        if (facing.Y <= -CeilingNy)
+        {
+            return (Vector3.Transform(cell.Centre + cell.Normal * Drop, mesh.World), IntensityAtRef, Patch.Ceiling);
+        }
+
+        if (facing.Y >= FloorNy)
+        {
+            return (Vector3.Transform(cell.Centre + cell.Normal * FloorRise, mesh.World), IntensityAtRef * WallScale, Patch.Floor);
+        }
+
+        var world = Vector3.Transform(cell.Centre + cell.Normal * Drop, mesh.World);
+        world.Y = MathF.Max(world.Y, TopY(mesh) - CeilingGap);
+        return (world, IntensityAtRef * WallScale, Patch.Wall);
     }
 
     /// <summary>The fire lamps (fire_effect.gd's light): the sprite's world height shaped by its
@@ -401,6 +494,52 @@ public static class EmissiveLamps
         return lamps;
     }
 
+    /// <summary>The lit bulbs' steady omni lamps (<see cref="LitBulbs"/>), keyed for the overrides
+    /// by the sprite as a texture word.</summary>
+    public static List<LampLight> Bulbs(IEnumerable<FireSprite> sprites)
+    {
+        var lamps = new List<LampLight>();
+        foreach (var s in sprites)
+        {
+            if (!LitBulbs.TryGetValue(s.SpriteIndex, out var b))
+            {
+                continue;
+            }
+
+            lamps.Add(new LampLight(s.Base + new Vector3(0f, s.WorldHeight * b.Height, 0f), b.Srgb, b.Range,
+                LightFalloff.EnergyAtRef(b.Intensity), Flicker: false, Texture: s.SpriteIndex, Entity: s.Seed));
+        }
+
+        return lamps;
+    }
+
+    /// <summary>How far across and up or down from a lit bulb a map light is its light: MAP.604 puts
+    /// them 3-98 u across, 59-83 u under; MAP.292 25 u across, 96 u under.</summary>
+    private const float BulbReach = 128f, BulbFall = 160f;
+
+    /// <summary>The map lights with the ones under a lit pendant (<see cref="Bulbs"/>) moved to its
+    /// bulb: the map puts its light 60-100 u under the bulb at twice the bulb lamp's energy, so the
+    /// glow lit the walls a rod's length under the drawn bulb. A lamp post's light (Heads) stays.</summary>
+    internal static MapLight[] AtBulbs(IReadOnlyList<MapLight> map, IReadOnlyList<LampLight> lamps)
+    {
+        var bulbs = lamps.Where(l => !l.Flicker && l.Model.Length == 0 && LitBulbs.ContainsKey(l.Texture)).Select(l => l.Position).ToList();
+        var moved = map.ToArray();
+        for (var i = 0; i < moved.Length; i++)
+        {
+            var p = moved[i].Position;
+            var near = bulbs.Where(b => new Vector2(b.X - p.X, b.Z - p.Z).Length() <= BulbReach && MathF.Abs(b.Y - p.Y) <= BulbFall)
+                .OrderBy(b => new Vector2(b.X - p.X, b.Z - p.Z).Length()).ToList();
+            if (near.Count == 0 || moved[i].Heads != null)
+            {
+                continue;
+            }
+
+            moved[i] = moved[i] with { Position = near[0] };
+        }
+
+        return moved;
+    }
+
     /// <summary>A fire's flicker phase from its seed (Godot hashed it; any fixed spread will do).</summary>
     public static float PhaseOf(int seed) => (uint)seed * 2654435761u % 1000u / 1000f * MathF.Tau;
 
@@ -419,14 +558,17 @@ public static class EmissiveLamps
     }
 
     /// <summary>main.gd _lit_samples: the lit points of a triangle on a barycentric grid of
-    /// clamp(texels across / 5, 2, 14) steps a side, wrapped; fills <paramref name="hits"/> with
-    /// their (s, t) and returns the samples taken.</summary>
+    /// clamp(texels across / 5, 2, 14 per texture repeat) steps a side, wrapped; fills
+    /// <paramref name="hits"/> with their (s, t) and returns the samples taken. Godot capped at 14
+    /// whatever the repeats: FS MAP.129's ceilings tile 479/1 four times and every sample fell
+    /// at u = k/7, beside its 6-texel strip.</summary>
     public static int LitSamples(LitMask mask, Vector2 u0, Vector2 u1, Vector2 u2, List<Vector2> hits)
     {
         hits.Clear();
         var edge = MathF.Max(MathF.Max((u1 - u0).Length(), (u2 - u0).Length()), (u2 - u1).Length());
         var px = edge * mask.ScanSize;
-        var n = Math.Clamp((int)(px / TexelsPerSample), SamplesMin, SamplesMax);
+        var repeats = Math.Max(1, (int)MathF.Ceiling(edge));
+        var n = Math.Clamp((int)(px / TexelsPerSample), SamplesMin, SamplesMax * repeats);
         var total = 0;
         for (var i = 0; i <= n; i++)
         {
@@ -463,14 +605,16 @@ public static class EmissiveLamps
             return b;
         }
 
+        var cuts = CutsOf(data.Game, number);
         var masks = new Dictionary<int, LitMask?>();
         LitMask? Mask(int word)
         {
             if (!masks.TryGetValue(word, out var m))
             {
                 var b = Bank(word >> 7);
+                var lit = cuts.TryGetValue(word, out var cut) ? EmissionClassifier.LitTable(palette, cut) : litTable;
                 m = b == null || b.Records.IsEmpty ? null
-                    : b.Records[Math.Clamp(word & 0x7F, 0, b.Records.Length - 1)] is { IsEmpty: false } r ? MaskOf(r, palette, litTable, maxFraction) : null;
+                    : b.Records[Math.Clamp(word & 0x7F, 0, b.Records.Length - 1)] is { IsEmpty: false } r ? MaskOf(r, palette, lit, maxFraction) : null;
                 masks[word] = m;
             }
 
@@ -505,8 +649,30 @@ public static class EmissiveLamps
         }
 
         var lamps = Build(meshes);
-        lamps.AddRange(Fires(FireSprites(data, map, number, Bank)));
+        lamps.AddRange(Fires(FireSprites(data, map, number, Bank, IsFire)));
+        lamps.AddRange(Bulbs(FireSprites(data, map, number, Bank, LitBulbs.ContainsKey)));
+        lamps.AddRange(Hand(LampSpots.ShippedLights(data.Game), number));
         return lamps;
+    }
+
+    /// <summary>The hand lights of <paramref name="map"/> as steady omni lamps (no facing, no model).</summary>
+    internal static List<LampLight> Hand(IEnumerable<HandLight> rows, int map) =>
+        [.. rows.Where(r => r.Map == map).Select(r => new LampLight(r.Position, r.Srgb ?? Colour, r.Range ?? LampSpots.HandRange,
+            LightFalloff.EnergyAtRef(r.Intensity ?? IntensityAtRef), Flicker: false))];
+
+    /// <summary>The shipped rows' texture cuts for a map (a later row over an earlier one).</summary>
+    private static Dictionary<int, float> CutsOf(GameKind game, int number)
+    {
+        var cuts = new Dictionary<int, float>();
+        foreach (var row in LampSpots.Shipped(game))
+        {
+            if (row is { Texture: { } word, Cut: { } cut } && (row.Map is not { } m || m == number))
+            {
+                cuts[word] = cut;
+            }
+        }
+
+        return cuts;
     }
 
     /// <summary>A variant-1 mesh's placement as <see cref="Level"/> builds it: DOS FUN_0014e100's
@@ -517,10 +683,10 @@ public static class EmissiveLamps
         * Matrix4x4.CreateRotationZ(-(float)MapFile.AngleRadians(e.Roll))
         * Matrix4x4.CreateTranslation(e.X, -e.Y, -e.Z);
 
-    /// <summary>The map's fire sprites placed as <see cref="Level"/> places its billboards: the foot
+    /// <summary>The map's fire sprites (or those <paramref name="wanted"/> names) placed as <see cref="Level"/> places its billboards: the foot
     /// on the ground outdoors, <see cref="Level.IndoorSpriteLift"/> under the record's Y indoors,
     /// the height of the record's largest frame at <see cref="Level.SpriteScale"/>.</summary>
-    private static IEnumerable<FireSprite> FireSprites(GameData data, MapFile map, int number, Func<int, TextureBank?> bank)
+    private static IEnumerable<FireSprite> FireSprites(GameData data, MapFile map, int number, Func<int, TextureBank?> bank, Func<int, bool> wanted)
     {
         WldTerrain? wld = null;
         var wldLoaded = false;
@@ -528,7 +694,7 @@ public static class EmissiveLamps
         foreach (var e in map.Entities)
         {
             if (e.Variant != MapEntityVariant.Sprite || e.IsMarker || e.MarkerType != -1 || e.SpriteIndex < 0
-                || !IsFire(e.SpriteIndex))
+                || !wanted(e.SpriteIndex))
             {
                 continue;
             }
@@ -545,7 +711,7 @@ public static class EmissiveLamps
 
             if (map.IsOutdoor && !wldLoaded)
             {
-                wld = data.LoadWld(number);
+                wld = data.LoadWldFor(number)?.Wld;
                 wldLoaded = true;
             }
 

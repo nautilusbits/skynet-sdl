@@ -11,6 +11,8 @@ public static class PlayerStart
 {
     /// <summary>The Godot port's lift over the ground when a marker lies under it.</summary>
     public const float GroundLift = 4f;
+    /// <summary>How far below a blocked marker its floor is looked for.</summary>
+    private const float FloorReach = 120f;
     private static readonly float[] Rings = [0f, 50f, 100f, 200f, 320f, 460f, 640f];
 
     /// <summary>The start's feet and yaw (radians, about +Y, 0 looking −Z); false when the map has
@@ -129,6 +131,17 @@ public static class PlayerStart
     public static Vector3 Clear(CollisionWorld world, SphereBody body, Vector3 feet)
     {
         var chest = new Vector3(0f, 60f, 0f);
+
+        // A marker floating over its floor may clip a low ceiling (FS MAP.050 set 12, a pipe mouth
+        // over walk-on pad SEWRENTR). DOS drops the soldier straight down there, so try the floor
+        // below before moving him sideways off the pad.
+        if (world.Overlaps(body, feet + new Vector3(0f, 1f, 0f)) &&
+            world.Raycast(feet, -Vector3.UnitY, FloorReach, out var floor) &&
+            !world.Overlaps(body, floor.Point + new Vector3(0f, 1f, 0f)))
+        {
+            return floor.Point;
+        }
+
         foreach (var ring in Rings)
         {
             var steps = ring < 1f ? 1 : 12;

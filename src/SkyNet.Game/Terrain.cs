@@ -82,11 +82,17 @@ public sealed class Terrain
 
         textures.TrackBankSurface(texture, TileBank);
 
-        _material = new Material(texture, palette, Vector4.One, 1, RenderState.DoubleSided, Shading.Lit);
+        _material = GroundMaterial(texture, palette) with { Caster = Level.CasterOf(LevelDraw.Ground) };
         _chunks.AddRange(geometry.Chunks);
         Triangles = geometry.Indices.Length / 3;
         _mesh = renderer.CreateMesh(geometry.Vertices, geometry.Indices);
     }
+
+    /// <summary>The ground's material: lit, casting and receiving the sun's shadow. Its 256-unit
+    /// triangles are shaded by the smooth corner normals; the dark bands their faceted shadow drew
+    /// along the cell edges are faded by the lighting's <see cref="ShadowTerminator.Fade"/>.</summary>
+    private static Material GroundMaterial(TextureHandle texture, TextureHandle palette) =>
+        new(texture, palette, Vector4.One, 1, RenderState.DoubleSided, Shading.Lit);
 
     /// <summary>The atlas from the tiles' HD textures (TextureStore.HdImage), all at one scale; null
     /// unless every tile has one. With a relief atlas when any tile has relief maps (the rest flat).</summary>

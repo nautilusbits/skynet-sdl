@@ -24,25 +24,92 @@ public class ShotLightsTests
         public void TakeDamage(in Damage damage) { }
     }
 
-    /// <summary>GitHub #5: muzzle flashes and explosions shadow at SHADOWS High only (too dear for a
-    /// phone's Low); bolts never.</summary>
+    private static readonly Vector3 BlastColour = LevelLights.Linear(GameLights.ExplosionSrgb);
+
+    private static List<PointLight> Lit(WeaponSystem weapons, ShadowQuality shadows = ShadowQuality.High, PlayKind play = PlayKind.Campaign)
+    {
+        var lights = new List<PointLight>();
+        GameLights.Append(lights, weapons, ShotLightTable.Default, shadows, play);
+        return lights;
+    }
+
+    /// <summary>A wall facing −X at x = <paramref name="x"/>.</summary>
+    private static CollisionWorld Wall(float x)
+    {
+        Vector3 a = new(x, -1000, -1000), b = new(x, -1000, 1000), c = new(x, 1000, 1000), d = new(x, 1000, -1000);
+        return new CollisionWorld().Add(new TriangleGrid([new Triangle(a, b, c, 7), new Triangle(a, c, d, 7)]));
+    }
+
+    /// <summary>GitHub #17: the soldier's own muzzle flash shadows at SHADOWS High in a campaign; the
+    /// bullet's impact on the wall never (its shadows looked noisy).</summary>
     [Fact]
-    public void Weapon_lights_cast_shadows_at_high_only()
+    public void Own_flash_shadows_at_high_only()
+    {
+        var weapons = new WeaponSystem(Table, Wall(900f));
+        weapons.Tick(new WeaponInput(Fire: true, Throw: false, Run: false), new Shooter(Vector3.Zero, -MathF.PI / 2f, 0f), Dt);
+        Assert.Contains(weapons.Effects, e => e.Kind == EffectKind.OwnFlash);
+        Assert.Contains(weapons.Effects, e => e.Kind == EffectKind.Impact);
+
+        var high = Lit(weapons);
+        Assert.True(high.Single(l => l.Colour != BlastColour).CastsShadow);
+        Assert.False(high.Single(l => l.Colour == BlastColour).CastsShadow);
+        Assert.DoesNotContain(Lit(weapons, ShadowQuality.Low), l => l.CastsShadow);
+        Assert.DoesNotContain(Lit(weapons, play: PlayKind.Network), l => l.CastsShadow);
+    }
+
+    /// <summary>A bullet's hit lights no more than a hand laser's: it lit like a grenade (3.0 over
+    /// 600 u) and an uzi's burst flooded the room (owner, 2026-11-03).</summary>
+    [Fact]
+    public void A_bullet_hit_lights_like_a_hand_laser_hit()
+    {
+        var weapons = new WeaponSystem(Table, Wall(900f));
+        weapons.Tick(new WeaponInput(Fire: true, Throw: false, Run: false), new Shooter(Vector3.Zero, -MathF.PI / 2f, 0f), Dt);
+        var hit = Lit(weapons).Single(l => l.Colour == BlastColour);
+
+        var hand = ShotLightTable.DefaultClasses[ShotClass.Hand];
+        Assert.InRange(hit.Range, 1f, hand.ImpactRadius);
+        Assert.InRange(hit.Energy, 0f, LightFalloff.EnergyAtRef(hand.ImpactIntensity));
+    }
+
+    /// <summary>GitHub #17: a robot's flash, its bolt and a network player's laser light but never shadow.</summary>
+    [Fact]
+    public void Others_flashes_and_bolts_never_shadow()
     {
         var weapons = new WeaponSystem(Table, new CollisionWorld());
-        var shooter = new Target(new Vector3(0, 40, 0), 40f);
-        Assert.True(weapons.RemoteFire(11, new Vector3(0, 40, -10), -Vector3.UnitZ, shooter));
-        Assert.Contains(weapons.Effects, e => e.Bank == WeaponSystem.FlashBank);
-        var boltRange = ShotLightTable.Default.For(weapons.Projectiles[0].Ammo)!.Value.Range;
+        var robot = new Target(new Vector3(0, 40, -200), 40f);
+        var bolt = Table.Ammo.First(a => a.Family == AmmoFamily.Bolt);
+        var bullet = Table.Ammo.First(a => a.Family == AmmoFamily.Hitscan);
+        weapons.EnemyFire(robot, bolt, new Vector3(0, 40, -300), -Vector3.UnitZ, 1000f);
+        weapons.EnemyFire(robot, bullet, new Vector3(0, 40, -300), -Vector3.UnitZ, 0f);
+        Assert.True(weapons.RemoteFire(11, new Vector3(0, 40, -10), -Vector3.UnitZ, new Target(new Vector3(0, 40, 0), 40f)));
+        var lit = false;
+        for (var i = 0; i < 30; i++)
+        {
+            var lights = Lit(weapons);
+            lit |= lights.Count >= 3;
+            Assert.DoesNotContain(lights, l => l.CastsShadow);
+            weapons.Tick(default, new Shooter(new Vector3(0, 75, 2000), 0f, 0f), Dt);
+        }
 
-        var high = new List<PointLight>();
-        GameLights.Append(high, weapons, ShotLightTable.Default, ShadowQuality.High);
-        var low = new List<PointLight>();
-        GameLights.Append(low, weapons, ShotLightTable.Default, ShadowQuality.Low);
+        Assert.True(lit);
+    }
 
-        Assert.Contains(high, l => l.CastsShadow);
-        Assert.DoesNotContain(high, l => l.CastsShadow && l.Range == boltRange);
-        Assert.DoesNotContain(low, l => l.CastsShadow);
+    /// <summary>GitHub #17: explosions shadow, the newest <see cref="GameLights.ShadowedBlasts"/> of
+    /// them; none in a network game.</summary>
+    [Fact]
+    public void Newest_explosions_shadow_up_to_the_cap()
+    {
+        var weapons = new WeaponSystem(Table, new CollisionWorld());
+        const int Blasts = GameLights.ShadowedBlasts + 2;
+        for (var i = 0; i < Blasts; i++)
+        {
+            weapons.Explosion(new Vector3(i * 100f, 0, -1000), 358, 150f);
+        }
+
+        var shadowed = Lit(weapons).Where(l => l.CastsShadow).Select(l => l.Position.X).ToList();
+        var newest = Enumerable.Range(Blasts - GameLights.ShadowedBlasts, GameLights.ShadowedBlasts).Select(i => i * 100f);
+        Assert.Equal(newest, shadowed);
+        Assert.DoesNotContain(Lit(weapons, play: PlayKind.Network), l => l.CastsShadow);
     }
 
     [Fact]
@@ -60,7 +127,9 @@ public class ShotLightsTests
         Assert.Equal(ShotClass.Vehicle, ShotLightTable.ClassOf(Ammo(18)));
         Assert.Equal(ShotClass.Vehicle, ShotLightTable.ClassOf(Ammo(22)));
         var vehicle = t.For(Ammo(22))!.Value;
-        Assert.True(vehicle.Range > 2f * hand.Range && vehicle.Energy > 3f * hand.Energy);
+        var heavy = t.For(Ammo(10))!.Value;
+        Assert.True(vehicle.Range > heavy.Range && heavy.Range > hand.Range);
+        Assert.True(vehicle.Energy > heavy.Energy && heavy.Energy > hand.Energy);
         // A robot's laser cannon (ammo 8, 25 points) lights as heavy.
         Assert.Equal(ShotLightTable.DefaultClasses[ShotClass.Heavy].Radius, t.For(Ammo(8), robot: true)!.Value.Range);
         // Rockets, bullets and lobbed bodies are not lasers.

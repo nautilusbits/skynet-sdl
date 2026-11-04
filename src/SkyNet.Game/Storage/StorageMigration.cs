@@ -24,7 +24,7 @@ public static class StorageMigration
         }
 
         var copied = 0;
-        foreach (var name in new[] { SettingsStore.FileName, History })
+        foreach (var name in new[] { SettingsStore.FileName, History, Path.Combine(SettingsStore.CacheName, History) })
         {
             copied += CopyNewer(Path.Combine(from, name), Path.Combine(to, name));
         }

@@ -201,6 +201,12 @@ public sealed class GameSession
             }
 
             s.Log($"objective {index + 1} done, {left} left");
+
+            // Not DOS: say what is left, so a player at the last door with one skipped knows to go back.
+            if (left > 0)
+            {
+                s.Listener?.Status(left == 1 ? "1 OBJECTIVE LEFT" : $"{left} OBJECTIVES LEFT");
+            }
         }
 
         public void MissionComplete() => s._completeAt ??= s._clock + CompleteDelay;
@@ -293,6 +299,7 @@ public sealed class GameSession
     private readonly PrsFile? _strings, _voices;
     private readonly AisData _ais;
     private readonly EnemyModels _models;
+    private readonly RobotColliders _robotBlock;
     private Difficulty _difficulty = Difficulty.Medium;
     private MapState? _state;
     private MissionFile? _file;
@@ -309,7 +316,9 @@ public sealed class GameSession
         Sounds = sounds;
         Transfrm = BehaviourModel.LoadTransfrm(data);
         World = new CollisionWorld().Add(_source);
-        Player = new PlayerController(World);
+        _robotBlock = new RobotColliders(() => Robots);
+        PlayerWorld = new CollisionWorld().Add(_source).Add(_robotBlock);
+        Player = new PlayerController(PlayerWorld);
         Soldier = new Soldier(Player);
         Soldier.Pained = () =>
         {
@@ -321,6 +330,14 @@ public sealed class GameSession
             }
 
             Sounds?.PlayDos2D(grunt, SoundBank.DosOverlap.Skip);
+        };
+        // DOS flashes on no hit while the rocket eye flies ([0x30a50] bit 0x400000).
+        Soldier.Survived = () =>
+        {
+            if (Weapons.RocketEye == null)
+            {
+                HitFlash.Start();
+            }
         };
         Weapons = new WeaponSystem(WeaponTable.Load(data), World, new DamageTargets(), sounds) { Player = Soldier };
         Weapons.DamageToEnemies = _difficulty.DamageToEnemy;
@@ -354,6 +371,8 @@ public sealed class GameSession
     public TransfrmPrs Transfrm { get; }
     /// <summary>The world the player and the weapons collide with; its content follows the map.</summary>
     public CollisionWorld World { get; }
+    /// <summary><see cref="World"/> plus the live robots: what the soldier and his vehicle move in.</summary>
+    internal CollisionWorld PlayerWorld { get; }
     public PlayerController Player { get; }
     public Soldier Soldier { get; }
     /// <summary>The soldier's steps and landings (cosmetic).</summary>
@@ -386,6 +405,8 @@ public sealed class GameSession
     public WaterLevel? Water => _state?.Water;
     /// <summary>The soldier's held breath under water.</summary>
     public WaterBreath Breath { get; }
+    /// <summary>The red flash of a hit the soldier lived through.</summary>
+    public HitFlash HitFlash { get; } = new();
     /// <summary>The night moon: its hits and its fall on this map (<see cref="NightMoon"/>).</summary>
     public NightMoon Moon { get; } = new();
 
@@ -850,7 +871,7 @@ public sealed class GameSession
         Map = file;
         using (Prof.Zone(GameZones.Terrain))
         {
-            Wld = file.IsOutdoor ? Data.LoadWld(map) : null;
+            Wld = file.IsOutdoor ? Data.LoadWldFor(map)?.Wld : null;
         }
 
         var fresh = !_maps.TryGetValue(instance.Id, out var state);
@@ -898,6 +919,7 @@ public sealed class GameSession
         Player.FallDamage = 0f;
         Player.WaterSurface = state.Water?.Surface;
         Breath.Reset();
+        HitFlash.Reset();
         Moon.Reset(NightMoon.SkyOf(map, file));
         using (Prof.Zone(GameZones.BehaviourStart))
         {
@@ -1084,7 +1106,7 @@ public sealed class GameSession
             }
 
             // Where Level draws its foot.
-            var y = SpriteRules.Foot(e, Wld);
+            var y = SpriteRules.Foot(e, Wld, World);
             _pickups.Add(new Pickup(e.FileOffset, new Vector3(e.X, y, -e.Z), item));
         }
 
@@ -1097,6 +1119,11 @@ public sealed class GameSession
         }
     }
 
+    /// <summary>The floor window of a drop (FUN_00124619): how far over and under the record.</summary>
+    private const float DropAbove = 20f, DropReach = 160f;
+    /// <summary>How far over the floor a drop's picture stands (DOS: its centre half its height + 2 over it).</summary>
+    private const float DropGap = 2f;
+
     /// <summary>A destroyed record's drop (FUN_00124619): one sprite of its destruction type's list
     /// on the ground under it, a pickup when the item table lists it.</summary>
     private void Drop(in DestroyEvent e)
@@ -1107,7 +1134,7 @@ public sealed class GameSession
             return;
         }
 
-        var y = Wld != null ? (float)Wld.HeightAt(e.Position.X, -e.Position.Z) : e.Position.Y;
+        var y = DropFoot(e.Position);
         if (Deathmatch && PickupTable.Items.ContainsKey(sprite))
         {
             // An arena's items are the server's: the host's drop becomes one of them, a client's none.
@@ -1123,6 +1150,28 @@ public sealed class GameSession
         }
 
         Log($"drop: sprite {sprite >> 7}/{sprite & 0x7F} at {drop.At.X:0},{drop.At.Y:0},{drop.At.Z:0}");
+    }
+
+    /// <summary>
+    /// Where a drop stands (FUN_00124619 → probe 0x138d00): the highest mesh top from
+    /// <see cref="DropAbove"/> over the record to <see cref="DropReach"/> under it, or outdoors the
+    /// ground when higher; the picture <see cref="DropGap"/> over it. A floor outside that window
+    /// leaves the record's height (issue #27: the drop hung at the crate's centre).
+    /// </summary>
+    private float DropFoot(Vector3 record)
+    {
+        var floor = SpriteFloor.Below(World, record, FloorFaces.Meshes, DropAbove, DropReach) ?? float.NegativeInfinity;
+        if (Wld != null)
+        {
+            floor = MathF.Max(floor, (float)Wld.HeightAt(record.X, -record.Z));
+        }
+
+        if (floor < record.Y - DropReach || floor > record.Y + DropAbove)
+        {
+            return record.Y;
+        }
+
+        return floor + DropGap;
     }
 
     /// <summary>A hit for the statistics: a shot of the soldier's (or his vehicle's) whose impact
@@ -1338,12 +1387,15 @@ public sealed class GameSession
     {
         KeepPoses();
         _clock += Dt;
+        // The last frame drew the flash's row: the next one (a hit in this tick starts it).
+        HitFlash.Tick(Dt);
         var playing = Phase == SessionPhase.Playing;
         var keys = playing && Torpedo is not { Riding: true } && (!Deathmatch || Soldier.Alive);
         var moved = Player.Position;
         using (Prof.Zone(GameZones.Player))
         {
             WaterTick();
+            FreeFromRobots();
             Player.Step(keys ? tick : default, Dt, actions);
             BodySounds();
             Moved?.Invoke(moved);
@@ -1434,6 +1486,18 @@ public sealed class GameSession
         }
 
         TimeTheEnd();
+    }
+
+    /// <summary>A robot that drove into the soldier (or his vehicle) since his last move lets go of him.</summary>
+    private void FreeFromRobots()
+    {
+        if (Player.Noclip)
+        {
+            return;
+        }
+
+        var body = Player.Mover is Vehicles.VehicleController v ? v.Sphere : Player.Body;
+        Player.Position = _robotBlock.Free(body, Player.Position, PlayerWorld);
     }
 
     /// <summary>A tick's start: what moves keeps its pose as the one the frames glide from to the

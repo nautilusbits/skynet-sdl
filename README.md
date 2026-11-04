@@ -92,6 +92,10 @@ A legal copy of SkyNET v1.01 and/or Future Shock: the folder holding `MDMDMAP2.B
 `MDMDMAPS.BSA` (Future Shock). Future Shock's data is found beside SkyNET's where the installer puts
 it (`shock/GAMEDATA`).
 
+The port is tested on SkyNET v1.01 and Future Shock v1.30. Other releases (European ones, other
+patches) start too: the game warns that the data is an unknown version and plays on; small
+differences from DOS are possible there.
+
 ## Installing
 
 The port replaces the DOS executable only: it reads the game's own data files and never changes them.

@@ -40,6 +40,22 @@ public class CampaignTests
             seen.Seen.Where(s => s.StartsWith("map", StringComparison.Ordinal) || s.StartsWith("mission", StringComparison.Ordinal) || s == "complete"));
     }
 
+    /// <summary>An objective done while others are left says how many: a player at the mission's last
+    /// door with one skipped knows to go back (owner, 2026-11-04).</summary>
+    [BehaviourDataFact]
+    public void ADoneObjectiveSaysHowManyAreLeft()
+    {
+        var session = new GameSession(BehaviourData.Data);
+        var seen = new Recorder();
+        session.Listener = seen;
+        var script = PlayScript.Load(Path.Combine(Here(), "mission1.play"));
+        script.Run(session, _ => { });
+
+        var left = seen.Seen.Where(s => s.EndsWith(" LEFT", StringComparison.Ordinal)).ToList();
+        Assert.Contains("status:1 OBJECTIVE LEFT", left);
+        Assert.All(left, s => Assert.Matches(@"^status:\d+ OBJECTIVES? LEFT$", s));
+    }
+
     [BehaviourDataFact]
     public void ReturningToAMapKeepsItsState()
     {

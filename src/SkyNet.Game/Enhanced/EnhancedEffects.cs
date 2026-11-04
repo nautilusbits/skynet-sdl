@@ -22,6 +22,7 @@ namespace SkyNet.Game.Enhanced;
 public sealed class EnhancedEffects
 {
     private readonly LightGather _gather = new();
+    private readonly LampShadows _lampShadows = new();
     private LevelLights? _lights;
     private Level? _lightsOf;
     private bool _lightsWithPosts;
@@ -91,7 +92,7 @@ public sealed class EnhancedEffects
         }
 
         _gather.Begin();
-        Collect(_gather.All, level, data, seconds, renderer.Lighting.ShadowQuality, behaviour, weapons, lampPosts);
+        Collect(_gather.All, level, data, seconds, eye, renderer.Lighting.ShadowQuality, PlayKind.Campaign, behaviour, weapons, lampPosts);
         renderer.Lights = _gather.Finish(eye, level.Far, level.LightBudget);
 
         // The storm by the wall clock (a long stall counts as a quarter second).
@@ -126,8 +127,10 @@ public sealed class EnhancedEffects
     /// <summary>Adds the frame's candidate lights to <paramref name="into"/>: the level's map lights
     /// (switched by <paramref name="behaviour"/>), art lamps and fires, and the weapons' lights
     /// (shadowed at <paramref name="shadows"/> High: the frame's <see cref="Lighting.ShadowQuality"/>,
-    /// no default, so a caller can't leave them unshadowed by omission, GitHub #17).</summary>
-    public void Collect(List<PointLight> into, Level level, GameData data, float seconds, ShadowQuality shadows,
+    /// no default, so a caller can't leave them unshadowed by omission, GitHub #17; none in a
+    /// <paramref name="play"/> network game). The lamps that matter most to <paramref name="eye"/> take the
+    /// shadowed slots the weapons leave (<see cref="LampShadows"/>).</summary>
+    public void Collect(List<PointLight> into, Level level, GameData data, float seconds, Vector3 eye, ShadowQuality shadows, PlayKind play,
         LevelBehaviour? behaviour = null, WeaponSystem? weapons = null, bool lampPosts = true)
     {
         if (_lights == null || !ReferenceEquals(_lightsOf, level) || _lightsWithPosts != lampPosts)
@@ -146,11 +149,15 @@ public sealed class EnhancedEffects
             (_states, _statesOf) = (new BehaviourLights(behaviour), behaviour);
         }
 
+        var first = into.Count;
         _lights.Append(into, seconds, behaviour == null ? null : _states);
+        var lamps = into.Count - first;
         if (weapons != null)
         {
-            GameLights.Append(into, weapons, shadows: shadows);
+            GameLights.Append(into, weapons, shadows: shadows, play: play);
         }
+
+        _lampShadows.Mark(into, first, lamps, eye, seconds, shadows);
     }
 
     /// <summary>Forgets the level's lights (its level is gone; the next <see cref="Gather"/> builds them).</summary>

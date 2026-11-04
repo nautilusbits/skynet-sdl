@@ -320,7 +320,7 @@ internal sealed partial class AppHost : IDisposable
         consoleFont = HudFont.Load(data, HudFont.FileName(HudFont.HiResFont(HudFont.HudText))) ?? HudFont.Load(data, HudFont.FileName(HudFont.HudText));
         consoleFont?.Upload(renderer);
         commands = new CommandRegistry();
-        devConsole = new DevConsole(commands, interactive ? new CommandHistory(ConsoleHistoryPath(settingsPath)) : new CommandHistory(), ring)
+        devConsole = new DevConsole(commands, interactive ? new CommandHistory(ConsoleHistoryFile(settingsPath)) : new CommandHistory(), ring)
         {
             Printable = c => consoleFont == null || c == ' ' || consoleFont.TryGetGlyph(c, out _),
         };
@@ -389,11 +389,11 @@ internal sealed partial class AppHost : IDisposable
             NetConnecting = () => dm is { IsHost: false, LevelUp: false },
             MasterAddress = () => SkyNet.Game.Net.MasterAddresses.Pick(options.NetMaster, settings.Net.Master, AppContext.BaseDirectory),
             MasterBrowser = address => RetroEng.Net.Master.MasterBrowser.Start(address, SkyNet.Game.Net.DmProtocol.GameId(homeData.Game), SkyNet.Game.Net.DmProtocol.Version),
-            ModList = () => SkyNet.Game.Mods.ModCatalog.Scan(modsDir, systemMods),
+            ModList = () => SkyNet.Game.Mods.ModCatalog.Scan(modsDir, SettingsStore.CacheFolder, systemMods),
             ModsOverride = modsOverride,
             HiresTextures = () => SkyNet.Game.Mods.ModContent.HasTextures,
             UnknownData = unknownData,
-            GenerateHires = () => SkyNet.Game.Mods.HiresJob.Start(data, modsDir, Path.Combine(AppContext.BaseDirectory, "cache"), SkyNet.Upscale.UpscalerSource.Default),
+            GenerateHires = () => SkyNet.Game.Mods.HiresJob.Start(data, modsDir, SettingsStore.CacheFolder, SkyNet.Upscale.UpscalerSource.Default),
         }, settingsPath);
         menuRef = menu;
         menuScript = options.MenuScript is { } steps
@@ -855,6 +855,7 @@ internal sealed partial class AppHost : IDisposable
         using (Prof.Zone(AppZones.LevelBuild))
         {
             level = Level.Load(renderer, data, s.MapNumber, staticRobots: false, block: blocks?.Load(s.BlockMap), kept: game.Kept);
+            level.Irradiance = IrradianceOf(level);
         }
 
         var levelMs = clock.Elapsed.TotalMilliseconds;
@@ -894,6 +895,10 @@ internal sealed partial class AppHost : IDisposable
         }
 
         var uploadMs = clock.Elapsed.TotalMilliseconds;
+        using (Prof.Zone(AppZones.Reflections))
+        {
+            LoadReflections(level);
+        }
 
         northDegrees = NorthOffset(level.Map);
         hud.ClearMessages();
@@ -1297,11 +1302,17 @@ internal sealed partial class AppHost : IDisposable
         PrepareAvatars();
     }
 
+    // Whether the click that closed the last menu may still be held (Simulate drops it until let go).
+    enum MenuClick { LetGo, Held }
+
+    MenuClick menuClick;
+
     // The menu closed onto the game: the input gathered under it is dropped (a click on RETURN does
     // not fire), the clock owes nothing, the mouse looks again.
     void ResumeGame()
     {
         input.Latch();
+        menuClick = MenuClick.Held;
         loop?.Reset();
         if (interactive)
         {
@@ -1434,7 +1445,7 @@ internal sealed partial class AppHost : IDisposable
     // over the title), then the mods folder mounted. Null (raw builds) when the mods folder cannot be written.
     BlockStore? OpenBlocks(GameData d)
     {
-        var store = new BlockStore(modsDir, d);
+        var store = new BlockStore(modsDir, SettingsStore.CacheFolder, d);
         try
         {
             var clock = Stopwatch.StartNew();

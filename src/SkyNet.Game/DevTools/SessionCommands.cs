@@ -125,6 +125,11 @@ public static class SessionCommands
 
             return Body(s.Soldier);
         }), $"reads or sets the health (0..{Soldier.MaxHealth:0})", "hp");
+        registry.Add("hurt", "hurt <points>", args => InMap(S(), s =>
+        {
+            s.Soldier.Hurt(args.Float(0, 0f, Soldier.MaxHealth));
+            return Body(s.Soldier);
+        }), "a hit through the armour (the grunt, the red flash)");
         registry.Add("armor", "armor [0-100]", args => InMap(S(), s =>
         {
             if (args.OptionalFloat(0, 0f, 100f) is { } percent)

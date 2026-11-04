@@ -103,13 +103,13 @@ public class ModsMenuTests : IDisposable
     }
 
     [Fact]
-    public void Rows_show_the_winner_first_then_the_others_then_the_system_mods()
+    public void Rows_show_the_winner_first_then_the_others_not_the_system_mods()
     {
         ModEntry[] found = [Mod("a"), Mod("b"), Mod("c"), Mod("d"), Mod("skynet", system: true)];
 
         var rows = ModOrder.Rows(["c", "missing", "a"], found);
 
-        Assert.Equal(["a", "c", "b", "d", "skynet"], rows.Select(r => r.Name));
+        Assert.Equal(["a", "c", "b", "d"], rows.Select(r => r.Name));
     }
 
     // ---------------------------------------------------------------- mod.json
@@ -172,7 +172,7 @@ public class ModsMenuTests : IDisposable
         File.WriteAllText(Path.Combine(_dir, "skynet.zip"), "the system mod is not opened");
         Directory.CreateDirectory(Path.Combine(_dir, ".git"));
 
-        var mods = ModCatalog.Scan(_dir, ["skynet", "shock"]).ToDictionary(m => m.Name);
+        var mods = ModCatalog.Scan(_dir, Path.Combine(_dir, ".cache"), ["skynet", "shock"]).ToDictionary(m => m.Name);
 
         Assert.Equal(["bad", "broken", "pack", "skynet", "tex"], mods.Keys.Order(StringComparer.Ordinal));
         Assert.Equal(new ModInfo("Hi-res", "2", "Me", "Sharper"), mods["tex"].Info);
@@ -186,7 +186,7 @@ public class ModsMenuTests : IDisposable
         Assert.StartsWith("does not open", mods["bad"].Problem, StringComparison.Ordinal);
         Assert.True(mods["skynet"].System);
         Assert.Null(mods["skynet"].Problem);
-        Assert.Empty(ModCatalog.Scan(Path.Combine(_dir, "none"), []));
+        Assert.Empty(ModCatalog.Scan(Path.Combine(_dir, "none"), Path.Combine(_dir, "none-cache"), []));
     }
 
     // ---------------------------------------------------------------- the screen
@@ -213,7 +213,7 @@ public class ModsMenuTests : IDisposable
         var menu = OpenMods(settings, [Mod("a"), Mod("b"), Mod("skynet", system: true)], path);
         var screen = (ModsScreen)menu.Current!;
 
-        Assert.Equal(["a", "b", "skynet"], screen.Rows.Select(r => r.Name));
+        Assert.Equal(["a", "b"], screen.Rows.Select(r => r.Name));
         Assert.Equal("row0", screen.Highlighted!.Id);
         menu.Update(new MenuInput { Down = true }, Frame);
         menu.Update(new MenuInput { Accept = true }, Frame);
@@ -221,7 +221,7 @@ public class ModsMenuTests : IDisposable
         Assert.Equal(["b"], settings.Mods);
         Assert.Equal(["b"], SettingsStore.Load(path).Mods);
         // b is on: it heads the list and stays selected.
-        Assert.Equal(["b", "a", "skynet"], screen.Rows.Select(r => r.Name));
+        Assert.Equal(["b", "a"], screen.Rows.Select(r => r.Name));
         Assert.Equal("b", screen.Selected!.Name);
         Assert.Null(screen.Note);
     }
@@ -248,12 +248,12 @@ public class ModsMenuTests : IDisposable
     }
 
     [Fact]
-    public void Up_and_down_move_the_selected_mod_and_system_mods_stay_locked()
+    public void Up_and_down_move_the_selected_mod()
     {
         var settings = new MenuSettings { Mods = ["a", "b"] };
         var menu = OpenMods(settings, [Mod("a"), Mod("b"), Mod("c"), Mod("skynet", system: true)]);
         var screen = (ModsScreen)menu.Current!;
-        Assert.Equal(["b", "a", "c", "skynet"], screen.Rows.Select(r => r.Name));
+        Assert.Equal(["b", "a", "c"], screen.Rows.Select(r => r.Name));
 
         // a (second row) up: it loads last and wins.
         menu.Update(new MenuInput { Down = true }, Frame);
@@ -270,15 +270,11 @@ public class ModsMenuTests : IDisposable
         Assert.Equal("a", screen.Selected!.Name);
         Assert.StartsWith("row", screen.Highlighted!.Id, StringComparison.Ordinal);
 
-        // c is off: it cannot move; skynet is a system mod: it cannot be turned off.
+        // c is off: it cannot move.
         screen.Select(2, scroll: true);
         menu.Current!.Select("up");
         menu.Update(new MenuInput { Accept = true }, Frame);
         Assert.Equal("TURN THE MOD ON FIRST", menu.Toast);
-        screen.Select(3, scroll: true);
-        menu.Current!.Select("row3");
-        menu.Update(new MenuInput { Accept = true }, Frame);
-        Assert.Equal("SYSTEM MODS ARE ALWAYS ON", menu.Toast);
         Assert.Equal(["a", "b"], settings.Mods);
     }
 
