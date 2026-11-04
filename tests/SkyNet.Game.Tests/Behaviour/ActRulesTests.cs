@@ -10,7 +10,7 @@ public class ActRulesTests
     [InlineData(0x42, MoverFamily.Slide, 0, 128f, -1f, 70f)]
     [InlineData(0x63, MoverFamily.Slide, 1, 2048f, 1f, 140f)]    // long travel runs fast
     [InlineData(0xa5, MoverFamily.Slide, 1, 688f, 1f, 70f)]      // MAP.233's lift
-    [InlineData(0x5f, MoverFamily.Slide5F, 2, 2048f, 1f, 316f * 2.2f)]
+    [InlineData(0x5f, MoverFamily.Slide5F, 2, 128f, 1f, 158.39f)]  // free fall, 128 u at g 392
     [InlineData(0xa9, MoverFamily.Swing, 1, 512f, 1f, 512f)]
     [InlineData(0x37, MoverFamily.Rot, 1, 1024f, 1f, 0f)]        // wall monitor: an instant half turn
     [InlineData(0x3b, MoverFamily.Rot, 1, 2048f, 1f, 153f)]      // continuous rotator

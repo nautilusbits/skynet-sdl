@@ -220,7 +220,8 @@ public sealed partial class LevelBehaviour : IEntityPoses
     public bool HasLight(int off) => _lights.ContainsKey(off);
 
     /// <summary>Can a weapon still damage this record?</summary>
-    public bool IsDamageable(int off) => !_spent.Contains(off) && (_hp.ContainsKey(off) || _wrecks.ContainsKey(off));
+    public bool IsDamageable(int off) =>
+        !_spent.Contains(off) && (_hp.ContainsKey(off) || _wrecks.ContainsKey(off) || (State(off) & ActRules.HitFlipBit) != 0);
 
     /// <summary>Is this wall switch turned to its ON face (<see cref="BehaviourModel.IsSwitch"/>)?</summary>
     public bool SwitchOn(int off) => _turned.Contains(off);
@@ -1176,8 +1177,8 @@ public sealed partial class LevelBehaviour : IEntityPoses
             case MoverFamily.Jump:
                 return Matrix4x4.CreateTranslation(DosAxis(m.P.Axis) * d);
             case MoverFamily.Slide5F:
-                // Along the record's own −Y (mover.gd: base.translated_local(0, −progress·sign, 0)).
-                return Matrix4x4.CreateTranslation(Vector3.TransformNormal(new Vector3(0f, -d, 0f), placed));
+                // Straight down the level's Y whatever the record's turn (0x1385a0 adds to its Y).
+                return Matrix4x4.CreateTranslation(DosAxis(1) * d);
         }
 
         var euler = m.Euler;

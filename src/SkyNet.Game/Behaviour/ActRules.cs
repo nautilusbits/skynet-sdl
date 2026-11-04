@@ -51,11 +51,14 @@ public static class ActRules
     public const int PadBit = 0x10;
     /// <summary>State bit 0x08 on a named variant-1 trigger: a wall button, answered by the crosshair.</summary>
     public const int WallButtonBit = 0x08;
+    /// <summary>State bit 0x02: every hit walks the chain (ObjHit v1.01 0x139819), hit points or not.</summary>
+    public const int HitFlipBit = 0x02;
 
     public const float SwingSpeed = 512f;
     public const float SlideSpeedSlow = 70f, SlideSpeedFast = 140f;
     public const float RotSpeed = 153f;
-    public const float SlideSpeedScale = 2.2f;
+    /// <summary>0x5F free fall (v1.01 0x1385a0): v² = 0x3100 · s in 1/16 units, i.e. g = 392 u/s².</summary>
+    public const float FallGravity = 392f;
 
     /// <summary>0xEF: 60 units from the eye (v1.01 0x1386a0), plus the Godot port's 26-unit capsule pad.</summary>
     public const float ProxGateRadius = 60f, PlayerRadius = 26f;
@@ -130,7 +133,8 @@ public static class ActRules
         float span = Math.Abs(limit);
         if (fam == MoverFamily.Slide5F)
         {
-            span = Math.Abs(limit << 4);
+            // The accumulator runs to p6 << 4 and the record moves a sixteenth of it: p6 units.
+            span = Math.Abs(limit);
         }
         else if (fam == MoverFamily.Rot && limit == 0)
         {
@@ -140,7 +144,8 @@ public static class ActRules
         var speed = fam switch
         {
             MoverFamily.Slide => span >= 2048f ? SlideSpeedFast : SlideSpeedSlow,
-            MoverFamily.Slide5F => p4 * SlideSpeedScale,
+            // Constant speed = the free fall's mean over the drop (0x1385a0 accelerates from rest).
+            MoverFamily.Slide5F => MathF.Sqrt(FallGravity * span / 2f),
             MoverFamily.Jump => 0f,
             // The wall monitors' half turn is instant; only the slots with no angle turn at a rate.
             MoverFamily.Rot => limit == 0 ? RotSpeed : 0f,

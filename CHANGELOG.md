@@ -3,6 +3,18 @@
 Version in `Directory.Build.props`. Each batch of changes raises it: a fix
 the patch number, a feature the minor. Releases on GitHub start at 1.0.0.
 
+## 1.5.1 (2026-11-04)
+
+Fixes.
+
+- Shot targets work: wall targets and buttons a shot sets off (Future
+  Shock FLORPAD on maps 071, 129, 141, 160, 171, 180, 329; SkyNET
+  BUTTON07 on MAP.281 and 283) were never hit, so their lifts and
+  doors did not move.
+- A record dropped by a shot falls p6 units straight down, as in DOS
+  (Future Shock MAP.141's hanging block lands on the floor instead of
+  falling through it and blocking the way on).
+
 ## 1.5.0 (2026-11-04)
 
 ENHANCED gets new lighting; fixes from GitHub issues. RetroEng 0.59.0.
