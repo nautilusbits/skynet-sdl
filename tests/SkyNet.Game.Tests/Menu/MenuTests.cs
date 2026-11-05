@@ -522,7 +522,7 @@ public class MenuNavigationTests
     [InlineData(1280, 1024)]
     public void A_dialog_stays_below_the_menu_bar(int width, int height)
     {
-        // DISPLAY's panel (13 rows) at its factor: its top under the title's menu bar.
+        // DISPLAY's panel (14 rows) at its factor: its top under the title's menu bar.
         var window = MenuFrame.Fit(width, height);
         var dialog = new System.Drawing.Rectangle(System.Drawing.Point.Empty, DisplayScreen.PanelSize);
         var panel = window.Panel(dialog, MenuLayout.DetailScale);

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Numerics;
 using RetroEng.Diagnostics;
 using RetroEng.Physics;
@@ -7,8 +8,9 @@ using SkyNet.Game.DevTools;
 namespace SkyNet.Game.Weapons;
 
 /// <summary>The weapon keys of one tick: the triggers held, RUN (the rocket eye), and the
-/// selections pressed (-1 none; <see cref="Cycle"/> ±1 for <c>'</c>/<c>;</c>).</summary>
-public readonly record struct WeaponInput(bool Fire, bool Throw, bool Run, int Select = -1, int SelectThrown = -1, int Cycle = 0);
+/// selections pressed (-1 none; <see cref="Cycle"/> ±1 for <c>'</c>/<c>;</c>; <see cref="CycleThrown"/>
+/// the touch screen's next thrown item).</summary>
+public readonly record struct WeaponInput(bool Fire, bool Throw, bool Run, int Select = -1, int SelectThrown = -1, int Cycle = 0, bool CycleThrown = false);
 
 /// <summary>Where the soldier shoots from: the eye, the view and his velocity (the muzzle leads by
 /// the distance he covers in the tick).</summary>
@@ -141,6 +143,9 @@ public sealed class WeaponSystem
     public event Action<ShotReport>? Reported;
     /// <summary>The night moon a trigger pull may hit (null: none).</summary>
     public NightMoon? Moon { get; set; }
+    /// <summary>The terrain's height at world x, z outdoors (null indoors): explosions stay over it
+    /// (<see cref="Blast.Placement"/>).</summary>
+    public Func<float, float, float>? Ground { get; set; }
     /// <summary>A shot left (or the pipe swung): the record, and whether it was thrown (the view-model's cue).</summary>
     public event Action<int, bool>? Fired;
     /// <summary>A shot left: the record, where it left from and along what (a network game sends it on,
@@ -285,6 +290,11 @@ public sealed class WeaponSystem
         }
 
         if (input.SelectThrown >= 0 && Inventory.SelectThrown(input.SelectThrown))
+        {
+            Sounds?.Play2D(9, -8f);
+        }
+
+        if (input.CycleThrown && Inventory.CycleThrown())
         {
             Sounds?.Play2D(9, -8f);
         }
@@ -534,7 +544,7 @@ public sealed class WeaponSystem
         SpawnPieces(ammo, at + normal, fwd, normal);
         if (ammo.Blasts)
         {
-            BlastAt(at + normal * 2f, ammo.Strength, target, w.Index);
+            BlastAt(at + normal * 2f, ammo.Strength, weapon: w.Index);
         }
     }
 
@@ -674,7 +684,7 @@ public sealed class WeaponSystem
                 continue;
             }
 
-            Detonate(p, at, normal, target, owner);
+            Detonate(p, at, normal, target, owner, Blast.Placement(at, p.Velocity, Ground));
             p.Done = true;
         }
 
@@ -686,8 +696,13 @@ public sealed class WeaponSystem
     /// its sprite and its explosion is queued with the effect clock at -360 &lt;&lt; 4 (0x1234d7),
     /// which runs at 0x180 a second (0x12433a): <see cref="SatchelFuse"/> later it goes off.
     /// </summary>
-    private static void Plant(Projectile p, Vector3 at, Vector3 normal)
+    private void Plant(Projectile p, Vector3 at, Vector3 normal)
     {
+        // Its explosion is placed now, 50 back along the fall (issue #36: the log tells where).
+        var burst = Blast.Placement(at, p.Velocity, Ground);
+        p.Burst = burst;
+        Log.Info("Weapons", string.Create(CultureInfo.InvariantCulture,
+            $"satchel landed {at.X:0.0},{at.Y:0.0},{at.Z:0.0} velocity {p.Velocity.X:0.0},{p.Velocity.Y:0.0},{p.Velocity.Z:0.0} burst at {burst.X:0.0},{burst.Y:0.0},{burst.Z:0.0}"));
         p.Position = at + normal * 2f;
         p.Velocity = Vector3.Zero;
         p.Fuse = SatchelFuse;
@@ -702,12 +717,13 @@ public sealed class WeaponSystem
             return;
         }
 
-        Detonate(p, p.Position, Vector3.UnitY, null, -1);
+        Detonate(p, p.Position, Vector3.UnitY, null, -1, p.Burst);
         p.Done = true;
     }
 
-    /// <summary>A shot's end on something: the direct hit, the blast, the effect and the sound.</summary>
-    private void Detonate(Projectile p, Vector3 at, Vector3 normal, IDamageable? target, int owner)
+    /// <summary>A shot's end on something: the direct hit, the blast, the effect and the sound;
+    /// <paramref name="blastAt"/>: where the blast sits (<see cref="Blast.Placement"/>), null on the surface.</summary>
+    private void Detonate(Projectile p, Vector3 at, Vector3 normal, IDamageable? target, int owner, Vector3? blastAt = null)
     {
         var ammo = p.Ammo;
         if (p.Harmless)
@@ -725,7 +741,7 @@ public sealed class WeaponSystem
 
         if (ammo.Blasts && !p.Harmless)
         {
-            BlastAt(at + normal * 2f, ammo.Strength, target, p.Weapon.Index);
+            BlastAt(blastAt ?? at + normal * 2f, ammo.Strength, weapon: p.Weapon.Index);
         }
 
         Sounds?.Play3D(ammo.ImpactSound, at, p.Lobbed ? -1f : -2f);
@@ -781,12 +797,13 @@ public sealed class WeaponSystem
         Report(new ShotReport(w.Index, kind == DamageKind.Melee ? "melee" : "hit", at, owner, target, dealt));
     }
 
-    /// <summary>DOS's radial blast at <paramref name="at"/> over every live target (but the one the
-    /// shot struck, which took the direct hit) and the soldier, each behind a clear line of sight;
-    /// <paramref name="spare"/> leaves out the targets it says (a network game's level blasts).</summary>
-    public void BlastAt(Vector3 at, float strength, IDamageable? except = null, int weapon = -1, Func<IDamageable, bool>? spare = null)
+    /// <summary>DOS's radial blast at <paramref name="at"/> over every live target (the one the
+    /// shot struck too: FUN_00124886 spares none) and the soldier, each behind a clear line of sight;
+    /// <paramref name="spare"/> leaves out the targets it says (a network game's level blasts);
+    /// <paramref name="falloff"/> (distance, pad → points; 0: none) replaces <see cref="Blast.Damage"/>.</summary>
+    public void BlastAt(Vector3 at, float strength, IDamageable? except = null, int weapon = -1, Func<IDamageable, bool>? spare = null,
+        Func<float, float, float>? falloff = null)
     {
-        var reach = Blast.Reach(strength);
         // A snapshot: a target the blast kills can leave the list (a crate breaks, a robot's death
         // spawns or retires others) while the blast is still walking it.
         foreach (var t in Targets.All.Append(Player).ToArray())
@@ -796,13 +813,13 @@ public sealed class WeaponSystem
                 continue;
             }
 
-            var d = Vector3.Distance(t.Centre, at);
-            if (d > reach)
+            var d = Vector3.Distance(t.BlastOrigin, at);
+            if (falloff == null && d > Blast.Reach(strength, t.BlastPad))
             {
                 continue;
             }
 
-            var points = Blast.Damage(strength, d);
+            var points = falloff?.Invoke(d, t.BlastPad) ?? Blast.Damage(strength, d, t.BlastPad);
             if (points <= 0f || !LineClear(at, t))
             {
                 continue;

@@ -331,6 +331,7 @@ internal sealed partial class AppHost
                 // player.Yaw turns counter-clockwise; the compass wants a clockwise bearing.
                 Bearing = HudFormat.Bearing(-player.Yaw, northDegrees),
                 CrosshairHidden = weapons.RocketEye != null || session.Phase != SessionPhase.Playing || dm != null && !soldier.Alive,
+                Crosshair = settings.Crosshair,
                 Countdown = FuseLeft(weapons),
             });
             hud.Capture(s.HudText);

@@ -9,7 +9,7 @@ namespace SkyNet.Game.Menu;
 /// <summary>
 /// The TACTICAL tab's spinning unit (FUN_0012cbc0, mode DAT_0004f833 = 1): the dossier's
 /// &lt;name&gt;.3D from MDMDOBJS.BSA turning on the spot over TACTBAK.IMG, drawn as the Godot port's
-/// tactical_view.gd did (the game palette, the camera a little above, the whole model in view).
+/// tactical_view.gd did (BRIEF.COL, the camera a little above, the whole model in view).
 /// The meshes are built on first use and again when a renderer scope released them.
 /// </summary>
 public sealed class TacticalPreview(Renderer renderer, GameData data)
@@ -62,6 +62,23 @@ public sealed class TacticalPreview(Renderer renderer, GameData data)
         renderer.EndInset();
     }
 
+    /// <summary>The colours the model is drawn in: the tab's BRIEF.COL (FUN_0012ddad keeps it on the
+    /// VGA, FUN_0012c800 loads its shade table SHADE.001), not the game palette (issue #33).</summary>
+    public static Palette? ModelPalette(GameData data)
+    {
+        // The front image archive first, as MenuPainter finds the backdrop's palette.
+        var (path, variant) = data.FrontArchive("MDMDIMGS.BSA");
+        byte[]? bytes = null;
+        if (File.Exists(path))
+        {
+            using var images = BsaArchive.Open(path, variant);
+            bytes = images.Read(MenuLayout.TacticalPalette);
+        }
+
+        bytes ??= data.ColBytes(MenuLayout.TacticalPalette) ?? data.UiPaletteBytes();
+        return bytes != null ? Palette.Parse(bytes) : null;
+    }
+
     /// <summary>The palette and the textures, made again when a scope released them.</summary>
     private bool Ready()
     {
@@ -70,7 +87,7 @@ public sealed class TacticalPreview(Renderer renderer, GameData data)
             return true;
         }
 
-        if (data.LoadPalette() is not { } palette)
+        if (ModelPalette(data) is not { } palette)
         {
             return false;
         }
@@ -83,7 +100,7 @@ public sealed class TacticalPreview(Renderer renderer, GameData data)
         }
 
         _palette = renderer.CreatePalette(rgba);
-        _textures = new TextureStore(renderer, data);
+        _textures = new TextureStore(renderer, data, HdArt.DosOnly);
         _meshes.Clear();
         return true;
     }

@@ -3,6 +3,7 @@ using System.Drawing;
 using System.Numerics;
 using RetroEng.Diagnostics;
 using RetroEng.Render;
+using SkyNet.Formats;
 using SkyNet.Game;
 using SkyNet.Game.Menu;
 
@@ -83,7 +84,13 @@ internal sealed partial class AppHost
     {
         menuPainter.Use(null);
         menuPainter.FillWindow(MenuPainter.Black);
-        menuPainter.Image(MenuLayout.TitleImage, MenuLayout.TitlePalette, 0, 0);
+        // Future Shock shows its own art; SkyNET (or FS data without it) the SkyNET title.
+        var shockArt = data.Game == GameKind.FutureShock
+            && menuPainter.OwnImage(MenuLayout.ShockLoadingImage, MenuLayout.ShockLoadingPalette, 0, 0);
+        if (!shockArt)
+        {
+            menuPainter.Image(MenuLayout.TitleImage, MenuLayout.TitlePalette, 0, 0);
+        }
         menuPainter.Fill(LoadingBand, LoadingShade);
         menuPainter.TextIn(MenuLayout.NetFont, text, LoadingLine, MenuPainter.TextGreen);
         menuPainter.Outline(LoadingBar, MenuPainter.TextGreen);

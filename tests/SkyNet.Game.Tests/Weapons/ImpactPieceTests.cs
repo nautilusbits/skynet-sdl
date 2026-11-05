@@ -256,17 +256,21 @@ public class ImpactPieceTests
         Assert.Equal(2, Blasts(358));
         var drops = session.Drops.Count;
         behaviour.Hit(CopCar, 1000f);
-        Assert.Equal(3, Blasts(358));
+        // Its blast, padded by each car's radius (FUN_00124886), fells its neighbours: COPCAR0A
+        // @0c9b4 (218 points) steps a stage and blows up, two more bank-358 blasts; CAR0S @06b46
+        // (165 points) leaves its burning wreck. The cop car itself drops nothing.
+        Assert.Equal(5, Blasts(358));
         Assert.True(behaviour.TryGetPose(CopCar, out var cop) && !cop.Visible);
-        Assert.Equal(drops, session.Drops.Count);
+        Assert.Equal(drops + 1, session.Drops.Count);
 
+        var carBlasts = Blasts(360);           // CAR0S @06b46's end above was one
         behaviour.Hit(Car, 100f);
         Assert.Equal(0, behaviour.StageOf(Car));
         Assert.True(behaviour.TryGetPose(Car, out var car) && car.Visible);
-        Assert.Equal(0, Blasts(360));
+        Assert.Equal(carBlasts, Blasts(360));
         behaviour.Hit(Car, 100f);
         Assert.True(behaviour.TryGetPose(Car, out car) && !car.Visible);
-        Assert.True(Blasts(360) >= 1);
+        Assert.True(Blasts(360) > carBlasts);
         Assert.Contains(session.Drops, d => d.Sprite >> 7 == 218);
     }
 

@@ -49,6 +49,8 @@ public sealed class CampaignControls
         AutomapMoves = (a.Add("Automap turn left", "Left"), a.Add("Automap turn right", "Right"),
             a.Add("Automap tilt up", "Up"), a.Add("Automap tilt down", "Down"),
             a.Add("Automap zoom in", "Keypad +", "="), a.Add("Automap zoom out", "Keypad -", "-"));
+        // No default key (F1-F5 pick directly): the touch screen's one button for the thrown item (#32).
+        NextThrown = a.Add("Next thrown item");
         a.Walk = new WalkActions(Forward, Back, Left, Right, Run);
         a.Pause = Pause;
         a.Tap = Fire;
@@ -69,7 +71,8 @@ public sealed class CampaignControls
         // FIRE aims: a finger held on it turns the view as it drags (owner request).
         a.AddTouch(touch.Slot(Fire, "FIRE", 0, 0) with { Aim = TouchAim.Look }).AddTouch(touch.Slot(Jump, "JUMP", 1, 0))
             .AddTouch(touch.Slot(Use, "USE", 0, 1)).AddTouch(touch.Slot(Throw, "ALT", 1, 1))
-            .AddTouch(touch.Slot(NextWeapon, "WPN+", 0, 2)).AddTouch(touch.Slot(PreviousWeapon, "WPN-", 1, 2));
+            .AddTouch(touch.Slot(NextWeapon, "WPN+", 0, 2)).AddTouch(touch.Slot(PreviousWeapon, "WPN-", 1, 2))
+            .AddTouch(touch.Slot(NextThrown, "ITEM", 2, 1));
         Player = new PlayerActions(Forward, Back, Left, Right, Run, Jump, Crouch, TurnLeft, TurnRight, LookUp, LookDown, Slide);
     }
 
@@ -107,6 +110,8 @@ public sealed class CampaignControls
     public int Automap { get; }
     /// <summary>The automap's turn, tilt and zoom actions (the d-pad and the shoulders on a pad).</summary>
     internal (int TurnLeft, int TurnRight, int TiltUp, int TiltDown, int ZoomIn, int ZoomOut) AutomapMoves { get; }
+    /// <summary>The next owned, non-empty thrown item (the touch screen's ITEM button).</summary>
+    public int NextThrown { get; }
     public PlayerActions Player { get; }
 
     /// <summary>The actions' names by id (a demo's header).</summary>
@@ -133,7 +138,7 @@ public sealed class CampaignControls
         var thrown = Array.FindIndex(ThrownKeys, k => held.WasPressed(k));
         var cycle = (tick.WasPressed(NextWeapon) ? 1 : 0) - (tick.WasPressed(PreviousWeapon) ? 1 : 0);
         return new WeaponInput(tick.IsDown(Fire) || tick.WasPressed(Fire), tick.IsDown(Throw) || tick.WasPressed(Throw), tick.IsDown(Run),
-            select, thrown >= 0 ? Inventory.ThrowKeys[thrown] : -1, cycle);
+            select, thrown >= 0 ? Inventory.ThrowKeys[thrown] : -1, cycle, tick.WasPressed(NextThrown));
     }
 
     /// <summary>Whether Fire or Throw is held in <paramref name="tick"/>.</summary>

@@ -53,9 +53,9 @@ public class GamepadBindingTests : IDisposable
         Assert.Equal(["Tab"], input.Bindings(c.Automap));
         Assert.Equal(["R3"], input.PadBindings(c.Automap));
 
-        // CONTROLS' AUTOMAP box names it, and it comes last (the demos' action ids stay as they were).
+        // CONTROLS' AUTOMAP box names it, and it comes last (the demos' action ids stay as they were); after it its keys and Next thrown item.
         Assert.Equal("Automap", MenuLayout.DefaultControlActions["automap"]);
-        Assert.Equal(c.Actions.Count - 7, c.Automap);
+        Assert.Equal(c.Actions.Count - 8, c.Automap);
     }
 
     [Fact]

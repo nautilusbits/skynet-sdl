@@ -191,6 +191,23 @@ public sealed class Inventory
         return true;
     }
 
+    /// <summary>The next thrown item in F1-F5 order that is owned and not empty, selected (wraps;
+    /// the touch screen's one button for F1-F5). False when no other one is left.</summary>
+    public bool CycleThrown()
+    {
+        var at = Array.IndexOf(ThrowKeys, Thrown);
+        for (var k = 1; k <= ThrowKeys.Length; k++)
+        {
+            var r = ThrowKeys[(at + k + ThrowKeys.Length) % ThrowKeys.Length];
+            if (AmmoFor(r) != 0 && SelectThrown(r))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>One trigger pull of the gun: on success the cost is paid and the cooldown armed.</summary>
     public FireResult TryFire(int record)
     {

@@ -297,6 +297,24 @@ public class DisplayScreenTests
     }
 
     [Fact]
+    public void CrosshairCyclesThroughFourStyles()
+    {
+        var (menu, log) = OpenDisplay();
+        var screen = (DisplayScreen)menu.Current!;
+        string[] expected = ["CURRENT", "DOS", "DOT", "CROSS", "CURRENT"];
+        Assert.Equal(expected[0], screen.Value("crosshair"));
+        foreach (var name in expected.Skip(1))
+        {
+            Step(menu, "crosshair");
+            Assert.Equal(name, screen.Value("crosshair"));
+        }
+
+        Assert.Equal(SkyNet.Game.Hud.CrosshairStyle.Current, menu.Settings.Crosshair);
+        Assert.Equal(4, log.Applied.Count);
+        Assert.Equal(SkyNet.Game.Hud.CrosshairStyle.Cross, SkyNet.Game.Hud.Crosshairs.Step(SkyNet.Game.Hud.CrosshairStyle.Current, -1));
+    }
+
+    [Fact]
     public void UiScaleStepsAtOnce()
     {
         var (menu, log) = OpenDisplay();
@@ -355,6 +373,18 @@ public class DisplaySettingsStoreTests : IDisposable
         var path = Path.Combine(_dir, "hud.json");
         Assert.Equal(SaveResult.Saved, SettingsStore.Save(new MenuSettings { HudStyle = SkyNet.Game.Hud.HudStyle.Modern }, path));
         Assert.Equal(SkyNet.Game.Hud.HudStyle.Modern, SettingsStore.Load(path).HudStyle);
+    }
+
+    [Fact]
+    public void CrosshairRoundTripsAndDefaultsToCurrent()
+    {
+        Assert.Equal(SkyNet.Game.Hud.CrosshairStyle.Current, new MenuSettings().Crosshair);
+        var path = Path.Combine(_dir, "crosshair.json");
+        foreach (var style in Enum.GetValues<SkyNet.Game.Hud.CrosshairStyle>())
+        {
+            Assert.Equal(SaveResult.Saved, SettingsStore.Save(new MenuSettings { Crosshair = style }, path));
+            Assert.Equal(style, SettingsStore.Load(path).Crosshair);
+        }
     }
 
     [Fact]

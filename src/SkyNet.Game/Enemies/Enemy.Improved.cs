@@ -1,5 +1,6 @@
 using System.Numerics;
 using RetroEng.Physics;
+using SkyNet.Game.Navigation;
 
 namespace SkyNet.Game.Enemies;
 
@@ -102,6 +103,16 @@ public sealed partial class Enemy
     private List<Vector3>? _hullLocal;
     private SphereBody? _keptHull;
     private float _hullRadius;
+
+    /// <summary>How a walker's step is steered.</summary>
+    private enum WalkMode
+    {
+        /// <summary>To a goal: nav path, obstacle following, backing off when stuck.</summary>
+        Route,
+        /// <summary>The soldier seen in weapon range, cut off on the mesh: face him and close straight in; a blocked step
+        /// stands (and fires) instead of walking round (#23).</summary>
+        Engage,
+    }
 
     private bool Improved => _ctx.Ai == RobotAi.Improved;
 
@@ -259,6 +270,17 @@ public sealed partial class Enemy
             nav = Steer(target, dt, out corner, out left);
         }
 
+        // The soldier seen in weapon range where the mesh has no way to him: no path, no walking
+        // round; it turns to him so the script reaches its fire pose (picked by his bearing, #23).
+        var cutOff = nav == NavStep.Hold || (nav == NavStep.Corner && _path == PathResult.Partial);
+        var mode = see && !sideStep && State == 7 && cutOff && Root.Fire is { } gun && dist <= gun.Range ? WalkMode.Engage : WalkMode.Route;
+        if (mode == WalkMode.Engage)
+        {
+            nav = NavStep.Straight;
+            corner = target;
+            left = dist;
+        }
+
         _step = nav;
         if (nav == NavStep.Corner)
         {
@@ -289,7 +311,7 @@ public sealed partial class Enemy
             return;
         }
 
-        Walk(dt, wantYaw, left, clear, moving ? speed : 0f);
+        Walk(dt, wantYaw, left, clear, moving ? speed : 0f, mode);
     }
 
     // ------------------------------------------------------------------ walkers
@@ -305,10 +327,17 @@ public sealed partial class Enemy
     /// The goal's way counts as clear when nothing stands in it for <paramref name="clear"/> units
     /// (on a nav path: up to its next corner).
     /// </summary>
-    private void Walk(float dt, float goalYaw, float goalDist, float clear, float speed)
+    private void Walk(float dt, float goalYaw, float goalDist, float clear, float speed, WalkMode mode)
     {
         var wantYaw = goalYaw;
         var trying = MathF.Abs(speed) > 0.5f;
+        var wants = trying;
+        if (mode == WalkMode.Engage)
+        {
+            _following = false;
+            _backOffT = 0f;
+        }
+
         if (_backOffT > 0f)
         {
             _backOffT -= dt;
@@ -326,9 +355,16 @@ public sealed partial class Enemy
             }
             else
             {
-                if (probe)
+                // Hysteresis: a clear heading still being turned to is kept, not re-probed from the
+                // half-made turn (that flipped it ±170° per probe, #23).
+                var turning = MathF.Abs(Wrap(_followYaw - Yaw)) > FacingSlack;
+                if (probe && !(turning && !GroundBlocked(Heading(_followYaw), FollowProbe)))
                 {
                     _followYaw = FollowHeading();
+                }
+
+                if (probe)
+                {
                     _followProbe = FollowEvery;
                 }
 
@@ -338,8 +374,9 @@ public sealed partial class Enemy
 
         Yaw = Wrap(Approach(Yaw, wantYaw, TurnRate * dt));
 
-        // On a nav path, slow while turning (in place past a right angle): a catwalk's turn is not overshot.
-        if (_step == NavStep.Corner && trying)
+        // At a nav path's corner, slow while turning (in place past a right angle): a catwalk's turn is
+        // not overshot. Not while following or backing off: those headings are not the corner's.
+        if (_step == NavStep.Corner && trying && !_following && _backOffT <= 0f)
         {
             speed *= MathF.Max(MathF.Cos(Wrap(wantYaw - Yaw)), 0f);
             trying = MathF.Abs(speed) > 0.5f;
@@ -352,7 +389,12 @@ public sealed partial class Enemy
             if (StepBlocked(dir, MathF.Abs(speed) * dt))
             {
                 _blocked = true;
-                if (!_following && _backOffT <= 0f)
+                if (mode == WalkMode.Engage)
+                {
+                    // Standing its ground facing him is engaging, not being stuck.
+                    wants = false;
+                }
+                else if (!_following && _backOffT <= 0f)
                 {
                     _following = true;
                     _followProbe = 0;
@@ -367,7 +409,8 @@ public sealed partial class Enemy
         }
 
         KeepApart(dt);
-        Progress(dt, trying, MathF.Abs(Wrap(wantYaw - Yaw)) < FacingSlack, speed);
+        // Stuck counts the wish to move: a turn slowed to a standstill is checked too.
+        Progress(dt, wants, MathF.Abs(Wrap(wantYaw - Yaw)) < FacingSlack, speed);
         SnapToGround(false);
     }
 
@@ -649,6 +692,18 @@ public sealed partial class Enemy
         {
             _keptHull = hull;
             Position += _ctx.World.Depenetrate(hull, Position, Skin, DepenetrateRounds);
+        }
+
+        // A mine within its hull and blast reach of the soldier closes in: the wall he stands at
+        // neither turns it away nor holds its hull off (it circled ~87 u out, short of 65, #23).
+        if (Homes(see) && Flat(player - Position).Length() <= _hullRadius + (Type?.Near ?? 40) + KamikazeReach)
+        {
+            _avoidT = 0f;
+            _climbTo = null;
+            _blocked = false;
+            Yaw = Wrap(Approach(Yaw, wantYaw, TurnRate * dt));
+            Position += MineWay(see, player - Position) * (speed * dt) + new Vector3(0f, Lift(dt, speed, see, player), 0f);
+            return;
         }
 
         // Look ahead along the flight (backwards while backing off), every fourth tick as the robot

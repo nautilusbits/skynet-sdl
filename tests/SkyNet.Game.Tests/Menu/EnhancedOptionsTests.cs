@@ -96,7 +96,7 @@ public class EnhancedOptionsTests : IDisposable
     [Fact]
     public void DisplayKeepsItsRowsAndOpensEnhancedFromItsButton()
     {
-        Assert.Equal(13, DisplayScreen.Rows.Length);
+        Assert.Equal(14, DisplayScreen.Rows.Length);
         var (menu, _) = OpenEnhanced(new MenuSettings { Look = Look.Enhanced });
         var screen = (EnhancedScreen)menu.Current!;
         Assert.False(screen.ForOriginal);

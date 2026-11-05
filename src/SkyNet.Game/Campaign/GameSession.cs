@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Numerics;
 using RetroEng.Diagnostics;
 using RetroEng.Loop;
@@ -132,11 +133,13 @@ public sealed class GameSession
         public void Gather(in Box box, List<Triangle> into) => World?.Gather(box, into);
     }
 
-    /// <summary>A breakable record as a weapon target, struck through its collision owner.</summary>
-    private sealed class RecordTarget(LevelBehaviour behaviour, int offset, Vector3 centre) : IDamageable
+    /// <summary>A breakable record as a weapon target, struck through its collision owner; a blast
+    /// pads its distance with the model's radius (<paramref name="pad"/>).</summary>
+    private sealed class RecordTarget(LevelBehaviour behaviour, int offset, Vector3 centre, float pad) : IDamageable
     {
         public Vector3 Centre => centre;
         public float Radius => 0f;
+        public float BlastPad => pad;
         public bool Alive => behaviour.IsDamageable(offset);
         public void TakeDamage(in Damage damage) => behaviour.Hit(offset, damage.Points);
     }
@@ -874,6 +877,9 @@ public sealed class GameSession
             Wld = file.IsOutdoor ? Data.LoadWldFor(map)?.Wld : null;
         }
 
+        // Explosions stay over the terrain outdoors (HeightAt takes DOS z, world −z).
+        Weapons.Ground = Wld is { } wld ? (x, z) => (float)wld.HeightAt(x, -z) : null;
+
         var fresh = !_maps.TryGetValue(instance.Id, out var state);
         if (state == null)
         {
@@ -1077,14 +1083,38 @@ public sealed class GameSession
 
     private void RegisterTargets(MapFile map, LevelBehaviour behaviour)
     {
+        var radii = new Dictionary<int, float>();
         foreach (var e in map.Entities)
         {
             if (e.Variant == MapEntityVariant.Mesh && behaviour.IsDamageable(e.FileOffset))
             {
-                Weapons.Targets.Register(e.FileOffset, new RecordTarget(behaviour, e.FileOffset, BehaviourModel.Position(e)));
+                var pad = ModelRadius(map, e, radii);
+                Weapons.Targets.Register(e.FileOffset, new RecordTarget(behaviour, e.FileOffset, BehaviourModel.Position(e), pad));
                 _targets.Add(e.FileOffset);
             }
         }
+    }
+
+    // .3D header +0x0C: the model's radius in 1/256 units. DOS's blast on a record (FUN_00124886,
+    // v1.01) adds it to (R − d) where the soldier gets 40: a satchel fells a radar tower (r 150).
+    private const int ModelRadiusField = 0x0C;
+
+    private float ModelRadius(MapFile map, MapEntity e, Dictionary<int, float> cache)
+    {
+        if (cache.TryGetValue(e.NameIndex, out var known))
+        {
+            return known;
+        }
+
+        var radius = Blast.Pad;
+        if (e.NameIndex >= 0 && e.NameIndex < map.Names.Length
+            && Data.ModelBytes(map.Names[e.NameIndex] + ".3D") is { Length: >= Model3D.HeaderSize } bytes)
+        {
+            radius = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(ModelRadiusField)) / 256f;
+        }
+
+        cache[e.NameIndex] = radius;
+        return radius;
     }
 
     private void CollectPickups(MapFile map, MapState state)

@@ -71,6 +71,9 @@ public sealed class MenuPainter : IDisposable
     private AvatarPreview? _avatars;
     private TacticalPreview? _tactical;
 
+    // The cache key prefix of art read from the game's own data (OwnImage).
+    private const string OwnKey = "own:";
+
     private BsaArchive? Archive
     {
         get
@@ -160,6 +163,40 @@ public sealed class MenuPainter : IDisposable
         }
 
         _renderer.DrawImage(i.Handle, pal, new Vector2(i.W, i.H), new RectangleF(0, 0, i.W, i.H), Frame.Canvas(target), new Vector4(1f, 1f, 1f, alpha));
+        return true;
+    }
+
+    /// <summary>Draws an .IMG 1:1 at DOS (x, y) in a .COL, both read from the game's own data, not
+    /// the front archive (Future Shock reads SkyNET's first): Future Shock's own art. False when
+    /// either is missing.</summary>
+    public bool OwnImage(string name, string palette, int x, int y)
+    {
+        // Cached beside the front archive's art under their own keys.
+        var key = OwnKey + name;
+        if (!_images.TryGetValue(key, out var image) || image is { } old && !_renderer.Exists(old.Handle))
+        {
+            image = _data.ColBytes(name) is { } bytes && ImgFile.Parse(bytes) is { } img
+                ? (Own(_renderer.CreateIndexTexture(img.Width, img.Height, [.. img.Pixels])), img.Width, img.Height)
+                : null;
+            _images[key] = image;
+        }
+
+        var palKey = OwnKey + palette;
+        if (!_palettes.TryGetValue(palKey, out var pal) || pal is { } oldPal && !_renderer.Exists(oldPal))
+        {
+            pal = _data.ColBytes(palette) is { } bytes && Formats.Palette.Parse(bytes) is { } p
+                ? Own(_renderer.CreatePalette(Rgba(p)))
+                : null;
+            _palettes[palKey] = pal;
+        }
+
+        if (image is not { } i || pal is not { } handle)
+        {
+            return false;
+        }
+
+        _renderer.DrawImage(i.Handle, handle, new Vector2(i.W, i.H), new RectangleF(0, 0, i.W, i.H),
+            Frame.Canvas(new Rectangle(x, y, i.W, i.H)), Vector4.One);
         return true;
     }
 

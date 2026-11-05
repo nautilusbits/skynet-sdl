@@ -28,6 +28,8 @@ public sealed class Projectile
     public int Bounces { get; set; }
     /// <summary>Seconds until a planted satchel goes off; null while it flies (or for any other shot).</summary>
     public float? Fuse { get; set; }
+    /// <summary>Where a planted satchel's blast sits (<see cref="Blast.Placement"/>); null for any other shot.</summary>
+    public Vector3? Burst { get; set; }
     /// <summary>The robot that fired it (<see cref="WeaponSystem.EnemyFire"/>): the shot passes
     /// through its shooter and strikes the soldier; null for the soldier's own shots.</summary>
     public IDamageable? Source { get; init; }

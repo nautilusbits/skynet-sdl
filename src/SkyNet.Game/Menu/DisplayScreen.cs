@@ -167,19 +167,19 @@ internal static class DosDialog
 /// OPTIONS.IMG's stone, wells and EXIT and the menu fonts, as the Godot port cut its display panel
 /// from the DETAIL art. Rows: WINDOW (windowed / borderless / fullscreen) and RESOLUTION, which wait
 /// for APPLY and then KEEP THESE SETTINGS? (<see cref="KeepBox"/>); VSYNC, RENDER SCALE, BRIGHTNESS,
-/// LOOK, RENDERER (<see cref="ViewStyles"/>), ASCII COLOUR, FPS COUNTER, HUD STYLE and HUD ART, which apply and save at once. Left / right step a row, Accept or a click
+/// LOOK, RENDERER (<see cref="ViewStyles"/>), ASCII COLOUR, FPS COUNTER, HUD STYLE, HUD ART and CROSSHAIR, which apply and save at once. Left / right step a row, Accept or a click
 /// steps it on, a click on BRIGHTNESS sets it; Esc or EXIT drops a choice not applied. ENHANCED...
 /// opens the enhanced look's own options (<see cref="EnhancedScreen"/>; greyed under ORIGINAL); the
 /// 3D VIEW row opens the stereo and phone-viewer options (<see cref="StereoScreen"/>).
 /// </summary>
 public sealed class DisplayScreen : PanelScreen
 {
-    public static readonly Size PanelSize = new(224, 204);
+    public static readonly Size PanelSize = new(224, 216);
     public const int RowTop = 22;
     public const int RowPitch = 12;
     public static readonly Rectangle BoxAt = new(104, 0, 110, 10);
-    /// <summary>The buttons' row, under the thirteen rows.</summary>
-    public const int ButtonTop = 186;
+    /// <summary>The buttons' row, under the fourteen rows.</summary>
+    public const int ButtonTop = 198;
     private static readonly Vector4 Greyed = new(0.45f, 0.5f, 0.5f, 1f);
     public static readonly Rectangle ApplyRect = new(0, ButtonTop, 70, 18);
     /// <summary>ENHANCED...: the ENHANCED OPTIONS screen (<see cref="EnhancedScreen"/>), between APPLY and EXIT.</summary>
@@ -192,7 +192,8 @@ public sealed class DisplayScreen : PanelScreen
     [
         ("mode", "WINDOW"), ("size", "RESOLUTION"), ("vsync", "VSYNC"), ("scale", "RENDER SCALE"),
         ("brightness", "BRIGHTNESS"), ("look", "LOOK"), ("renderer", "RENDERER"), ("ascii", "ASCII COLOUR"),
-        ("fps", "FPS COUNTER"), ("hud", "HUD STYLE"), ("hudart", "HUD ART"), ("uiscale", "UI SCALE"),
+        ("fps", "FPS COUNTER"), ("hud", "HUD STYLE"), ("hudart", "HUD ART"), ("crosshair", "CROSSHAIR"),
+        ("uiscale", "UI SCALE"),
         ("3dview", StereoScreen.Caption),
     ];
 
@@ -284,8 +285,9 @@ public sealed class DisplayScreen : PanelScreen
         Row(8, _ => Live(() => s.ShowFps = !s.ShowFps));
         Row(9, _ => Live(() => s.HudStyle = s.HudStyle == HudStyle.Classic ? HudStyle.Modern : HudStyle.Classic));
         Row(10, _ => Live(() => s.HudArt = s.HudArt == HudArtSet.HiRes ? HudArtSet.LowRes : HudArtSet.HiRes));
-        Row(11, d => Live(() => s.UiScale = (UiScale)(((int)s.UiScale + d + UiScales) % UiScales)));
-        Add(new MenuItem(Rows[12].Id, At(RowRect(12 - _first))) { Activate = () => Menu.Push(new StereoScreen()) });
+        Row(11, d => Live(() => s.Crosshair = Crosshairs.Step(s.Crosshair, d)));
+        Row(12, d => Live(() => s.UiScale = (UiScale)(((int)s.UiScale + d + UiScales) % UiScales)));
+        Add(new MenuItem(Rows[13].Id, At(RowRect(13 - _first))) { Activate = () => Menu.Push(new StereoScreen()) });
         Add(new MenuItem("apply", At(ApplyRect)) { Activate = Apply });
         Add(new MenuItem("enhanced", At(EnhancedRect)) { Activate = () => Menu.Push(new EnhancedScreen()) });
         Add(new MenuItem("exit", At(ExitRect))
@@ -338,6 +340,7 @@ public sealed class DisplayScreen : PanelScreen
             "fps" => s.ShowFps ? "ON" : "OFF",
             "hud" => s.HudStyle == HudStyle.Modern ? "MODERN" : "CLASSIC",
             "hudart" => s.HudArt == HudArtSet.HiRes ? "HI-RES" : "DOS",
+            "crosshair" => Crosshairs.Name(s.Crosshair),
             "uiscale" => UiScaleNames[(int)s.UiScale],
             "3dview" => StereoOptions.ModeName(s.Stereo) + " ...",
             _ => "",

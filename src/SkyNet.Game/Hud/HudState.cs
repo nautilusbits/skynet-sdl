@@ -37,6 +37,8 @@ public struct HudState
     public bool PanelHidden;
     /// <summary>No crosshair (scripted views, the rocket's eye).</summary>
     public bool CrosshairHidden;
+    /// <summary>The on-foot crosshair's look (DISPLAY's CROSSHAIR).</summary>
+    public CrosshairStyle Crosshair;
     /// <summary>The aim point in screen pixels; null: the middle of the view above the panel (DOS (160,80)).</summary>
     public Vector2? AimPoint;
     /// <summary>Seconds a planted satchel has left (<see cref="HudFormat.Countdown"/>); negative: none.</summary>

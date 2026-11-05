@@ -317,7 +317,7 @@ public class WeaponTests
             weapons.Tick(default, new Shooter(new Vector3(0, 0, 500), 0f, 0f), 1f / 60f);
         }
 
-        Assert.Equal(1, target.Hits);
+        Assert.Equal(2, target.Hits);  // the direct hit, then its own blast (FUN_00124886 spares none)
         if (clears)
         {
             Assert.Empty(weapons.Projectiles);

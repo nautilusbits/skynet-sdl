@@ -435,9 +435,16 @@ public sealed class Robots
     }
 
     /// <summary>EnemyKill's blast (75) at <paramref name="at"/>: 115 − d to the soldier and to every
-    /// robot in reach with a clear line, unscaled by the difficulty.</summary>
+    /// robot and breakable map record in reach with a clear line, unscaled by the difficulty.</summary>
     public void DeathBlastAt(Vector3 at)
     {
+        // Map records (cars, pumps) through the weapons' record path: FUN_00124886 strikes them too.
+        if (Weapons is { } w)
+        {
+            w.BlastAt(at, Enemy.DeathBlast, spare: t => w.Targets.OwnerOf(t) < 0,
+                falloff: (d, pad) => Enemy.DeathBlastDamage(d, pad));
+        }
+
         if (Weapons?.Player is { Alive: true } player)
         {
             var dmg = Enemy.DeathBlastDamage(Vector3.Distance(at, player.Centre));
@@ -454,7 +461,7 @@ public sealed class Robots
                 continue;
             }
 
-            var ed = Enemy.DeathBlastDamage(Vector3.Distance(at, r.Position));
+            var ed = Enemy.DeathBlastDamage(Vector3.Distance(at, r.Position), r.BlastPad);
             if (ed > 0 && Clear(at, r.Position))
             {
                 r.TakeDamage(new Damage(ed, DamageKind.Blast, at, false));

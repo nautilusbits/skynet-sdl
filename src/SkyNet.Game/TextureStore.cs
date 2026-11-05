@@ -24,6 +24,14 @@ public readonly record struct GpuTexture(TextureHandle Handle, int Width, int He
 /// <summary>A TEXTURE.NNN record as a texture: bank, record and whether index 0 is drawn opaque.</summary>
 public readonly record struct TextureRef(int Bank, int Record, bool Opaque);
 
+/// <summary>Whether a store swaps in the mods' HD textures: their colours are baked from the game
+/// palette, so a screen drawn in another palette (TACTICAL: BRIEF.COL, #33) keeps the DOS records.</summary>
+public enum HdArt
+{
+    Mods,
+    DosOnly,
+}
+
 /// <summary>
 /// TEXTURE.NNN banks parsed once each, and their records made into index textures once each
 /// (per opacity). Sprites keep index 0 transparent; opaque surfaces (models) have it drawn as
@@ -33,7 +41,7 @@ public readonly record struct TextureRef(int Bank, int Record, bool Opaque);
 /// Without a renderer (the map baker) nothing is uploaded: each texture gets a stand-in handle
 /// (index = its place in <see cref="Created"/> + 1) with the record's real size and frames.
 /// </summary>
-public sealed class TextureStore(Renderer? renderer, GameData data)
+public sealed class TextureStore(Renderer? renderer, GameData data, HdArt art = HdArt.Mods)
 {
     private readonly List<TextureRef> _created = [];
     private readonly Dictionary<int, TextureBank?> _banks = [];
@@ -129,7 +137,7 @@ public sealed class TextureStore(Renderer? renderer, GameData data)
             }
 
             var stacked = t.Value.Height * t.Value.Frames;
-            if (renderer != null && HdImage(bank, record, opaque, t.Value.Width, stacked) is { } hd && hd.Height * t.Value.Width == stacked * hd.Width)
+            if (renderer != null && art == HdArt.Mods && HdImage(bank, record, opaque, t.Value.Width, stacked) is { } hd && hd.Height * t.Value.Width == stacked * hd.Width)
             {
                 // Relief (lit faces only) for a single frame: the colour texture's next layer.
                 var pixels = PixelsOf(bank, record, opaque);

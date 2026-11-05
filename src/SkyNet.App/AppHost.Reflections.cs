@@ -17,6 +17,9 @@ internal sealed partial class AppHost
     private readonly LevelFrame probeFrame = new();
     private readonly List<PointLight> probeLights = [];
 
+    // How long a load waits for main to draw one capture frame (done never fires on an unlit frame).
+    private static readonly TimeSpan ProbeWait = TimeSpan.FromSeconds(5);
+
     /// <summary>The map's probes in the ENHANCED look (none in the original); the lighting takes them.</summary>
     private void LoadReflections(Level map)
     {
@@ -75,8 +78,21 @@ internal sealed partial class AppHost
         var probes = new ReflectionProbe?[places.Count];
         for (var i = 0; i < places.Count; i++)
         {
+            // A split loop's load only publishes the frame: main draws it later and runs done there
+            // (issue #37). Wait for it, so the next capture does not reuse probeFrame too early.
+            // Not disposed: a late done after a timeout still sets it.
             var slot = i;
-            ProbeFrame(map, places[i], probe => probes[slot] = probe);
+            var shown = new ManualResetEventSlim();
+            ProbeFrame(map, places[i], probe =>
+            {
+                probes[slot] = probe;
+                shown.Set();
+            });
+
+            if (!shown.Wait(ProbeWait))
+            {
+                break;
+            }
         }
 
         if (probes.Any(p => p == null))

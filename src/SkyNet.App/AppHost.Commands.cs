@@ -156,6 +156,12 @@ internal sealed partial class AppHost
             return $"hudstyle {settings.HudStyle.ToString().ToLowerInvariant()} (this run)";
         })
         { Help = "DOS's panel or the corner widgets over a full-frame view", Arguments = i => i == 0 ? ["classic", "modern"] : [] });
+        commands.Add(new Command("crosshair", "crosshair <current|dos|dot|cross>", args =>
+        {
+            settings.Crosshair = args.Choice(0, Enum.GetValues<CrosshairStyle>().ToDictionary(c => c.ToString().ToLowerInvariant()));
+            return $"crosshair {settings.Crosshair.ToString().ToLowerInvariant()} (this run)";
+        })
+        { Help = "the on-foot crosshair (DISPLAY's CROSSHAIR)", Arguments = i => i == 0 ? ["current", "dos", "dot", "cross"] : [] });
         commands.Add(new Command("relief", "relief [off|low|medium|high]", args =>
         {
             settings.Relief = args.OptionalWord(0) is null

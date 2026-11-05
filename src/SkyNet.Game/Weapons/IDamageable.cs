@@ -24,6 +24,10 @@ public interface IDamageable
     float Radius { get; }
     bool Alive { get; }
     void TakeDamage(in Damage damage);
+    /// <summary>What a blast adds to its distance before the falloff (<see cref="Blast.Damage"/>).</summary>
+    float BlastPad => Blast.Pad;
+    /// <summary>Where a blast measures its distance to: a robot's or record's origin, else the centre.</summary>
+    Vector3 BlastOrigin => Centre;
 }
 
 /// <summary>The targets of a level: by collision owner (map entity file offset, <see cref="Hit.Owner"/>)
@@ -128,16 +132,40 @@ public sealed class DamageTargets
 /// damage(d) = S·(R − d + 40)/R, dealt only when at least S/2 and with a clear line of sight.</summary>
 public static class Blast
 {
+    /// <summary>The distance pad of a soldier or robot (0x28 in FUN_00124886); a map record pads
+    /// with its model's radius instead (<see cref="IDamageable.BlastPad"/>).</summary>
+    public const float Pad = 40f;
+
     public static float Radius(float strength) => Math.Clamp(strength, 5f, 500f);
 
     /// <summary>The points a blast of <paramref name="strength"/> deals at <paramref name="distance"/>; 0 below S/2.</summary>
-    public static float Damage(float strength, float distance)
+    public static float Damage(float strength, float distance, float pad = Pad)
     {
         var r = Radius(strength);
-        var d = strength * (r - distance + 40f) / r;
+        var d = strength * (r - distance + pad) / r;
         return d >= strength * 0.5f ? d : 0f;
     }
 
-    /// <summary>How far a blast reaches (where it drops to S/2): R/2 + 40.</summary>
-    public static float Reach(float strength) => Radius(strength) * 0.5f + 40f;
+    /// <summary>How far a blast reaches (where it drops to S/2): R/2 + pad.</summary>
+    public static float Reach(float strength, float pad = Pad) => Radius(strength) * 0.5f + pad;
+
+    /// <summary>A shot's explosion steps this far back along its flight from the hit (0x12344b, −0x32).</summary>
+    public const float StepBack = 50f;
+    /// <summary>Outdoors it stays this far over the terrain (0x12347e, ground − 8 in DOS's Y down).</summary>
+    public const float OverGround = 8f;
+
+    /// <summary>Where a shot's explosion sits (DOS v1.01 0x12344b-0x123486, issue #36): <see cref="StepBack"/>
+    /// back along <paramref name="velocity"/> from <paramref name="hit"/>, then outdoors (<paramref name="ground"/>:
+    /// the terrain's height at world x, z) at least <see cref="OverGround"/> over it. A satchel dropped onto a
+    /// floor goes off 50 over it.</summary>
+    public static Vector3 Placement(Vector3 hit, Vector3 velocity, Func<float, float, float>? ground)
+    {
+        var at = velocity.LengthSquared() > 1e-6f ? hit - Vector3.Normalize(velocity) * StepBack : hit;
+        if (ground == null)
+        {
+            return at;
+        }
+
+        return at with { Y = MathF.Max(at.Y, ground(at.X, at.Z) + OverGround) };
+    }
 }

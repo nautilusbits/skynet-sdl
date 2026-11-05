@@ -17,7 +17,7 @@ public class DosParityTests
 
     // Taken on 0b27460 (v0.11.0), before the smart-AI mod.
     internal const uint RobotGolden = 299528374u;
-    internal const ulong Demo210Golden = 8680313952973606952ul, Demo220Golden = 10504089133586571171ul; // #21: items on roofs keep their height; #23: mines in sight fly straight at the soldier; items on beams stand on the mesh top; robots block the soldier and his jeep
+    internal const ulong Demo210Golden = 9277784492670304617ul, Demo220Golden = 14649162901041924547ul; // #21: items on roofs keep their height; #23: mines in sight fly straight at the soldier; items on beams stand on the mesh top; robots block the soldier and his jeep; #35/#36: blasts pad by the model radius and hit their target; blasts step 50 back along the shot (#36)
 
     /// <summary>MAP.210's robots against a soldier who circles the first walker, every robot field
     /// the session hash keeps, hashed every tick. <paramref name="prepare"/> fits the robots out once

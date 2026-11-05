@@ -3,6 +3,27 @@
 Version in `Directory.Build.props`. Each batch of changes raises it: a fix
 the patch number, a feature the minor. Releases on GitHub start at 1.0.0.
 
+## 1.6.0 (2026-11-05)
+
+Crosshair styles, a touch button for throwables; fixes from GitHub
+issues. RetroEng 0.61.1.
+
+- CROSSHAIR row under DISPLAY: CURRENT, DOS, DOT or CROSS (#31).
+- Touch: an ITEM button steps through the thrown items (#32).
+- Blasts pad their distance with the target's model radius, as in DOS
+  (only the soldier keeps 40): a satchel fells a comms tower, robots
+  take DOS's number of hits and the struck robot takes its own blast
+  (#35, #36). A projectile's blast sits 50 back along its flight.
+- A robot's death blast hits map records too: it can set off a row of
+  petrol pumps.
+- IMPROVED robots that see the soldier in gun range stop, face him and
+  fire instead of standing turned away (#23).
+- Menus draw in SKYNET.COL and the TACTICAL model in BRIEF.COL with
+  DOS textures: no magenta pixels (#33).
+- Maps entered mid-play capture their reflections without losing the
+  GPU on D3D12 (#37).
+- Future Shock's loading screen shows its own art.
+
 ## 1.5.1 (2026-11-04)
 
 Fixes.

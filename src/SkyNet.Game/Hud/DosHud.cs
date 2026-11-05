@@ -48,6 +48,10 @@ public sealed partial class DosHud : IDisposable
     private const float HiresLines = 480f;
     private const int HiresArtWidth = 100;
 
+    // DOS's on-foot aim (aim table 0x443ca) and the canvas height the port's crosshairs are sized for.
+    private const string DosAimImage = "MDMAIM.IMG";
+    private const float CrosshairLines = 720f;
+
     private readonly Renderer _renderer;
     private readonly GameData _data;
     private readonly BitmapFont? _font;
@@ -428,8 +432,20 @@ public sealed partial class DosHud : IDisposable
             return;
         }
 
+        switch (s.Crosshair)
+        {
+            case CrosshairStyle.Dos when DrawDosAim(c, f):
+                return;
+            case CrosshairStyle.Dot:
+                DrawDot(c, f);
+                return;
+            case CrosshairStyle.Cross:
+                DrawCross(c, f);
+                return;
+        }
+
         // On foot: the Godot port's small cross (gap 4, arms 8 on its 720-line canvas) with a shadow.
-        var k = Math.Max(1f, MathF.Round(f.Height / 720f));
+        var k = Math.Max(1f, MathF.Round(f.Height / CrosshairLines));
         float gap = 4 * k, len = 8 * k;
         void Arm(Vector4 colour, float off, float thick)
         {
@@ -443,6 +459,50 @@ public sealed partial class DosHud : IDisposable
         Arm(FootShadow, k, 2 * k);
         Arm(FootColour, 0, k);
         _renderer.FillRect(f.Pixels(c.X - k, c.Y - k, 2 * k, 2 * k), FootColour);
+    }
+
+    /// <summary>DOS's MDMAIM.IMG in its own colours, blown up by a whole number (the low set's art is
+    /// drawn for 200 lines, the 640 × 480 art for 480); false when the art is missing.</summary>
+    private bool DrawDosAim(Vector2 c, Frame f)
+    {
+        if (_art.Image(DosAimImage) is not { } art)
+        {
+            return false;
+        }
+
+        var n = MathF.Max(1f, MathF.Round(f.Height / (art.FromHires ? HiresLines : ScreenHeight)));
+        float w = art.Width * n, h = art.Height * n;
+        Blit(art, f.Pixels(MathF.Round(c.X - w * 0.5f), MathF.Round(c.Y - h * 0.5f), w, h));
+        return true;
+    }
+
+    /// <summary>DOT: a 3-pixel square (720 lines) in a one-pixel shadow ring.</summary>
+    private void DrawDot(Vector2 c, Frame f)
+    {
+        var k = Math.Max(1f, MathF.Round(f.Height / CrosshairLines));
+        var size = 3 * k;
+        var half = MathF.Floor(size * 0.5f);
+        _renderer.FillRect(f.Pixels(c.X - half - k, c.Y - half - k, size + 2 * k, size + 2 * k), FootShadow);
+        _renderer.FillRect(f.Pixels(c.X - half, c.Y - half, size, size), FootColour);
+    }
+
+    /// <summary>CROSS: four 2-pixel lines (720 lines), 7 long round a 6-pixel gap, each in a one-pixel
+    /// shadow ring; no centre mark, so the target stays visible.</summary>
+    private void DrawCross(Vector2 c, Frame f)
+    {
+        var k = Math.Max(1f, MathF.Round(f.Height / CrosshairLines));
+        float gap = 6 * k, len = 7 * k, thick = 2 * k, half = k;
+        void Arms(Vector4 colour, float grow)
+        {
+            float l = len + 2 * grow, t = thick + 2 * grow;
+            _renderer.FillRect(f.Pixels(c.X + gap - grow, c.Y - half - grow, l, t), colour);
+            _renderer.FillRect(f.Pixels(c.X - gap - len - grow, c.Y - half - grow, l, t), colour);
+            _renderer.FillRect(f.Pixels(c.X - half - grow, c.Y + gap - grow, t, l), colour);
+            _renderer.FillRect(f.Pixels(c.X - half - grow, c.Y - gap - len - grow, t, l), colour);
+        }
+
+        Arms(FootShadow, k);
+        Arms(FootColour, 0);
     }
 
     /// <summary>The vehicle reticle as vectors at the frame's resolution wherever the 640 × 480 art is there,

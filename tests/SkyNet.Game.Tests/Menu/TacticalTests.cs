@@ -52,6 +52,63 @@ public partial class TacticalTests
         }
     }
 
+    /// <summary>Unused .COL slots are filler magenta (239, 51, 239 and its ramp).</summary>
+    private static bool Magenta((byte R, byte G, byte B) c) => c.R > 100 && c.B > 100 && c.G < c.R / 2;
+
+    /// <summary>Issue #33: DOS draws the dossier model in BRIEF.COL (the tab's palette, shaded by
+    /// SHADE.001); through SKYNET.COL / SHOCK.COL the T-600's suit (163-168) came out magenta.</summary>
+    [AudioDataFact]
+    public void Dossier_model_has_no_magenta()
+    {
+        foreach (var data in Games())
+        {
+            var pal = TacticalPreview.ModelPalette(data)!;
+            var model = TacticalPreview.Load(data, "TAC600PS");
+            if (model == null)
+            {
+                continue;
+            }
+
+            var bad = 0;
+            foreach (var f in model.Faces)
+            {
+                if (f.IsSolidColour)
+                {
+                    bad += Magenta(pal[f.Texture]) ? 1 : 0;
+                    continue;
+                }
+
+                if (data.LoadTextureBank(f.TextureBank)?.Records.ElementAtOrDefault(f.TextureRecord) is not { } rec)
+                {
+                    continue;
+                }
+
+                bad += rec.Pixels.Count(i => i != 0 && Magenta(pal[i]));
+            }
+
+            Assert.True(bad == 0, $"{data.Game}: {bad} magenta texels");
+        }
+    }
+
+    /// <summary>Issue #33: DOS never loads MENU.COL (only skynet.col is drawn under the menus); its
+    /// unused slots are magenta, hit by RESTBTN.CFA (184, 185) and SAVE.IMG (79).</summary>
+    [AudioDataFact]
+    public void Menu_art_has_no_magenta()
+    {
+        foreach (var data in Games())
+        {
+            var (path, variant) = data.FrontArchive("MDMDIMGS.BSA");
+            using var images = BsaArchive.Open(path, variant);
+            var pal = PaletteOf(data, images, MenuLayout.MenuPalette);
+            var restart = CfaFile.Parse(images.Read(MenuLayout.RestartLit)!)!;
+            var save = ImgFile.Parse(images.Read(MenuLayout.SaveImage)!)!;
+
+            var bad = restart.Frames.Sum(f => f.ToArray().Count(i => i != 0 && Magenta(pal[i])))
+                + save.Pixels.Count(i => i != 0 && Magenta(pal[i]));
+            Assert.True(bad == 0, $"{data.Game}: {bad} magenta pixels");
+        }
+    }
+
     /// <summary>Every [TA] dossier of every mission has its spinning model and its text.</summary>
     [AudioDataFact]
     public void Every_dossier_has_model_and_text()

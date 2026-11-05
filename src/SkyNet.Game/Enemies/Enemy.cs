@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Numerics;
 using SkyNet.Formats;
 using SkyNet.Game.Weapons;
@@ -234,6 +235,13 @@ public sealed partial class Enemy : IDamageable
     public Vector3 Centre => Position + Vector3.Transform(BoundsCentre, Matrix4x4.CreateRotationY(Yaw));
     public float Radius { get; private set; } = HitMin;
     public bool Alive => !Dead && !Hidden;
+    /// <summary>A blast pads its distance with the root model's radius (.3D +0x0C, 1/256 units;
+    /// RAPTOR 57.5) and measures it to the origin (FUN_00124886).</summary>
+    public float BlastPad => Root.Model is { Model.Header: { Length: >= ModelRadiusEnd } h }
+        ? BinaryPrimitives.ReadInt32LittleEndian(h.AsSpan()[ModelRadiusField..]) / 256f
+        : Blast.Pad;
+    public Vector3 BlastOrigin => Position;
+    private const int ModelRadiusField = 0x0C, ModelRadiusEnd = ModelRadiusField + 4;
     public Vector3 Forward => new(-MathF.Sin(Yaw), 0f, -MathF.Cos(Yaw));
 
     private void AddSegments(EnemyPart parent, int depth)
@@ -1145,10 +1153,11 @@ public sealed partial class Enemy : IDamageable
         _ctx.Destroyed(this, true);
     }
 
-    /// <summary>The death blast's points at distance <paramref name="d"/> (DOS fixed point; 0: none).</summary>
-    public static int DeathBlastDamage(float d)
+    /// <summary>The death blast's points at distance <paramref name="d"/> (DOS fixed point; 0: none);
+    /// <paramref name="pad"/>: the soldier's 40, a robot's model radius (FUN_00124886).</summary>
+    public static int DeathBlastDamage(float d, float pad = DeathBlastPad)
     {
-        var k = (int)MathF.Floor((DeathBlast + DeathBlastPad - d) * 256f / DeathBlast);
+        var k = (int)MathF.Floor((DeathBlast + pad - d) * 256f / DeathBlast);
         var dmg = (k * DeathBlast) >> 8;
         return dmg >= DeathBlastMin ? dmg : 0;
     }

@@ -30,6 +30,9 @@ public sealed class MenuSettings
     /// <summary>DISPLAY's HUD STYLE: DOS's panel (CLASSIC) or the corner widgets over a full-frame view (MODERN).</summary>
     public HudStyle HudStyle { get; set; } = HudStyle.Classic;
 
+    /// <summary>DISPLAY's CROSSHAIR on foot (<see cref="CrosshairStyle"/>).</summary>
+    public CrosshairStyle Crosshair { get; set; } = CrosshairStyle.Current;
+
     /// <summary>DISPLAY's UI SCALE (<see cref="UiMetrics"/>).</summary>
     public UiScale UiScale { get; set; } = UiScale.Auto;
 
@@ -584,6 +587,7 @@ public static class SettingsStore
             s.Detail = Enum(root, "detail", s.Detail);
             s.HudArt = Int(root, "version", 1, 1, int.MaxValue) >= HiResHudVersion ? Enum(root, "hudArt", s.HudArt) : s.HudArt;
             s.HudStyle = Enum(root, "hudStyle", s.HudStyle);
+            s.Crosshair = Enum(root, "crosshair", s.Crosshair);
             s.UiScale = Enum(root, "uiScale", s.UiScale);
             s.Difficulty = Enum(root, "difficulty", s.Difficulty);
             s.RobotAi = Enum(root, "robotAi", s.RobotAi);
@@ -732,6 +736,7 @@ public static class SettingsStore
             w.WriteBoolean("reverseStereo", s.ReverseStereo);
             w.WriteString("hudArt", s.HudArt.ToString());
             w.WriteString("hudStyle", s.HudStyle.ToString());
+            w.WriteString("crosshair", s.Crosshair.ToString());
             w.WriteString("uiScale", s.UiScale.ToString());
             w.WriteString("difficulty", s.Difficulty.ToString());
             w.WriteString("robotAi", s.RobotAi.ToString());

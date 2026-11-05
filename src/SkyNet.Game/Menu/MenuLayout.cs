@@ -14,13 +14,18 @@ namespace SkyNet.Game.Menu;
 public static class MenuLayout
 {
     // Palettes (MDMDIMGS.BSA).
-    public const string MenuPalette = "MENU.COL";
+    /// <summary>DOS never loads MENU.COL: menus draw in skynet.col, whose UI colours MENU.COL copies
+    /// with magenta filler elsewhere (RESTBTN.CFA, SAVE.IMG hit the filler, issue #33).</summary>
+    public const string MenuPalette = "SKYNET.COL";
     public const string TitlePalette = "SKYNTRMP.COL";
     public const string BriefPalette = "BRIEF.COL";
     public const string ScenePalette = "BRIEF2.COL";
 
     // The title screen and its bar.
     public const string TitleImage = "SKYNTRMP.IMG";
+    /// <summary>Future Shock's loading art: its own T-800 title still (MDMDIMGS.BSA) and palette.</summary>
+    public const string ShockLoadingImage = "DEMOSCR3.IMG";
+    public const string ShockLoadingPalette = "DEMOSCR3.COL";
     public const string TitleBar = "MAIN1.IMG";
     public const string GameBar = "MAIN2.IMG";
     public const int BarHeight = 17;
