@@ -1,5 +1,6 @@
 using System.Numerics;
 using RetroEng.Render;
+using Atmosphere = SkyNet.Game.Enhanced.Atmosphere;
 using SkyNet.Game.Enhanced;
 
 namespace SkyNet.Game.Tests.Enhanced;

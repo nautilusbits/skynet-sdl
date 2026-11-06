@@ -3,6 +3,14 @@
 Version in `Directory.Build.props`. Each batch of changes raises it: a fix
 the patch number, a feature the minor. Releases on GitHub start at 1.0.0.
 
+## 1.6.1 (2026-11-06)
+
+A fix. RetroEng 0.63.0.
+
+- ENHANCED: stars and clouds no longer show over far terrain on GPUs
+  that cannot sample a 32-bit depth (#34): the engine now takes a
+  24-bit depth before 16-bit. The log's GPU line names the format.
+
 ## 1.6.0 (2026-11-05)
 
 Crosshair styles, a touch button for throwables; fixes from GitHub

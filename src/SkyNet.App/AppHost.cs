@@ -274,7 +274,7 @@ internal sealed partial class AppHost : IDisposable
         StartHints();
 
         input = new Input(actions);
-        Log.Info("Render", $"GPU: {renderer.Gpu.Device} on {GpuBackends.Name(renderer.Gpu.Backend)}, driver {renderer.Gpu.DriverVersion}");
+        Log.Info("Render", $"GPU: {renderer.Gpu.Device} on {GpuBackends.Name(renderer.Gpu.Backend)}, driver {renderer.Gpu.DriverVersion}, sampled depth {renderer.SampledDepthFormat}");
         // A first start (no DETAIL saved, none asked): guessed from the GPU; phones get LOW.
         if (options.Detail == null && !SettingsStore.HasDetail(settingsPath))
         {

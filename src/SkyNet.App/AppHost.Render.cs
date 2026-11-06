@@ -9,6 +9,7 @@ using RetroEng.Loop;
 using RetroEng.Physics;
 using RetroEng.Platform;
 using RetroEng.Render;
+using Weather = SkyNet.Game.Enhanced.Weather;
 using SkyNet.Data;
 using SkyNet.Formats;
 using SkyNet.Game;

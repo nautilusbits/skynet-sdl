@@ -3,6 +3,7 @@ using System.Text;
 using RetroEng.Audio;
 using RetroEng.Physics;
 using RetroEng.Render;
+using Weather = SkyNet.Game.Enhanced.Weather;
 using SkyNet.Game.Audio;
 using SkyNet.Game.Enhanced;
 using SkyNet.Game.Menu;

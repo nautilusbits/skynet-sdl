@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Numerics;
 using RetroEng.Render;
+using Atmosphere = SkyNet.Game.Enhanced.Atmosphere;
 using SkyNet.Data;
 using SkyNet.Formats;
 using SkyNet.Game.Baking;

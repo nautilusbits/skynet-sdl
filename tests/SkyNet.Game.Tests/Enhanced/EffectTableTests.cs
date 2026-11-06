@@ -5,6 +5,7 @@ using RetroEng.Content;
 using RetroEng.Json;
 using RetroEng.Models;
 using RetroEng.Render;
+using Atmosphere = SkyNet.Game.Enhanced.Atmosphere;
 using SkyNet.Data;
 using SkyNet.Game.Enhanced;
 using SkyNet.Game.Menu;
