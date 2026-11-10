@@ -10,11 +10,11 @@ public sealed record InventoryState(bool[] Owned, int[] Pools, int Primary, int 
 /// The soldier's arsenal: owned records (+0x5c bit 0), the 13 shared pools, the two selection
 /// registers (the gun on FIRE, the thrown item on THROW) and their separate cooldowns.
 /// <list type="bullet">
-/// <item>A shot arms the cooldown at 1 / rate s (0x10000 / rate in 16.16), counted down by the
-/// tick's delta; an empty pool plays the dry sound and waits <see cref="DryDelay"/>.</item>
-/// <item>The throw arms its own one-second cooldown before it looks at the pool, and an empty
+/// <item>A shot arms the cooldown at DOS's whole frames at 35 fps (<see cref="WeaponRecord.Cooldown"/>),
+/// counted down by the tick's delta; an empty pool plays the dry sound and waits <see cref="DryDelay"/>.</item>
+/// <item>The throw arms its own cooldown (rate 1: 36 DOS frames) before it looks at the pool, and an empty
 /// item fails silently (FUN_001263cc).</item>
-/// <item>Number keys pick records 0-8 (the Godot port's 1-9), <c>;</c>/<c>'</c> cycle the owned
+/// <item>Number keys 1-7 pick a group of <see cref="KeyGroups"/>, again to cycle in it; <c>;</c>/<c>'</c> cycle the owned
 /// records 0-12 (and the deathmatch HUMAN's motion detector, record 13, while it is owned), F1-F5
 /// pick the thrown records 15, 14, 16, 18, 19.</item>
 /// </list>
@@ -33,10 +33,15 @@ public sealed class Inventory
     public const int DefaultPrimary = 1;
     /// <summary>The records <c>;</c> and <c>'</c> step through (v1.00 0x435e0: records 0..12).</summary>
     public const int CycleCount = 13;
+    /// <summary>Keys 1-7 → their records, tried in this order (v1.01 lists at 0x43668..0x436c4,
+    /// read by the key poller 0x11b032; 8-0 have none).</summary>
+    public static readonly int[][] KeyGroups = [[0, 13], [3, 2, 1, 12], [4], [5], [6], [8, 7], [11, 10, 9]];
     private const float Epsilon = 1e-4f;
 
     private readonly bool[] _owned;
     private readonly int[] _pools;
+    // The group a number key last selected from and the index it took (DOS 0x44472 + list +0).
+    private int _group = -1, _groupAt;
 
     public WeaponTable Table { get; }
     public int Primary { get; private set; }
@@ -74,6 +79,7 @@ public sealed class Inventory
         Primary = Owns(DefaultPrimary) ? DefaultPrimary : 0;
         Thrown = DefaultThrown;
         FireCooldown = ThrowCooldown = 0f;
+        _group = -1;
     }
 
     /// <summary>The kit as it stands (owned records, pools, both selections): the mission-start
@@ -88,6 +94,7 @@ public sealed class Inventory
         Primary = state.Primary;
         Thrown = state.Thrown;
         FireCooldown = ThrowCooldown = 0f;
+        _group = -1;
     }
 
     public bool Owns(int record) => record >= 0 && record < _owned.Length && _owned[record];
@@ -142,7 +149,10 @@ public sealed class Inventory
     public void Tick(float seconds)
     {
         // A tick's float steps leave crumbs (0.2 − 12 × 1/60 ≈ 1e-8): those count as ready.
-        FireCooldown = FireCooldown - seconds > Epsilon ? FireCooldown - seconds : 0f;
+        // The tick that runs a cooldown out keeps its overshoot (< 0) for a held trigger's next shot,
+        // so 60 Hz ticks average DOS's 35 fps gap; unused, it rests at 0 the next tick.
+        var left = FireCooldown - seconds;
+        FireCooldown = FireCooldown <= 0f ? 0f : left > Epsilon ? left : MathF.Min(left, 0f);
         ThrowCooldown = ThrowCooldown - seconds > Epsilon ? ThrowCooldown - seconds : 0f;
     }
 
@@ -159,6 +169,30 @@ public sealed class Inventory
         return true;
     }
 
+    /// <summary>A number key (FUN_00125981): a new group starts at its head, the same one steps on;
+    /// the first owned record not in hand is selected (2: MACHINE GUN, ASSAULT RIFLE, UZI, ...).</summary>
+    public bool SelectGroup(int group)
+    {
+        if (group < 0 || group >= KeyGroups.Length)
+        {
+            return false;
+        }
+
+        var list = KeyGroups[group];
+        var at = group == _group ? _groupAt : -1;
+        for (var k = 0; k < list.Length; k++)
+        {
+            at = (at + 1) % list.Length;
+            if (Select(list[at]))
+            {
+                (_group, _groupAt) = (group, at);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>The next owned record among 0..12 in <paramref name="direction"/> (±1), selected; the
     /// motion detector (13, owned only by a deathmatch HUMAN) joins the ring after the super UZI, as
     /// the Godot port's wheel reaches it.</summary>
@@ -172,6 +206,8 @@ public sealed class Inventory
             r = ((r + direction) % n + n) % n;
             if (Owns(r))
             {
+                // DOS's ring is a group too: the next number key starts its group afresh.
+                _group = -1;
                 return Select(r);
             }
         }
@@ -233,7 +269,7 @@ public sealed class Inventory
             _pools[w.Pool] -= w.Cost;
         }
 
-        FireCooldown = w.Cooldown;
+        FireCooldown += w.Cooldown;
         return FireResult.Fired;
     }
 

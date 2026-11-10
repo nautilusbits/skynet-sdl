@@ -86,9 +86,17 @@ public sealed class Wreckage
         return ThrowSegments(robot.Root, robot, robots);
     }
 
+    /// <summary>Throws the parts of one shot-off segment and of its children (issue #58).</summary>
+    internal int Throw(EnemyPart segment, Enemy robot, Robots robots) => ThrowSegments(segment, robot, robots);
+
     private int ThrowSegments(EnemyPart seg, Enemy robot, Robots robots)
     {
         var n = 0;
+        if (seg.Gone)
+        {
+            return n;                                 // thrown when it was shot off
+        }
+
         foreach (var c in seg.Children)
         {
             n += ThrowSegments(c, robot, robots);

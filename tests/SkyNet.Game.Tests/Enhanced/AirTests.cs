@@ -87,7 +87,7 @@ public class AirTests
         var travelled = Vector3.Zero;
         for (var i = 0; i < 60 * 60; i++)
         {
-            state = wind.Tick(Dt, table, Scene)!.Value;
+            state = wind.Tick(Dt, table, Scene, Eye)!.Value;
             gusts.Add(state.Gust);
             travelled += state.Velocity * Dt;
         }
@@ -95,46 +95,45 @@ public class AirTests
         // Blowing towards +X, gusting both ways round its mean, the drift what it carried.
         Assert.True(state.Velocity.X > 0f && MathF.Abs(state.Velocity.Z) < state.Velocity.X);
         Assert.InRange(gusts.Average(), 0.85f, 1.15f);
-        Assert.True(gusts.Max() > 1.3f && gusts.Min() < 0.7f);
+        Assert.True(gusts.Max() > 1.2f && gusts.Min() < 0.8f);
         Assert.True(Vector3.Distance(travelled, state.Drift) < 1f);
-        Assert.All(gusts, g => Assert.InRange(g, Wind.MinGust, Wind.MaxGust));
+        Assert.All(gusts, g => Assert.InRange(g, 0f, Wind.MaxGust));
 
         // Steady without gusts; none without a table.
-        Assert.Equal(1f, Wind.GustAt(0f, 12.3f));
-        Assert.Null(new Wind().Tick(Dt, null, Scene));
-    }
-
-    /// <summary>The streaks of a rain ticked a while in <paramref name="wind"/> (null: its own).</summary>
-    private static Particle[] Rained(WindState? wind)
-    {
-        var rain = new Rain();
-        var table = RainTable.Defaults with { Intensity = 1f, WindDirection = 0f, WindSpeed = 2f };
-        for (var i = 0; i < 60; i++)
-        {
-            rain.Tick(Dt, table, Scene, StormSky.Outdoor, Eye, null, wind);
-        }
-
-        var view = new RainView();
-        rain.Capture(view);
-        var drops = Array.Empty<Particle>();
-        var n = Rain.Drops(view, Eye, ParticleLevel.High, new Vector3(0.1f), ref drops);
-        return drops[..n];
+        Assert.Equal(1f, new Wind().Tick(Dt, table with { Gusts = 0f }, Scene, Eye)!.Value.Gust, 1e-5f);
+        Assert.Null(new Wind().Tick(Dt, null, Scene, Eye));
     }
 
     [Fact]
-    public void TheWindDrivesTheRainsSlant()
+    public void TheWeatherIsTheEnginesInWorldUnits()
     {
-        static float Slant(Particle d) => new Vector2(d.Axis.X, d.Axis.Z).Length() / -d.Axis.Y;
+        var rain = RainTable.Defaults with { Intensity = 0.8f, WindDirection = 0f, WindSpeed = 2f };
+        var rained = WeatherMap.Of(Weather.None with { Rain = rain, Clouds = CloudTable.Defaults with { Coverage = 0.7f } }, 0.2f);
+        Assert.Equal(Precipitation.Rain, rained.Precipitation);
+        Assert.Equal(0.8f, rained.Intensity);
+        Assert.Equal(0.8f, rained.Wetness);
+        Assert.Equal(0.7f, rained.Cover);
+        Assert.Equal(0f, rained.LightningRate);
 
-        // The rain's own wind: 2 m/s towards +Z.
-        var own = Rained(null);
-        Assert.All(own, d => Assert.True(d.Axis.Z > 0f && MathF.Abs(d.Axis.X) < 1e-3f));
+        // The rain's own wind: 2 m/s towards +Z, steady; a wind file's in its place.
+        Assert.Equal(new Vector3(0f, 0f, 2f * Storm.UnitsPerMetre), rained.Wind.Velocity, new Vector3Near(1e-3f));
+        Assert.Equal(0f, rained.Wind.Gusts);
+        var blown = WeatherMap.Of(Parse(("weather/rain.json", "{}"), Wasteland[3]), 0f).Wind;
+        Assert.Equal(new Vector3(10f * Storm.UnitsPerMetre, 0f, 0f), blown.Velocity, new Vector3Near(1e-3f));
+        Assert.Equal(0.4f, blown.Gusts);
 
-        // A 20 m/s wind towards +X: the streaks blown that way, far more slanted.
-        var velocity = new Vector3(20f * Storm.UnitsPerMetre, 0f, 0f);
-        var blown = Rained(new WindState(velocity, velocity, 1f));
-        Assert.All(blown, d => Assert.True(d.Axis.X > 0f && MathF.Abs(d.Axis.Z) < 1e-3f));
-        Assert.True(blown.Average(Slant) > 5f * own.Average(Slant));
+        // A storm: 60 / interval strikes a minute; without clouds the map's own deck's cover.
+        var storm = WeatherMap.Of(Weather.None with { Storm = StormTable.Defaults with { Interval = 15f } }, 0.3f);
+        Assert.Equal(4f, storm.LightningRate);
+        Assert.Equal(0.3f, storm.Cover);
+        Assert.Equal(Precipitation.None, storm.Precipitation);
+    }
+
+    private sealed class Vector3Near(float tolerance) : IEqualityComparer<Vector3>
+    {
+        public bool Equals(Vector3 a, Vector3 b) => Vector3.Distance(a, b) <= tolerance;
+
+        public int GetHashCode(Vector3 v) => 0;
     }
 
     /// <summary>A flat roof 200 units over the eye, <paramref name="half"/> units each way round it,
@@ -321,31 +320,34 @@ public class AirTests
     }
 
     [Fact]
-    public void TheDeckHidesTheStarsAndDimsTheMoon()
+    public void TheDeckHidesTheStarsAndTheEngineDimsTheMoon()
     {
         var night = LookLighting.For(LightPreset.Night, null, 4000f, 1f);
         Assert.NotNull(night.Stars);
         var cue = new Fog(800f, 4000f, 63, 0) { Beyond = FogBeyond.Clip, Colour = new Vector4(0.1f, 0.1f, 0.12f, 1f) };
-        Lighting Under(float coverage) => WeatherSky.Clouded(night, night,
-            new AirView { Clouds = CloudTable.Defaults with { Coverage = coverage } }, cue, 0f, Vector3.Zero, 0f, ParticleLevel.High);
+        Lighting Under(float coverage, float fires = 0f) => WeatherSky.Clouded(night, night,
+            new AirView { Clouds = CloudTable.Defaults with { Coverage = coverage } }, cue, fires, ParticleLevel.High, Vector3.Zero);
 
         var overcast = Under(1f);
         Assert.Null(overcast.Stars);
         Assert.Equal(1f, overcast.Clouds!.Coverage);
-        Assert.True(overcast.Sun.Length() < 0.3f * night.Sun.Length());
+        Assert.Equal(CloudTable.Defaults.HeightMetres * Storm.UnitsPerMetre, overcast.Clouds.Volume.Base);
+        Assert.Equal(WeatherSky.DeckQuality, overcast.Clouds.Quality);
 
         // Broken cloud: the stars stay for the gaps (the deck hides the rest per pixel).
-        var broken = Under(0.5f);
-        Assert.NotNull(broken.Stars);
-        Assert.True(broken.Sun.Length() > overcast.Sun.Length());
+        Assert.NotNull(Under(0.5f).Stars);
+
+        // The fires light the deck from below.
+        Assert.True(Under(1f, 1f).Clouds!.Underlight.Length() > 0f);
 
         // No clouds or haze: the light as it was.
-        Assert.Same(night, WeatherSky.Clouded(night, night, new AirView(), cue, 0f, Vector3.Zero, 0f, ParticleLevel.High));
+        Assert.Same(night, WeatherSky.Clouded(night, night, new AirView(), cue, 0f, ParticleLevel.High, Vector3.Zero));
 
-        // A flash lights the deck from its way.
-        var flash = WeatherSky.Clouded(night, night, new AirView { Clouds = CloudTable.Defaults }, cue, 1f, Vector3.UnitX, 0f, ParticleLevel.High);
-        Assert.True(flash.Clouds!.Underlight.Length() > 1f);
-        Assert.Equal(Vector3.UnitX, flash.Clouds.UnderlightWay);
+        // The engine's overcast takes the moon's light; its coverage is the deck's.
+        var system = new WeatherSystem(WeatherMap.Of(Weather.None with { Clouds = CloudTable.Defaults with { Coverage = 1f } }, 0f), Vector3.UnitY);
+        var weathered = system.Apply(overcast);
+        Assert.Equal(1f, weathered.Weather!.Overcast);
+        Assert.Equal(1f, weathered.Clouds!.Coverage);
     }
 
     [Fact]

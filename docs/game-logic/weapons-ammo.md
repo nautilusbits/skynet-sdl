@@ -27,7 +27,7 @@ Data pointers in these tables are stored relative to 0x30000 (see
 |---|---|
 | +0x00 | viewmodel screen X |
 | +0x14 | ammo type id |
-| +0x1c | launch speed << 16 as a local (0, v, 0) velocity: 392 for the grenade launcher and every throwable, 0 for rockets and lasers |
+| +0x1c | the shot's acceleration (0, v << 16, 0), DOS y down: the fall, 392 for the grenade launcher and every throwable, 0 for rockets and lasers (0x1261b1, 0x1263cc) |
 | +0x24 | **rate**: shots per second. Cooldown starts at `0x10000 / rate` and drops by [0x43100] (dt) every frame |
 | +0x28 | runtime cooldown |
 | +0x2c | recoil-kick velocity (not an animation rate) |
@@ -61,8 +61,8 @@ record index.
 | 12 | "super uzi" | 20 | 12 | 1 | STRINGS.PRS names it MINI ROCKET; the `superuzi` cheat (0x141fc8) owns and selects record 12; 50 direct + 50 blast |
 | 13 | motion detector | — | — | — | multiplayer only; a plot on the scanner's screen (FUN_0011ff00); a machine avatar loses it (0x134a39). 0x132b00 is the machine vision, not the scanner |
 | 14-19 | thrown items | 1 | 5-9 | 1 | [throwables.md](throwables.md) |
-| 20-23 | jeep plasma / rockets | 8 / 1 | 10 / 11 | 100 / 1 | odd records = other barrel |
-| 24, 25 | HK laser / rockets | 8 / 1 | 10 / 11 | 100 / 1 | |
+| 20-23 | HK plasma / rockets | 8 / 1 | 10 / 11 | 100 / 1 | odd records = other barrel; the HK fires 21 and 22 |
+| 24, 25 | jeep laser / rockets | 8 / 1 | 10 / 11 | 100 / 1 | 0x1257a4: FIRE [0x44476 + mode] = {0, 24, 21}, THROW [0x4449a + mode] = {15, 25, 22} |
 
 Rates, pools and costs are as the Godot port carries them (`_weapons` in
 `fly_camera.gd`), read from the table.
@@ -111,7 +111,7 @@ vehicle records. Future Shock mode uses 0x43538 (pipe only + 14-16,
 | +0x18 | lifetime in ticks (≈35 Hz: 120 = 3.4 s rockets, 40 = 1.1 s bolts) |
 | +0x1c | fire sound id |
 | +0x20 | impact sound id |
-| +0x28 | u16 flags: bit 0 bounce, bit 3 (0x08) follow camera, bit 4 (0x10) homing (FUN_0011f8f0) |
+| +0x28 | u16 flags: bit 0 bounce, bit 2 (0x04) takes the crosshair lock and steers to it (0x126656, 0x123fdc), bit 3 (0x08) follow camera, bit 4 (0x10) trail emitter (FUN_0011fbd4, "EmittersInit") |
 | +0x2a | number of pieces spawned at impact (rocket 16, grenade 15) |
 | +0x2c | sprite animation (0 = one still frame) |
 | +0x2e | type of those pieces (rocket 3, grenade 1) |

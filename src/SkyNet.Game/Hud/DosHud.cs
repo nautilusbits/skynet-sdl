@@ -253,6 +253,7 @@ public sealed partial class DosHud : IDisposable
         if (!state.CrosshairHidden)
         {
             DrawCrosshair(state, frame);
+            DrawLock(state, frame);
         }
 
         if (!state.PanelHidden && Style == HudStyle.Modern)
@@ -423,10 +424,33 @@ public sealed partial class DosHud : IDisposable
             align: TextAlign.Centre);
     }
 
-    private void DrawCrosshair(in HudState s, Frame f)
+    // The crosshair's centre in screen pixels.
+    private Vector2 AimAt(in HudState s, Frame f)
     {
         var c = s.AimPoint ?? ViewCentre(f.Width, f.Height, s.PanelHidden ? HudStyle.Modern : Style);
-        c = new Vector2(MathF.Round(c.X), MathF.Round(c.Y));
+        return new Vector2(MathF.Round(c.X), MathF.Round(c.Y));
+    }
+
+    /// <summary>The rocket's lock (0x126016): <see cref="HudState.Lock"/> centred 8 DOS pixels
+    /// under the crosshair, colour 8 in FONT0004 with the status shadow (0x20408); on foot only.</summary>
+    private void DrawLock(in HudState s, Frame f)
+    {
+        var font = TextFont;
+        if (font == null || s.Lock is not { } line || s.Vehicle != HudVehicle.None)
+        {
+            return;
+        }
+
+        var c = AimAt(s, f);
+        var pixel = UiMetrics.TextPixel(f.Scale, font.LineHeight, PxPerMm) * f.Unit;
+        var at = new Vector2(c.X * f.Unit, c.Y * f.Unit + SetY(8) * pixel);
+        TextBatcher.DrawShadowed(_renderer, font, line, at, pixel, _art.Colour(CountdownIndex), _art.Colour(StatusShadowIndex),
+            align: TextAlign.Centre);
+    }
+
+    private void DrawCrosshair(in HudState s, Frame f)
+    {
+        var c = AimAt(s, f);
         if (s.Vehicle != HudVehicle.None && DrawReticle(c, f))
         {
             return;

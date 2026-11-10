@@ -27,9 +27,8 @@ public enum PlayKind { Campaign, Network }
 /// </summary>
 public static class GameLights
 {
-    /// <summary>Explosions shadowed at once, the newest (brightest) first (GitHub #17). The engine
-    /// shadows at most 2 lights a frame, each about as dear as the other; one blast leaves the
-    /// other slot to the soldier's flash.</summary>
+    /// <summary>Explosions shadowed at once, the newest (brightest) first (GitHub #17); they take
+    /// lamp slots, the soldier's flash its own (<see cref="LookLighting"/>).</summary>
     public const int ShadowedBlasts = 1;
 
     public const float FlashIntensity = 1.2f, FlashRange = 600f;
@@ -147,7 +146,10 @@ public static class GameLights
             }
 
             var shadowed = e.Kind == EffectKind.OwnFlash || (e.Kind == EffectKind.Explosion && unshadowed-- <= 0);
-            into.Add(light with { CastsShadow = casts && shadowed });
+            // The own flash shadows full each shot in the engine's flash slot (GitHub #61); a blast
+            // lives its frames, so it fades in and out like a lamp.
+            var role = e.Kind == EffectKind.OwnFlash ? ShadowRole.Flash : ShadowRole.Lamp;
+            into.Add(light with { CastsShadow = casts && shadowed, ShadowRole = role });
         }
 
         foreach (var p in weapons.Projectiles)

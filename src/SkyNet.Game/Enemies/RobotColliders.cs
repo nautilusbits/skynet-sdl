@@ -185,9 +185,9 @@ public sealed class RobotColliders : ITriangleSource
     /// <summary>The segment's triangles where it stands now, re-placed in place when it moved.</summary>
     private Placed? Place(EnemyPart p)
     {
-        if (p.Model is not { } model)
+        if (p.Model is not { } model || p.Gone)
         {
-            return null;
+            return null;                              // a shot-off segment's record is gone too
         }
 
         if (!_placed.TryGetValue(p, out var placed))

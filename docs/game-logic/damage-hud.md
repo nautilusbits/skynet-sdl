@@ -12,9 +12,11 @@ difficulty multipliers, death, and the PANEL0 status bar.
 - Armour `A` is 0..1 (16.16). On a hit:
   `A' = max(0, A − 82/65536 × D)`, loss `= (1 − A') × D`.
 - **No invulnerability frames.**
-- Health and armour come back only at mission start (full), on entering
-  the next map of the same mission (+½ health, +0.5 armour), and from
-  health/armour pickups ([pickups.md](pickups.md)).
+- Health and armour come back only at a new game (full), on starting the
+  next mission after a win (+½ health, +0.5 armour, both carried; none
+  when the mission ended in a vehicle: the hull took it), and from
+  health/armour pickups ([pickups.md](pickups.md)). Campaign loop
+  FUN_0011c900; FUN_0011d41f swaps the soldier's body out for a vehicle.
 - In a vehicle the soldier takes **nothing**; the hull pool (0x130caa)
   takes the damage 1:1 and the ARMOR bar shows the hull (0x13231d). Jeep
   hull 1000, HK hull 1500 (the flag choosing between them is undecoded).
@@ -54,9 +56,15 @@ tanker 600, crates 0).
 | Enemy contact (machines, claws) | 4 points per collision probe per frame (0x122854); per-type contact word at enemy record +3 |
 | Drowning | 85 points/s (0x5500 >> 8) after the air runs out ([water.md](water.md)) |
 | Fall | see [player-movement.md](player-movement.md#fall-damage) |
-| Radiation | per source (FUN_0013b1e0): skip when `0.75 × dist3d > strength`; `r = strength − horizontal distance`; skip when `r ≤ 0`; `dose += min(r × 50, 12800) / 256` (≤ 50 per source). DOS charges at least 1 HP **per frame** |
+| Radiation | v1.01 FUN_0013b9e0, at the eye lowered by half the eye height: per source skip when `0.75 × rough distance (0x14d794) > strength`; `r = strength − exact 3D distance (0x14d775)`; skip when `r ≤ 0`; `dose = (Σ min(r × 50, 12800) + 128) >> 8` (≤ 50 per source); at or above the marker-8 floor add its sub+2. Dose is per second; FUN_0013ba9a charges at least 1 HP **per frame**, through the armour, no grunt; sound 19 (20 from dose 35). Port: `Radiation` |
 
-Radiation sources are marker type 4, strength at sub+2 (80..1024).
+Radiation sources are marker type 4, strength at sub+2 (80..1024; Future Shock up to 2500).
+
+The 1-HP floor is per rendered frame, and DOS has no fixed tick: FUN_0013a4d8
+measures each frame on the timer ([0x5be1c], 250 Hz from FUN_0013a300), FUN_00124c25
+clamps the rate to 5..50 fps (8.8, 0x500..0x3200) and FUN_00124c63 sets [0x43200] =
+0x1000000 / rate (16.16 seconds), moving at most 500 a frame. So the floor bites
+5..50 times a second with the machine; the port applies it per 60 Hz tick.
 
 **No fire damage.** FUN_00122b52 (the hit check every hit ends in) has
 seven calls in v1.01 (a byte scan of the whole code object agrees with the

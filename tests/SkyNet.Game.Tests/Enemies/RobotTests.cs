@@ -91,7 +91,7 @@ public class RobotTests
         var (robots, weapons, _, _) = Map210();
         Assert.Equal(19, robots.All.Count);
         Assert.All(robots.All, r => Assert.NotNull(r.Root.Model));
-        Assert.Equal(19, weapons.Targets.Count);
+        Assert.Equal(robots.All.Sum(r => r.Root.Walk().Count()), weapons.Targets.Count);   // a target per segment
         Assert.Equal(10, robots.All.Count(r => r.State == 7));          // 8 raptors, 2 endoskeletons with rifles
         var truck = Assert.Single(robots.All, r => r.State == 11);
         Assert.True(truck.OnPath);
@@ -135,7 +135,7 @@ public class RobotTests
         soldier.Feet = feet;
         var frames = new HashSet<int>();
         var start = robot.Position;
-        for (var t = 0f; t < 6f; t += Dt)
+        for (var t = 0f; t < 16f; t += Dt)   // its script stops it to fire as its rolls fall
         {
             robots.Tick(Dt, feet);
             frames.Add(robot.Root.Frame);
@@ -174,7 +174,7 @@ public class RobotTests
         Assert.Equal(robot.MarkerOffset, act.MarkerOffset);
         Assert.Contains("obj0", log.Effects);
         Assert.Equal(2, behaviour.Mission.Left);
-        Assert.DoesNotContain(robot, weapons.Targets.All);
+        Assert.DoesNotContain((IDamageable)robot.Root, weapons.Targets.All);
 
         // The death blast strikes 0.375 s later: the soldier 40 units away takes 115 − 40 = 75.
         robots.Tick(0.3f, null);
@@ -437,7 +437,7 @@ public class RobotTests
         Assert.False(robots.Spawn(0x11111));
         Assert.True(robots.Spawn(0x12345));
         Assert.True(r.Alive);
-        Assert.Contains(r, weapons.Targets.All);
+        Assert.Contains((IDamageable)r.Root, weapons.Targets.All);
     }
 
     [Fact]

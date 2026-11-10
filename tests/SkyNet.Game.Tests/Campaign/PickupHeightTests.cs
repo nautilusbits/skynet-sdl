@@ -91,7 +91,8 @@ public class PickupHeightTests(ITestOutputHelper output)
             {
                 var e = byOffset[s.Offset];
                 var record = -e.Y - Level.IndoorSpriteLift;
-                var before = wld != null ? MathF.Max((float)wld.HeightAt(e.X, e.Z), record) : record;
+                // Indoors the picture is centred on its record (issue #59).
+                var before = wld != null ? MathF.Max((float)wld.HeightAt(e.X, e.Z), record) : -e.Y - s.Size.Y / 2f;
                 var foot = s.Centre.Y - s.Size.Y / 2f;
                 _ = wld != null ? outdoor++ : indoor++;
                 if (MathF.Abs(foot - before) <= Slack)

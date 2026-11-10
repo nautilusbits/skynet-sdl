@@ -245,7 +245,6 @@ internal sealed partial class EditorApp
 
             // Everything the game lights: the map's lights as its behaviour switches them, the lamp posts, the shots.
             _effects.Gather(_renderer, level, _preview!.Data, eye, session.Clock, session.Behaviour, session.Weapons, world: session.World);
-            sky = Storm.SkyOf(sky, _effects.Storm.Frame);
         }
 
         Reveal();

@@ -155,7 +155,8 @@ public sealed partial class McpTests
         Assert.False(playing.IsCompleted, "the play-test ran inside one frame");
         var played = Structured("playtest", await playing);
         Assert.Equal("Playing", played.Member("phase").AsString());
-        Assert.Equal(LongPlay, played.Member("seconds").AsInt());
+        // The session's clock: a soldier shot dead restarts the mission and his clock (DOS fire rolls).
+        Assert.InRange(played.Member("seconds").AsInt(), 1, LongPlay);
         var shot = await client.Call("screenshot");
         Assert.Equal("image", shot.Member("content").Items[0].Member("type").AsString());
         // The view's picture (the Viewport docked under the menu), not the whole window: PNG's IHDR size.

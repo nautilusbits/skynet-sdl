@@ -177,9 +177,10 @@ public class TurretPlacementTests
             robots.Tick(1f / 35f, soldier.Feet);
         }
 
-        Assert.True(turret.Sees, "no sight");
-        Assert.True(turret.ShotsFired > 0);
+        // The gun looks on its own counter (issue #58), so it may fire before the root has looked.
         var gun = turret.Turrets.First(t => t.Fire != null);
+        Assert.True(gun.Perceived, "no sight");
+        Assert.True(turret.ShotsFired > 0);
         var toSoldier = Vector3.Normalize(soldier.Feet + new Vector3(0f, Enemy.AimHeight, 0f) - gun.World.Translation);
         Assert.True(Vector3.Dot(gun.Forward, toSoldier) > 0.9f, $"gun forward {gun.Forward}, soldier {toSoldier}");
     }

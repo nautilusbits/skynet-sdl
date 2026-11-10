@@ -106,7 +106,8 @@ public class EffectTableTests
             preview.Spawn(name, Vector3.Zero);
             preview.Advance(0.3f);
             preview.Draw(recorder, EffectTable.Current[name], Eye);
-            Assert.True(recorder.Particles.Count > 0, name);
+            // The engine draws the lightning's bolt, in the main view only.
+            Assert.True(recorder.Particles.Count > 0 == (name != EffectTable.Lightning), name);
         }
     }
 

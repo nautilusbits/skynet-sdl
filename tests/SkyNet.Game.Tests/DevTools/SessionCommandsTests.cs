@@ -139,7 +139,7 @@ public class SessionCommandsTests
     {
         var (session, registry, _) = Make();
         registry.Run("map 210");
-        Assert.Equal(["health 500 / 1000, armour 0 %"], registry.Run("health 500"));
+        Assert.Equal(["health 500 / 1000, armour 100 %"], registry.Run("health 500"));
         Assert.Equal(["health 1000 / 1000, armour 100 %"], registry.Run("surgery"));
         Assert.Equal("Usage: health [points]", registry.Run("health 5000")[^1]);
         registry.Run("armor 0");

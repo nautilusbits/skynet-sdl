@@ -8,33 +8,28 @@ namespace SkyNet.Game.Enhanced;
 public readonly record struct WindState(Vector3 Velocity, Vector3 Drift, float Gust);
 
 /// <summary>
-/// The weather's one wind (a mod's <see cref="WindTable"/>), on its own clock: a mean way and speed
-/// with gusts, smooth noise hashed from the clock (no random numbers kept, nothing of the simulation
-/// read), integrated into a drift.
+/// The weather's one wind (a mod's <see cref="WindTable"/>) on the simulation's side: the engine's
+/// wind (<see cref="WeatherMap.WindOf(WindTable)"/>, the one the frame build's rain slants in) read at
+/// the eye on the air's own clock, integrated into a drift. Nothing of the simulation read.
 /// <code>
-///   gust(t) = 1 + gusts × (slow swell + quick flurry)        0.15 .. 2.2
-///   way(t)  = direction ± gusts × 20°, wandering slowly
-///   gust   += squall (a dust cloud's gust, DustClouds)
+///   gust     = the engine's 1 ± gusts (smooth in space and time)
+///   gust    += squall (a dust cloud's gust, DustClouds)
 ///   velocity = way × speed × gust;  drift += velocity × dt
 /// </code>
 /// </summary>
 public sealed class Wind
 {
-    /// <summary>The gust's bounds (times the mean speed).</summary>
-    public const float MinGust = 0.15f, MaxGust = 2.2f;
-    /// <summary>How far the way wanders at full gusts (degrees).</summary>
-    public const float Wander = 20f;
-    /// <summary>The swell's and the flurry's periods (seconds).</summary>
-    public const float SwellSeconds = 4.5f, FlurrySeconds = 1.1f, WanderSeconds = 9f;
+    /// <summary>The strongest gust (times the mean speed): the wildest gusts' 1 + 1.</summary>
+    public const float MaxGust = 2f;
 
     private float _clock;
     private Vector3 _drift;
     private object? _scene;
 
     /// <summary>Moves the wind on by <paramref name="dt"/> seconds over <paramref name="scene"/> (a new
-    /// one starts the drift over), <paramref name="squall"/> (times the mean speed) on its gust; null
-    /// without a table.</summary>
-    public WindState? Tick(float dt, WindTable? table, object? scene, float squall = 0f)
+    /// one starts the clock and drift over) at <paramref name="eye"/>, <paramref name="squall"/> (times
+    /// the mean speed) on its gust; null without a table.</summary>
+    public WindState? Tick(float dt, WindTable? table, object? scene, Vector3 eye, float squall = 0f)
     {
         if (table == null)
         {
@@ -43,44 +38,18 @@ public sealed class Wind
 
         if (!ReferenceEquals(scene, _scene))
         {
-            (_scene, _drift) = (scene, Vector3.Zero);
+            (_scene, _clock, _drift) = (scene, 0f, Vector3.Zero);
         }
 
         _clock += dt;
-        var velocity = VelocityAt(table, _clock, out var gust);
+        var wind = WeatherMap.WindOf(table);
+        var mean = wind.Velocity.LengthSquared();
+        var gust = mean > 0f ? Vector3.Dot(wind.At(eye, _clock), wind.Velocity) / mean : 1f;
 
-        // A squall blows harder the same way (the gust is never under MinGust).
-        velocity *= (gust + squall) / gust;
+        // A squall blows harder the same way.
         gust += squall;
-
+        var velocity = wind.Velocity * gust;
         _drift += velocity * dt;
         return new WindState(velocity, _drift, gust);
     }
-
-    /// <summary>The wind of <paramref name="table"/> at <paramref name="t"/> seconds (units a second).</summary>
-    public static Vector3 VelocityAt(WindTable table, float t, out float gust)
-    {
-        gust = GustAt(table.Gusts, t);
-        var angle = (table.Direction + table.Gusts * Wander * (Smooth(t / WanderSeconds, 3) * 2f - 1f)) * MathF.PI / 180f;
-        return new Vector3(MathF.Sin(angle), 0f, MathF.Cos(angle)) * (table.Speed * Storm.UnitsPerMetre * gust);
-    }
-
-    /// <summary>The gust at <paramref name="t"/>: 1 steady, swelling and flurrying with <paramref name="gusts"/>.</summary>
-    public static float GustAt(float gusts, float t)
-    {
-        var swell = Smooth(t / SwellSeconds, 1) - 0.5f;
-        var flurry = Smooth(t / FlurrySeconds, 2) - 0.5f;
-        return Math.Clamp(1f + gusts * (1.7f * swell + 0.8f * flurry), MinGust, MaxGust);
-    }
-
-    /// <summary>Smooth value noise along <paramref name="x"/> in [0, 1), one stream per <paramref name="stream"/>.</summary>
-    private static float Smooth(float x, int stream)
-    {
-        var i = (int)MathF.Floor(x);
-        var f = x - i;
-        var s = f * f * (3f - 2f * f);
-        return Hash(i, stream) + (Hash(i + 1, stream) - Hash(i, stream)) * s;
-    }
-
-    private static float Hash(int i, int stream) => Atmosphere.Hash3(i, 40 + stream).X;
 }

@@ -18,8 +18,8 @@ public static class RainHiss
     public const int Rate = 22050;
     /// <summary>The loop's length and its crossfade (seconds).</summary>
     public const float Seconds = 4f, Overlap = 0.5f;
-    /// <summary>The loop's level (RMS).</summary>
-    public const float HissRms = 0.3f;
+    /// <summary>The loop's level (RMS): low enough that the drops' peaks fit under <see cref="Peak"/>.</summary>
+    public const float HissRms = 0.11f;
     /// <summary>Drops heard a second (per channel).</summary>
     public const int DropsPerSecond = 220;
 
@@ -102,13 +102,19 @@ public static class RainHiss
 
     internal static float OnePole(float hz) => 1f - MathF.Exp(-2f * MathF.PI * hz / Rate);
 
-    /// <summary>Scales <paramref name="samples"/> to <paramref name="rms"/>, clamped to ±1.</summary>
+    /// <summary>The highest sample <see cref="Level"/> leaves: headroom below ±1.</summary>
+    public const float Peak = 0.95f;
+
+    /// <summary>Scales <paramref name="samples"/> to <paramref name="rms"/>, or lower when that would
+    /// lift a peak over <see cref="Peak"/>: a clamp there clips the drops into a crackle.</summary>
     internal static void Level(float[] samples, float rms)
     {
         var sum = 0.0;
+        var top = 0f;
         foreach (var s in samples)
         {
             sum += s * s;
+            top = MathF.Max(top, MathF.Abs(s));
         }
 
         if (sum <= 0.0)
@@ -116,10 +122,10 @@ public static class RainHiss
             return;
         }
 
-        var k = rms / (float)Math.Sqrt(sum / samples.Length);
+        var k = MathF.Min(rms / (float)Math.Sqrt(sum / samples.Length), Peak / top);
         for (var i = 0; i < samples.Length; i++)
         {
-            samples[i] = Math.Clamp(samples[i] * k, -1f, 1f);
+            samples[i] *= k;
         }
     }
 }

@@ -7,8 +7,9 @@
   0x35800**. Bank membership alone is not the rule: sprites in the
   weapon/equipment banks (TEXTURE.200, 201, 214) that the table omits stay
   plain scenery.
-- Handler **0x11d670** collects it when the player is within 80 units
-  horizontally (0x50) and 160 vertically (0xa0).
+- Handler **0x11d670** (v1.01 0x11d970) collects it when the player's eye
+  ([0xd49b4/b8/bc]) is within 80 units (0x50) of the record, true 3D
+  (0x14d775); a rough octagonal test (0x14d794, <= 0xa0) runs first.
 
 ## Effect of a pickup
 

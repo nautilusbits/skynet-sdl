@@ -71,6 +71,44 @@ public class VehicleTests
         Assert.Equal(0f, car.Speed, 2);                                          // drag 153 u/s² > 140
     }
 
+    // DOS v1.01 0x135744: FORWARD adds 1148 ÷ gear whatever the sign of the speed (the gear is 1
+    // when backing, 0x135c67), so a car rolling back down a slope can still drive up it (#46).
+    [Fact]
+    public void JeepForwardThrottlesWhileRollingBack()
+    {
+        var (body, car) = Ride(VehicleMode.Jeep);
+        car.Speed = -100f;
+        Run(body, 1, Hold(Keys.Forward));
+        Assert.Equal(-100f + VehicleController.JeepAccel * Dt, car.Speed, 2);
+    }
+
+    // DOS v1.01 0x135fb4 adds 0x188 = 392 u/s² to every wheel's fall each tick, the soldier's
+    // gravity: a jeep leaving a ramp at speed carries across the MAP.020 moat (#46).
+    [Fact]
+    public void JeepFallsAtDosGravity()
+    {
+        var (body, _) = Ride(VehicleMode.Jeep, Floor(-100000f), y: 1000f);
+        var before = body.Velocity.Y;
+        Run(body, 1, Hold());
+        Assert.Equal(-392f * Dt, body.Velocity.Y - before, 2);
+    }
+
+    // DOS v1.01 0x1361c2: the car's pitch is the wheels' ground plus the pedal dip; nothing
+    // shakes it with speed, so on flat ground the view holds still (#46: "the view wobbles").
+    [Fact]
+    public void JeepViewHoldsStillOnFlatGround()
+    {
+        var (body, car) = Ride(VehicleMode.Jeep);
+        Run(body, 600, Hold(Keys.Forward));
+        for (var i = 0; i < 30; i++)
+        {
+            Run(body, 1, Hold(Keys.Forward));
+            Assert.Equal(VehicleController.JeepEye, body.Eye, 3);
+            Assert.Equal(0f, body.Pitch, 4);
+            Assert.Equal(0f, car.Roll, 4);
+        }
+    }
+
     [Fact]
     public void JeepWheelGoesLockToLockInAThirdOfASecondAndTurnsOnlyWhenRolling()
     {
@@ -107,6 +145,15 @@ public class VehicleTests
         Vector3 P(float x, float z) => new(x, sx * x + sz * z, z);
         yield return new Triangle(P(-half, -half), P(half, -half), P(half, half));
         yield return new Triangle(P(-half, -half), P(half, half), P(-half, half));
+    }
+
+    // DOS v1.01 0x136193: the slope's pull is clamped to the same −140..683.6 as the pedals.
+    [Fact]
+    public void JeepRollsBackNoFasterThanItReverses()
+    {
+        var (body, car) = Ride(VehicleMode.Jeep, Slope(0f, -0.7f));               // ground rises ahead
+        Run(body, 120, Hold());
+        Assert.Equal(-VehicleController.JeepReverseSpeed, car.Speed, 2);
     }
 
     [Fact]
@@ -278,9 +325,11 @@ public class VehicleTests
         return (weapons, guns, new Shooter(new Vector3(0, 100, 0), 0f, 0f));
     }
 
+    // DOS v1.01 0x1257a4: FIRE = dword [0x44476 + mode] {0, 24, 21}, THROW = [0x4449a + mode]
+    // {15, 25, 22} (mode 4 jeep, 8 HK): the jeep fires the laser, the HK the plasma (issue #46).
     [Theory]
-    [InlineData(VehicleMode.Jeep, 20, 22, 18)]
-    [InlineData(VehicleMode.Hk, 24, 25, 22)]
+    [InlineData(VehicleMode.Jeep, 24, 25, 22)]
+    [InlineData(VehicleMode.Hk, 21, 22, 18)]
     public void EachModeMountsItsRecords(VehicleMode mode, int gun, int pod, int gunAmmo)
     {
         Assert.Equal(gun, VehicleGuns.GunOf(mode));
@@ -365,5 +414,25 @@ public class VehicleTests
 
         Assert.Equal(Hull.JeepPoints, hull.Points);
         Assert.True(soldier.Alive);
+    }
+
+    // #51: the turret's and the HK's view (and the HK's cockpit) take the mouse before the tick,
+    // and the next tick turns them by that motion: no jump back.
+    [Theory]
+    [InlineData(VehicleMode.Jeep, 1f)]
+    [InlineData(VehicleMode.Hk, 300f)]
+    public void ViewShowsTheMouseBeforeTheTick(VehicleMode mode, float y)
+    {
+        var (body, car) = Ride(mode, y: y);
+        Run(body, 1, Look(100f, 40f));
+        var pending = new Vector2(50f, 20f);
+        var shown = car.View(0.25f, pending).Forward;
+        var cockpit = Vector3.TransformNormal(-Vector3.UnitZ, car.CockpitWorld(0.25f, pending));
+        Assert.True(Vector3.Distance(shown, car.View(1f).Forward) > 0.01f, "the pending motion turns the view");
+
+        Run(body, 1, Look(50f, 20f));
+        Assert.True(Vector3.Distance(shown, car.View(0f).Forward) < 1e-4f, $"{shown} vs {car.View(0f).Forward}");
+        var after = Vector3.TransformNormal(-Vector3.UnitZ, car.CockpitWorld(0f));
+        Assert.True(Vector3.Distance(cockpit, after) < 1e-4f, $"cockpit {cockpit} vs {after}");
     }
 }

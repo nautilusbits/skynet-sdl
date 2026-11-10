@@ -761,7 +761,6 @@ internal sealed partial class EditorApp : IDisposable
 
         // View > Effects off leaves out the lamp posts' pools (and, with the level, the flames and particles).
         _effects.Gather(_renderer, _level, _data, _eye, _capture?.Seconds ?? Environment.TickCount64 / 1000f, lampPosts: _showEffects, world: CoverWorld());
-        sky = Storm.SkyOf(sky, _effects.Storm.Frame);
 
         var lens = new Lens(view, FieldOfView, area.Aspect, Near, FarPlane);
         DrawViewport(new View(view * projection, clipToDirection, _eye) { Lens = lens }, sky, screenshot, windowShot);

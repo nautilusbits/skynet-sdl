@@ -8,7 +8,8 @@ namespace SkyNet.Game.Enhanced;
 /// shadows at most <see cref="SlotsFor"/> lights a frame (<see cref="Lighting.PointShadowCount"/>) and keeps each one's still map (the
 /// <see cref="Caster.Static"/> level geometry) while it holds its slot, so the choice is sticky:
 /// <code>
-///   slots for lamps = SlotsFor(SHADOWS) − the weapons' shadowed lights (the most of the last WeaponHoldSeconds)
+///   slots for lamps = SlotsFor(SHADOWS) − the blasts' shadowed lights (the most of the last WeaponHoldSeconds)
+///   the soldier's flash: its own slot past these (<see cref="FlashSlotsFor"/>, a ShadowRole.Flash)
 ///   score = (range / max(distance, CloseShare · range))² · energy · max colour   (the engine's own rank)
 ///   held lamps stay while they shine; a rival takes the weakest one's slot only above Hysteresis × its score
 /// </code>
@@ -23,6 +24,9 @@ public sealed class LampShadows(int cap = Lighting.MostPointShadows)
     public const float Hysteresis = 2f;
     /// <summary>A slot stays the weapons' this long after their last shadowed light (the flash between shots).</summary>
     public const float WeaponHoldSeconds = 1f;
+    /// <summary>A gone flash's slot held for the burst's next shot (seconds; an UZI fires ~0.23 s
+    /// apart, its flash lives 0.08 s).</summary>
+    public const float FlashHoldSeconds = 0.15f;
     /// <summary>Nearer than this share of its range a lamp scores as if this far (the eye inside its pool).</summary>
     public const float CloseShare = 0.25f;
 
@@ -45,6 +49,11 @@ public sealed class LampShadows(int cap = Lighting.MostPointShadows)
         };
         return OperatingSystem.IsAndroid() ? slots / 2 : slots;
     }
+
+    /// <summary>The engine's slots kept for the soldier's flash (<see cref="Lighting.FlashShadowSlots"/>):
+    /// one at High, where it shadows (<see cref="GameLights.Append"/>), else none.</summary>
+    public static int FlashSlotsFor(ShadowQuality quality) => quality == ShadowQuality.High ? 1 : 0;
+
     private float _clock = float.NegativeInfinity;
 
     /// <summary>A lamp's rank for an eye at <paramref name="eye"/>.</summary>
@@ -96,7 +105,7 @@ public sealed class LampShadows(int cap = Lighting.MostPointShadows)
         }
     }
 
-    /// <summary>The slots the weapons keep: the most lights they shadowed within the last
+    /// <summary>The slots the blasts keep: the most lights they shadowed within the last
     /// <see cref="WeaponHoldSeconds"/> (a clock going back, a new map's, forgets the old).</summary>
     private int WeaponReserve(List<PointLight> lights, int first, int count, float seconds, int slots)
     {
@@ -110,7 +119,9 @@ public sealed class LampShadows(int cap = Lighting.MostPointShadows)
         var casters = 0;
         for (var i = 0; i < lights.Count; i++)
         {
-            casters += (i < first || i >= first + count) && lights[i].CastsShadow ? 1 : 0;
+            // A flash shadows in the engine's flash slots, not the lamps' (GitHub #61).
+            var weapon = (i < first || i >= first + count) && lights[i] is { CastsShadow: true, ShadowRole: ShadowRole.Lamp };
+            casters += weapon ? 1 : 0;
         }
 
         var reserve = 0;

@@ -6,7 +6,7 @@ namespace SkyNet.Game.Enhanced;
 
 /// <summary>
 /// A mod's storm (a <see cref="Weather"/> file of kind <c>storm</c>, docs/modding.md): lightning and
-/// thunder over the outdoor maps in the enhanced look (<see cref="Storm"/>).
+/// thunder over the outdoor maps in the enhanced look (the engine's strikes, <see cref="Storm"/>'s thunder).
 /// <code>
 ///   { "kind": "storm", "on": true, "interval": 20, "brightness": 1, "distance": [800, 6000], "thunderVolume": 0.8 }
 /// </code>
@@ -17,8 +17,8 @@ public sealed record StormTable(bool On, float Interval, float Brightness, float
     /// <summary>The values a key left out takes.</summary>
     public static StormTable Defaults { get; } = new(true, 20f, 1f, 800f, 6000f, 0.8f);
 
-    /// <summary>The shortest mean interval and the farthest bolt (metres) a file may ask for.</summary>
-    public const float MinInterval = 1f, MaxMetres = 50000f, MaxBrightness = 4f;
+    /// <summary>The shortest and longest mean interval (seconds) and the farthest bolt (metres) a file may ask for.</summary>
+    public const float MinInterval = 1f, MaxInterval = 3600f, MaxMetres = 50000f, MaxBrightness = 4f;
 
     /// <summary>The mod's own thunder (<see cref="Weather.ThunderFile"/>) played for every strike;
     /// null: made in code (<see cref="Audio.Thunder"/>).</summary>
@@ -39,7 +39,7 @@ public sealed record StormTable(bool On, float Interval, float Brightness, float
 
         t = t with
         {
-            Interval = Weather.Ranged(o, "interval", MinInterval, float.MaxValue) ?? t.Interval,
+            Interval = Weather.Ranged(o, "interval", MinInterval, MaxInterval) ?? t.Interval,
             Brightness = Weather.Ranged(o, "brightness", 0f, MaxBrightness) ?? t.Brightness,
             ThunderVolume = Weather.Ranged(o, "thunderVolume", 0f, 1f) ?? t.ThunderVolume,
         };

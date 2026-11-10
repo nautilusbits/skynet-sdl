@@ -12,13 +12,15 @@ public readonly record struct PickupItem(int Pool, int Amount, int HealPercent, 
 /// <summary>
 /// The item table (SKYNET.EXE v1.00 0x35800; docs/game-logic/pickups.md), as the Godot port's
 /// generated pickup_data.gd ITEMS holds it: sprite index (bank &lt;&lt; 7 | record) → effect.
-/// Handler 0x11d670 collects within 80 units across and 160 up or down, plays sound 179, and the
-/// pickup is always consumed. Keys match <see cref="SpriteRules.Items"/>. A mod's
+/// Handler 0x11d670 (v1.01 0x11d970) collects within <see cref="GrabReach"/> of the eye, plays
+/// sound 179, and the pickup is always consumed. Keys match <see cref="SpriteRules.Items"/>. A mod's
 /// <c>tables/items.json</c> changes rows of <see cref="Dos"/> by sprite (docs/modding.md#tables).
 /// </summary>
 public static class PickupTable
 {
     public const float GrabAcross = 80f, GrabVertical = 160f;
+    /// <summary>The campaign's reach, eye to record, true 3D (v1.01 0x11d9b9: distance 0x14d775 &lt;= 0x50).</summary>
+    public const float GrabReach = 80f;
     /// <summary>SKYNET.EXE's pickup handler (0x11d670) asks for sound 0xB3, past the 126 names of the
     /// sound table, so the port plays CLICK.RAW instead, as the Godot port's pickup.gd does.</summary>
     public const int Sound = 10;

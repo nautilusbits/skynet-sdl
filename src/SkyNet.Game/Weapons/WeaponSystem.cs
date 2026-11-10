@@ -9,8 +9,8 @@ namespace SkyNet.Game.Weapons;
 
 /// <summary>The weapon keys of one tick: the triggers held, RUN (the rocket eye), and the
 /// selections pressed (-1 none; <see cref="Cycle"/> ±1 for <c>'</c>/<c>;</c>; <see cref="CycleThrown"/>
-/// the touch screen's next thrown item).</summary>
-public readonly record struct WeaponInput(bool Fire, bool Throw, bool Run, int Select = -1, int SelectThrown = -1, int Cycle = 0, bool CycleThrown = false);
+/// the touch screen's next thrown item; <see cref="Group"/> a number key's group).</summary>
+public readonly record struct WeaponInput(bool Fire, bool Throw, bool Run, int Select = -1, int SelectThrown = -1, int Cycle = 0, bool CycleThrown = false, int Group = -1);
 
 /// <summary>Where the soldier shoots from: the eye, the view and his velocity (the muzzle leads by
 /// the distance he covers in the tick).</summary>
@@ -66,9 +66,12 @@ public sealed class WeaponSystem
     public const float LobbedCloudScale = 0.45f;
     /// <summary>The same for a blasting projectile (rockets).</summary>
     public const float RocketCloudScale = 0.7f;
-    /// <summary>An effect nearer the eye than this is skipped, and none is drawn bigger than this
-    /// share of its distance (explosion.gd NEAR_SKIP, NEAR_SIZE_RATIO).</summary>
-    public const float NearSkip = 70f;
+    /// <summary>An effect nearer the eye than this is pushed out to it (DOS FUN_0012420f: 12), and
+    /// none is drawn bigger than this share of its distance (explosion.gd NEAR_SIZE_RATIO).</summary>
+    public const float NearMin = 12f;
+    /// <summary>DOS's effect size unit: 0x100 draws one texel per world unit (a map sprite's 0x100,
+    /// 0x136f44); a bullet puff's ammo +0x10 of 128 is half its sprite (FUN_0012311f).</summary>
+    public const float DosScaleUnit = 256f;
     /// <summary>The satchel's ammo type (DOS compares the shot's type with 0x14).</summary>
     private const int SatchelAmmo = 20;
     /// <summary>A planted satchel's wait: 360 × 16 clock steps at 0x180 (384) a second.</summary>
@@ -124,6 +127,10 @@ public sealed class WeaponSystem
     public IWeaponMount? Mount { get; set; }
     /// <summary>Frames of an effect bank's record 0 (the renderer knows); null: 8.</summary>
     public Func<int, int>? EffectFrames { get; set; }
+
+    /// <summary>What a steered rocket in hand would follow (DOS 0x125bef: the target under the
+    /// crosshair, picked each tick); null otherwise. The HUD's LOCK shows it.</summary>
+    public IDamageable? Lock { get; private set; }
 
     public IReadOnlyList<Projectile> Projectiles => _projectiles;
     public IReadOnlyList<Effect> Effects => _effects;
@@ -189,6 +196,7 @@ public sealed class WeaponSystem
     {
         _eye = shooter.Eye;
         Inventory.Tick(dt);
+        Lock = Mount == null ? Pick(shooter) : null;
         if (Mount is { } mount)
         {
             TickMounted(mount, input, shooter, dt);
@@ -284,6 +292,11 @@ public sealed class WeaponSystem
             Sounds?.Play2D(Table.Weapons[Inventory.Primary].SelectSound, -8f);
         }
 
+        if (input.Group >= 0 && Inventory.SelectGroup(input.Group))
+        {
+            Sounds?.Play2D(Table.Weapons[Inventory.Primary].SelectSound, -8f);
+        }
+
         if (input.Cycle != 0 && Inventory.Cycle(input.Cycle))
         {
             Sounds?.Play2D(Table.Weapons[Inventory.Primary].SelectSound, -8f);
@@ -353,7 +366,36 @@ public sealed class WeaponSystem
     }
 
     /// <summary>Pulls the gun's trigger once (held: DOS auto-fire, paced by the cooldown).</summary>
-    public FireResult Fire(in Shooter s, bool run = false, float dt = 0f) => FireRecord(Inventory.Primary, s, run, dt);
+    public FireResult Fire(in Shooter s, bool run = false, float dt = 0f)
+    {
+        var result = FireRecord(Inventory.Primary, s, run, dt);
+
+        // 0x126656: a steered rocket just launched takes the pick as its target (0x12543b).
+        if (result == FireResult.Fired && Lock != null && Table.AmmoOf(Table.Weapons[Inventory.Primary]) is { Steered: true })
+        {
+            _projectiles[^1].Target = Lock;
+        }
+
+        return result;
+    }
+
+    /// <summary>DOS 0x125bef: the target under the crosshair, whole (0x13c3b3 walks to the root);
+    /// only for a steered rocket in hand, and none while a rocket's eye is the view.</summary>
+    private IDamageable? Pick(in Shooter s)
+    {
+        if (Table.AmmoOf(Table.Weapons[Inventory.Primary]) is not { Steered: true } || RocketEye != null)
+        {
+            return null;
+        }
+
+        var (fwd, _, _) = Basis(s.Yaw, s.Pitch);
+        if (!Trace(s.Eye, fwd, AimReach, out _, out _, out _, out var target) || target == null)
+        {
+            return null;
+        }
+
+        return target.Body as IDamageable ?? target;
+    }
 
     /// <summary>Pulls the trigger of record <paramref name="record"/> (owned, through its pool and
     /// the gun's cooldown); <paramref name="mirror"/> negates its muzzle's x (a vehicle's other barrel).</summary>
@@ -400,14 +442,14 @@ public sealed class WeaponSystem
         }
         else
         {
-            Launch(w, ammo, muzzle, shot * w.Speed + Vector3.UnitY * w.Lift, run && ammo.FollowCamera);
+            Launch(w, ammo, muzzle, shot * w.Speed, run && ammo.FollowCamera);
         }
 
         return result;
     }
 
-    /// <summary>One press of THROW: the selected item leaves the left hand along the view at the
-    /// record's speed plus its lift straight up.</summary>
+    /// <summary>One press of THROW: the selected item leaves the left hand at the record's speed
+    /// along the view's forward plus half its up (DOS 0x1263cc: forward − ½ the body's down, 0x38d88).</summary>
     public FireResult Throw(in Shooter s, float dt = 0f)
     {
         var result = Inventory.TryThrow();
@@ -424,11 +466,12 @@ public sealed class WeaponSystem
 
         Fired?.Invoke(Inventory.Thrown, true);
 
-        var (fwd, _, _) = Basis(s.Yaw, s.Pitch);
+        var (fwd, _, up) = Basis(s.Yaw, s.Pitch);
+        var way = Vector3.Normalize(fwd + up * 0.5f);
         var muzzle = MuzzlePoint(s, new Vector3(w.MuzzleX, w.MuzzleY, w.MuzzleZ), dt);
         Sounds?.Play2D(Table.FireSoundOf(w), -5f);
-        Shot?.Invoke(Inventory.Thrown, muzzle, fwd);
-        Launch(w, ammo, muzzle, fwd * w.Speed + Vector3.UnitY * w.Lift, false);
+        Shot?.Invoke(Inventory.Thrown, muzzle, way);
+        Launch(w, ammo, muzzle, way * w.Speed, false);
         return result;
     }
 
@@ -462,7 +505,7 @@ public sealed class WeaponSystem
             Flash(from + dir * (MuzzleAhead + FlashAtGun.Z + 70f), record == 4 ? 26f : 18f, ammo, dir);
             if (Trace(from, dir, HitscanReach, out var at, out var normal, out _, out var target, shooter, hostile: true) && target != Player)
             {
-                AddEffect(ammo.ImpactBank, at + normal, PuffRadius, kind: EffectKind.Impact);
+                AddEffect(ammo.ImpactBank, at + normal, PuffRadius, kind: EffectKind.Impact, dosScale: ammo.EffectSize / DosScaleUnit);
                 Puff(at, normal, dir, ammo);
                 SpawnPieces(ammo, at + normal, dir, normal);
             }
@@ -473,7 +516,7 @@ public sealed class WeaponSystem
         Flash(from + dir * 70f, 18f, ammo, dir);
         _projectiles.Add(new Projectile
         {
-            Weapon = w, Ammo = ammo, Position = from, Velocity = dir * w.Speed + Vector3.UnitY * w.Lift, Source = shooter, Harmless = true,
+            Weapon = w, Ammo = ammo, Position = from, Velocity = dir * w.Speed, Fall = w.Lift, Source = shooter, Harmless = true,
         });
         return true;
     }
@@ -539,7 +582,7 @@ public sealed class WeaponSystem
         }
 
         // The puff on a machine too (DOS FUN_0012311f: on anything but the soldier).
-        AddEffect(ammo.ImpactBank, at + normal, PuffRadius, kind: EffectKind.Impact);
+        AddEffect(ammo.ImpactBank, at + normal, PuffRadius, kind: EffectKind.Impact, dosScale: ammo.EffectSize / DosScaleUnit);
         Puff(at, normal, fwd, ammo);
         SpawnPieces(ammo, at + normal, fwd, normal);
         if (ammo.Blasts)
@@ -599,7 +642,7 @@ public sealed class WeaponSystem
             // The puff on anything but the soldier (DOS FUN_0012311f).
             if (target != Player)
             {
-                AddEffect(ammo.ImpactBank, at + normal, PuffRadius, kind: EffectKind.Impact);
+                AddEffect(ammo.ImpactBank, at + normal, PuffRadius, kind: EffectKind.Impact, dosScale: ammo.EffectSize / DosScaleUnit);
                 Puff(at, normal, dir, ammo);
             }
 
@@ -610,8 +653,9 @@ public sealed class WeaponSystem
         _projectiles.Add(new Projectile { Weapon = RobotWeapon, Ammo = ammo, Position = muzzle, Velocity = dir * speed, Source = source });
     }
 
+    // The record's +0x1c is the shot's fall (0x1261b1, 0x1263cc).
     private void Launch(WeaponRecord w, AmmoRecord ammo, Vector3 from, Vector3 velocity, bool follow) =>
-        _projectiles.Add(new Projectile { Weapon = w, Ammo = ammo, Position = from, Velocity = velocity, Followed = follow });
+        _projectiles.Add(new Projectile { Weapon = w, Ammo = ammo, Position = from, Velocity = velocity, Fall = w.Lift, Followed = follow });
 
     private void StepProjectiles(float dt)
     {
@@ -648,7 +692,12 @@ public sealed class WeaponSystem
 
             if (p.Lobbed)
             {
-                p.Velocity -= new Vector3(0f, Projectile.Gravity * dt, 0f);
+                p.Velocity -= new Vector3(0f, p.Fall * dt, 0f);
+            }
+
+            if (p.Target is { } locked)
+            {
+                p.Velocity = Projectile.Steer(p.Position, p.Velocity, locked.BlastOrigin, dt);
             }
 
             var motion = p.Velocity * dt;
@@ -864,12 +913,18 @@ public sealed class WeaponSystem
     }
 
     /// <summary>An effect animation (a robot's death: bank 358) of about <paramref name="radius"/>.</summary>
-    public void Explosion(Vector3 at, int bank, float radius) => AddEffect(bank, at, radius, kind: EffectKind.Explosion);
+    /// <param name="dosScale">The ORIGINAL look's size in its sprite's texels (0: <paramref name="radius"/>).</param>
+    public void Explosion(Vector3 at, int bank, float radius, float dosScale = 0f) =>
+        AddEffect(bank, at, radius, kind: EffectKind.Explosion, dosScale: dosScale);
+
+    /// <summary>A plain effect-bank animation, no blast cloud (a robot teleporting in, 0x143034).</summary>
+    public void Warp(Vector3 at, int bank, float radius, float dosScale) =>
+        AddEffect(bank, at, radius, kind: EffectKind.Warp, dosScale: dosScale);
 
     /// <summary>An animation of an effect bank's record 0, sized as explosion.gd sizes it; a shot's
     /// impact keeps its <paramref name="ammo"/> (the enhanced look's light colours it).</summary>
     private void AddEffect(int bank, Vector3 at, float radius, AmmoRecord? ammo = null, EffectKind kind = EffectKind.Impact,
-        float cloudScale = 1f)
+        float cloudScale = 1f, float dosScale = 0f)
     {
         if (bank <= 0)
         {
@@ -887,14 +942,15 @@ public sealed class WeaponSystem
         }
 
         var dist = Vector3.Distance(_eye, at);
-        if (dist < NearSkip)
+        if (dist < NearMin)
         {
-            return;
+            at = _eye + (dist > 1e-3f ? (at - _eye) / dist : Vector3.UnitY) * NearMin;
+            dist = NearMin;
         }
 
         radius = MathF.Min(MathF.Max(radius, 60f), dist * NearSizeRatio);
         var frames = Math.Max(1, EffectFrames?.Invoke(bank) ?? 8);
-        _effects.Add(new Effect { Bank = bank, Position = at, Size = radius * 2f, Life = frames / Effect.Fps, Animated = true, Ammo = ammo, Kind = kind });
+        _effects.Add(new Effect { Bank = bank, Position = at, Size = radius * 2f, DosScale = dosScale, Life = frames / Effect.Fps, Animated = true, Ammo = ammo, Kind = kind });
     }
 
     private void Report(in ShotReport r) => Reported?.Invoke(r);

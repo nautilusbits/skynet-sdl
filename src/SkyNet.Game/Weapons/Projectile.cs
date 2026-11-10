@@ -6,9 +6,13 @@ namespace SkyNet.Game.Weapons;
 /// body under gravity (<see cref="AmmoFamily.Gravity"/>: the launcher's shell and the thrown items).</summary>
 public sealed class Projectile
 {
-    /// <summary>The fall of a lobbed body (the Godot port's grenade.gd GRAVITY; DOS's figure for the
-    /// gravity callback 0x000f3414 is UNCERTAIN).</summary>
+    /// <summary>The fall of a robot's lobbed body (the Godot port's grenade.gd GRAVITY). The soldier's
+    /// shots fall at their record's +0x1c instead (<see cref="Fall"/>).</summary>
     public const float Gravity = 1400f;
+    /// <summary>A steered rocket's turn (DOS 0x123fdc): at most 0x300 of 2048 a second (135°), and
+    /// the look-ahead of half its time to the target, 0x20 / 0x10000 s to 2 s.</summary>
+    public const float SteerRate = 0x300 / 2048f * MathF.Tau;
+    public const float SteerLookMin = 0x20 / 65536f, SteerLookMax = 2f;
     /// <summary>A bounce keeps 0xAAAB/0x10000 of the speed (FUN_0011c19a → FUN_0011c100).</summary>
     public const float BounceKeep = 2f / 3f;
     /// <summary>Under this bounced speed it goes off.</summary>
@@ -26,6 +30,11 @@ public sealed class Projectile
     /// <summary>The rocket eye follows it (ammo flag 0x08 and RUN held at launch).</summary>
     public bool Followed { get; set; }
     public int Bounces { get; set; }
+    /// <summary>A lobbed body's fall (units/s²): DOS 0x1261b1/0x1263cc put the record's +0x1c in the
+    /// shot's acceleration (392, the soldier's own gravity).</summary>
+    public float Fall { get; init; } = Gravity;
+    /// <summary>What a steered rocket follows (DOS's tracker entry, 0x12543b); null: flies straight.</summary>
+    public IDamageable? Target { get; set; }
     /// <summary>Seconds until a planted satchel goes off; null while it flies (or for any other shot).</summary>
     public float? Fuse { get; set; }
     /// <summary>Where a planted satchel's blast sits (<see cref="Blast.Placement"/>); null for any other shot.</summary>
@@ -48,6 +57,34 @@ public sealed class Projectile
     public Vector3 DrawnAt(float alpha) => Previous is { } p ? Interpolation.Lerp(p, Position, alpha, DrawSnap) : Position;
 
     public const float DrawSnap = 4096f;
+
+    /// <summary>
+    /// DOS's steering of a locked rocket (0x123fdc): it aims at the target less its own flight over
+    /// half the time to it, and turns toward that by the angle over that half time a second (at most
+    /// <see cref="SteerRate"/>), keeping its speed.
+    /// </summary>
+    public static Vector3 Steer(Vector3 at, Vector3 velocity, Vector3 target, float dt)
+    {
+        var speed = velocity.Length();
+        if (speed < 1e-3f)
+        {
+            return velocity;
+        }
+
+        // Half the time to the target, and where the rocket will be by then.
+        var half = Math.Clamp(Vector3.Distance(target, at) / speed * 0.5f, SteerLookMin, SteerLookMax);
+        var want = target - (at + velocity * half);
+        var heading = velocity / speed;
+        var axis = Vector3.Cross(heading, want);
+        if (axis.LengthSquared() < 1e-6f)
+        {
+            return velocity;
+        }
+
+        var angle = MathF.Acos(Math.Clamp(Vector3.Dot(heading, Vector3.Normalize(want)), -1f, 1f));
+        var turn = MathF.Min(angle / half, SteerRate) * dt;
+        return Vector3.Transform(heading, Quaternion.CreateFromAxisAngle(Vector3.Normalize(axis), turn)) * speed;
+    }
 
     /// <summary>What a lobbed body does on touching a surface.</summary>
     public enum BounceOutcome { Detonate, Bounce }
@@ -81,6 +118,9 @@ public sealed class Effect
     public Vector3 Position { get; init; }
     /// <summary>The sprite's largest side in world units.</summary>
     public float Size { get; init; }
+    /// <summary>The ORIGINAL look's size: texels per world unit of the sprite (DOS FUN_0012420f's
+    /// +0x1a / 256); 0 draws <see cref="Size"/> as the ENHANCED look does.</summary>
+    public float DosScale { get; init; }
     public float Age { get; set; }
     /// <summary>Seconds it shows; for an animation the frames' time.</summary>
     public float Life { get; init; }
@@ -102,7 +142,8 @@ public sealed class Effect
 
 /// <summary>An <see cref="Effect"/>'s part: a muzzle flash, a shot's impact on a surface, an explosion
 /// (a rocket's or a lobbed body's burst, a robot's, a vehicle's or a breakable's death).</summary>
-public enum EffectKind { Flash, Impact, Explosion, OwnFlash }
+/// <summary>What an effect is; <see cref="Warp"/>: a robot teleporting in (its sprite in every look).</summary>
+public enum EffectKind { Flash, Impact, Explosion, OwnFlash, Warp }
 
 /// <summary>Whether the DOS flash of the player's own shot shows: hidden while a 3D gun draws its own.</summary>
 public enum OwnFlashes { Shown, Hidden }

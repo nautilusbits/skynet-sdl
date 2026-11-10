@@ -77,7 +77,8 @@ public static class BehaviourModel
         var act = e.ActType;
         if (ActRules.IsMover(act))
         {
-            return mesh ? NodeKind.Mover : NodeKind.Raw;
+            // A jump moves any record (0x13832f → ObjSetPos): Bishop's pictures swap (#59).
+            return mesh || ActRules.Mover(act).Family == MoverFamily.Jump ? NodeKind.Mover : NodeKind.Raw;
         }
 
         if (ActRules.IsDestructible(act) || HasStages(map, e, transfrm))

@@ -26,13 +26,24 @@ public sealed class DestructionTable
     /// drop lists alone.</summary>
     public ImmutableArray<(ImmutableArray<int> Effects, int Sound)> Blasts { get; }
 
+    /// <summary>Per destruction type: its effects' size (row +8, in 1/256 of their sprite's texels:
+    /// FUN_001244bd passes it as FUN_0012420f's size).</summary>
+    public ImmutableArray<int> Spreads { get; }
+
     public DestructionTable(IEnumerable<int> dropList, IEnumerable<IEnumerable<int>> drops,
-        IEnumerable<(ImmutableArray<int> Effects, int Sound)>? blasts = null)
+        IEnumerable<(ImmutableArray<int> Effects, int Sound)>? blasts = null, IEnumerable<int>? spreads = null)
     {
         DropList = [.. dropList];
         Drops = [.. drops.Select(d => d.ToImmutableArray())];
         Blasts = [.. blasts ?? []];
+        Spreads = [.. spreads ?? []];
     }
+
+    /// <summary>Whether <paramref name="destroyType"/> has a row of its own (else type 0's blast).</summary>
+    public bool Listed(int destroyType) => destroyType > 0 && destroyType < Blasts.Length;
+
+    /// <summary>The effects' size of a listed <paramref name="destroyType"/> (0: unknown).</summary>
+    public int SpreadOf(int destroyType) => destroyType >= 0 && destroyType < Spreads.Length ? Spreads[destroyType] : 0;
 
     /// <summary>Nothing drops.</summary>
     public static DestructionTable Empty { get; } = new([], []);
@@ -43,7 +54,7 @@ public sealed class DestructionTable
     /// row's effects and sound (FUN_001244bd).
     /// </summary>
     public (ImmutableArray<int> Effects, int Sound) BlastOf(int destroyType) =>
-        destroyType > 0 && destroyType < Blasts.Length ? Blasts[destroyType] : ([TypeZeroEffect], -2);
+        Listed(destroyType) ? Blasts[destroyType] : ([TypeZeroEffect], -2);
 
     /// <summary>Destruction type 0's effect sprite (0xB300: bank 358, record 0), also the one a
     /// TRANSFRM.PRS stage shows (handler 0x120833).</summary>
@@ -70,5 +81,5 @@ public sealed class DestructionTable
     /// <summary>The shipped table (data/tables destruction + drop_lists).</summary>
     public static DestructionTable Load() =>
         new(GameTables.Destruction.Select(r => r.DropList), GameTables.DropLists.Select(d => d.Sprites.AsEnumerable()),
-            GameTables.Destruction.Select(r => (r.Effects, r.Sound)));
+            GameTables.Destruction.Select(r => (r.Effects, r.Sound)), GameTables.Destruction.Select(r => r.Spread));
 }

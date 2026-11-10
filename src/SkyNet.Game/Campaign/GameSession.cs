@@ -76,10 +76,9 @@ public sealed class GameSession
     /// <summary>The game plays on this long after the counter reaches 0 (FUN_00121fe3 stamps the clock
     /// and waits until it has run more than 0x68 ticks): the last line is read before the banner.</summary>
     public const float CompleteDelay = 0x68 / GameClockHz;
-    /// <summary>A wreck's stage blast and a destruction's blasts: their size, how high over the
-    /// record's origin they go off, and how far a destruction's extra effects scatter.</summary>
+    /// <summary>A wreck's stage blast and a destruction's blasts: their size, and how high over the
+    /// record's origin a destruction's sound and radial blast go off.</summary>
     public const float StageBlastRadius = 120f, DestroyBlastRadius = 190f, BlastLift = 60f;
-    public const int BlastScatter = 120;
     /// <summary>The banner over the frozen frame (FUN_0011b80f(0xAF): 0xAF >> 2 = 43 BIOS ticks, about
     /// 2.36 s), for WELL DONE and FAILED alike; then the screen goes black and the next step comes.</summary>
     public const float BannerHold = (0xAF >> 2) / BiosTicksPerSecond;
@@ -102,6 +101,8 @@ public sealed class GameSession
         public readonly WaterLevel? Water = water;
         public readonly HashSet<int> Taken = [];
         public readonly HashSet<int> Dead = [];
+        /// <summary>The robots with segments shot off, by the same id: their shot-off bits (issue #58).</summary>
+        public readonly Dictionary<int, ulong> ShotOff = [];
         /// <summary>The ambient loops running when the map was left, to start again on re-entry.</summary>
         public readonly Dictionary<int, (int Id, Vector3 At)> Loops = [];
         /// <summary>What destroyed records left here and is still lying (ids −1, −2, …).</summary>
@@ -109,7 +110,12 @@ public sealed class GameSession
         public int NextDrop = -1;
     }
 
-    private readonly record struct Pickup(int Offset, Vector3 Base, PickupItem Item);
+    /// <summary>An item: its foot (<paramref name="Base"/>) and its record, the point DOS reaches for.</summary>
+    private readonly record struct Pickup(int Offset, Vector3 Base, PickupItem Item, Vector3 Record);
+
+    /// <summary>A drop's record: its foot <see cref="Level.IndoorSpriteLift"/> under it, as a map item's.</summary>
+    private static Pickup DropPickup(int id, Vector3 at, PickupItem item) =>
+        new(id, at, item, at + new Vector3(0f, Level.IndoorSpriteLift, 0f));
 
     /// <summary>The current map's colliders behind one source the player and the weapons keep.</summary>
     private sealed class MapSource : ITriangleSource
@@ -141,7 +147,39 @@ public sealed class GameSession
         public float Radius => 0f;
         public float BlastPad => pad;
         public bool Alive => behaviour.IsDamageable(offset);
-        public void TakeDamage(in Damage damage) => behaviour.Hit(offset, damage.Points);
+
+        // FUN_00124886 blasts only records with hit points left: a hit-flip switch (state 0x02,
+        // no points) answers the shot, not its blast, which would flip the chain back.
+        public void TakeDamage(in Damage damage)
+        {
+            if (damage.Kind == DamageKind.Blast && behaviour.Hp(offset) <= 0f)
+            {
+                return;
+            }
+
+            behaviour.Hit(offset, damage.Points);
+        }
+    }
+
+    /// <summary>A billboard that answers hits (state bit 0x02: Bishop on Future Shock MAP.151,
+    /// issue #59), struck as the sphere about its centre that holds its picture's height; it
+    /// follows its record's jumps.</summary>
+    private sealed class SpriteTarget(LevelBehaviour behaviour, int offset, Vector3 record, float radius) : IDamageable
+    {
+        public Vector3 Centre => behaviour.TryGetPose(offset, out var p) ? record + p.Delta.Translation : record;
+        public float Radius => radius;
+        public bool Alive => behaviour.IsDamageable(offset);
+
+        // FUN_00124886 blasts variant-1 records only: a billboard answers the direct hit alone.
+        public void TakeDamage(in Damage damage)
+        {
+            if (damage.Kind == DamageKind.Blast)
+            {
+                return;
+            }
+
+            behaviour.Hit(offset, damage.Points);
+        }
     }
 
     /// <summary>The behaviour's effects, routed to whatever map is current.</summary>
@@ -188,6 +226,7 @@ public sealed class GameSession
         {
             if (text.Length > 0)
             {
+                s.Typing(text);
                 s.Listener?.Hint(text);
             }
         }
@@ -196,6 +235,7 @@ public sealed class GameSession
         {
             if (text.Length > 2)
             {
+                s.Typing(text);
                 s.Listener?.Objective(text);
             }
             else
@@ -228,8 +268,9 @@ public sealed class GameSession
                 return;
             }
 
-            var at = BehaviourModel.Position(e) + new Vector3(0f, BlastLift, 0f);
-            s.Weapons.Explosion(at, DestructionTable.TypeZeroEffect >> 7, StageBlastRadius);
+            // At the plain origin, 4r in size (0x120833).
+            var at = BehaviourModel.Position(e);
+            s.Weapons.Explosion(at, DestructionTable.TypeZeroEffect >> 7, StageBlastRadius, s.DosBlastScale(source));
             var sample = SoundIds.Explosion1 + s.Cosmetic.Next(4);
             s.Sounds?.Play3D(sample, at);
         }
@@ -241,6 +282,17 @@ public sealed class GameSession
         {
             var at = e.Position + new Vector3(0f, BlastLift, 0f);
             var (effects, sound) = s._destruction.BlastOf(e.DestroyType);
+
+            // The effects on the viewer's side of the model (FUN_00124793): type 0's pulled the
+            // model's radius r toward him; a listed type's r/2, all but the first scattered ±r/2
+            // across the view (FUN_001244bd).
+            var r = s.RecordRadius(e.Source);
+            var (fwd, right, up) = WeaponSystem.Basis(s.Player.Yaw, s.Player.Pitch);
+            var listed = s._destruction.Listed(e.DestroyType);
+            var pull = listed ? r / 2f : r;
+            var half = (int)(r / 2f);
+            // The ORIGINAL look's size: the row's +8, type 0's 4r.
+            var scale = listed ? s._destruction.SpreadOf(e.DestroyType) / WeaponSystem.DosScaleUnit : s.DosBlastScale(e.Source);
             var first = true;
             foreach (var fx in effects)
             {
@@ -249,8 +301,8 @@ public sealed class GameSession
                     continue;
                 }
 
-                var off = first ? Vector3.Zero : new Vector3(s.Cosmetic.Next(-BlastScatter, BlastScatter + 1), 0f, s.Cosmetic.Next(-BlastScatter, BlastScatter + 1));
-                s.Weapons.Explosion(at + off, fx >> 7, DestroyBlastRadius);
+                var off = first ? Vector3.Zero : right * s.Cosmetic.Next(-half, half + 1) + up * s.Cosmetic.Next(-half, half + 1);
+                s.Weapons.Explosion(e.Position - fwd * pull + off, fx >> 7, DestroyBlastRadius, scale);
                 first = false;
             }
 
@@ -297,6 +349,7 @@ public sealed class GameSession
     private readonly List<BodySound> _bodySounds = [];
     private readonly List<Pickup> _pickups = [];
     private readonly List<int> _targets = [];
+    private readonly List<IDamageable> _spriteTargets = [];
     private readonly Dictionary<int, float> _waterSoundsUntil = [];
     private readonly DestructionTable _destruction;
     private readonly PrsFile? _strings, _voices;
@@ -310,8 +363,17 @@ public sealed class GameSession
     private ExitRequest? _pendingExit;
     private float _clock;
     private float? _completeAt, _endAt;
+    // When the message box has typed its last line (flag 0x80 of [0x30a50] clears), and its font.
+    private float _typedAt;
+    private Func<char, int>? _advance;
     private InventoryState? _startKit;
     private (float Health, float Armour) _startBody;
+
+    /// <summary>What a won mission adds to the body for the next (campaign loop FUN_0011c900):
+    /// half the health bar and half the armour, each capped.</summary>
+    private const int CarryHealPercent = 50;
+    private const float CarryArmour = 0.5f;
+    private const float NewGameArmour = 1f;
 
     public GameSession(GameData data, SoundBank? sounds = null)
     {
@@ -408,6 +470,8 @@ public sealed class GameSession
     public WaterLevel? Water => _state?.Water;
     /// <summary>The soldier's held breath under water.</summary>
     public WaterBreath Breath { get; }
+    /// <summary>The radiation dose a second at the soldier this tick (RADCOUNT; <see cref="Radiation"/>).</summary>
+    public int RadiationDose { get; private set; }
     /// <summary>The red flash of a hit the soldier lived through.</summary>
     public HitFlash HitFlash { get; } = new();
     /// <summary>The night moon: its hits and its fall on this map (<see cref="NightMoon"/>).</summary>
@@ -485,6 +549,10 @@ public sealed class GameSession
     /// is the server's business (no MISSION FAILED); the keys are dead while the soldier is.</summary>
     public bool Deathmatch { get; private set; }
 
+    /// <summary>The player's keys and mouse reach the soldier this tick: playing, not riding a
+    /// torpedo, alive in a deathmatch.</summary>
+    public bool Steering => Phase == SessionPhase.Playing && Torpedo is not { Riding: true } && (!Deathmatch || Soldier.Alive);
+
     /// <summary>A deathmatch host's crate drops (an item sprite and where it lies), handed to the
     /// server's item list; null elsewhere (a client drops no item of its own).</summary>
     public Action<int, Vector3>? DeathmatchDrop { get; set; }
@@ -524,6 +592,7 @@ public sealed class GameSession
         }
 
         _targets.Clear();
+        DropSpriteTargets();
         Weapons.Clear();
         state.Behaviour.ResetTo(start);
         RegisterTargets(map, state.Behaviour);
@@ -626,6 +695,7 @@ public sealed class GameSession
         Deathmatch = false;
         Difficulty = _difficulty;
         Mission = mission;
+        var won = Phase == SessionPhase.Complete;
         Phase = SessionPhase.Playing;
         _completeAt = _endAt = null;
         ResetClock();
@@ -651,8 +721,20 @@ public sealed class GameSession
         }
         else
         {
-            // A new mission: full health; the kit carries from the last one.
-            Soldier.Reset();
+            // A new game or a jump: full health and armour (DOS sets 0x10000). After a win the kit and the body carry, +½ health
+            // and +0.5 armour, except from a vehicle, whose hull took the bonus (loop FUN_0011c900;
+            // FUN_0011d41f puts the soldier's stashed body back).
+            if (!won)
+            {
+                Soldier.Reset();
+                Soldier.AddArmour(NewGameArmour);
+            }
+            else if (Ride?.Save() == null)
+            {
+                Soldier.HealPercent(CarryHealPercent);
+                Soldier.AddArmour(CarryArmour);
+            }
+
             _startKit = Weapons.Inventory.Save();
             _startBody = (Soldier.Health, Soldier.Armour);
         }
@@ -986,6 +1068,8 @@ public sealed class GameSession
         };
         robots.Populate(file);
         robots.Retire(state.Dead);
+        robots.ShootOff(state.ShotOff);
+        robots.PartLost += r => state.ShotOff[Robots.Id(r)] = r.GoneBits;
         var behaviour = state.Behaviour;
         robots.DeathAct += e => behaviour.RobotAct(e.Act, e.MarkerOffset);
         robots.Died += r =>
@@ -1024,6 +1108,7 @@ public sealed class GameSession
         }
 
         _targets.Clear();
+        DropSpriteTargets();
         _pickups.Clear();
         Weapons.Clear();
         _pendingExit = null;
@@ -1092,12 +1177,42 @@ public sealed class GameSession
                 Weapons.Targets.Register(e.FileOffset, new RecordTarget(behaviour, e.FileOffset, BehaviourModel.Position(e), pad));
                 _targets.Add(e.FileOffset);
             }
+            else if (IsShotSprite(e) && behaviour.IsDamageable(e.FileOffset)
+                && Data.LoadTextureBank(e.SpriteBank)?.Records.ElementAtOrDefault(e.SpriteRecord) is { IsEmpty: false } t)
+            {
+                var target = new SpriteTarget(behaviour, e.FileOffset, BehaviourModel.Position(e), t.Height / 2f);
+                Weapons.Targets.Add(target);
+                _spriteTargets.Add(target);
+            }
         }
+    }
+
+    /// <summary>A billboard a shot may strike: not a marker, and not a proximity trigger (MAP.329's
+    /// pole @71EE has state 3 but is the room drop's walk-in gate).</summary>
+    private static bool IsShotSprite(MapEntity e) =>
+        e.Variant == MapEntityVariant.Sprite && e.MarkerType == -1 && !e.IsMarker && !ActRules.IsTrigger(e.ActType);
+
+    private void DropSpriteTargets()
+    {
+        foreach (var t in _spriteTargets)
+        {
+            Weapons.Targets.Remove(t);
+        }
+
+        _spriteTargets.Clear();
     }
 
     // .3D header +0x0C: the model's radius in 1/256 units. DOS's blast on a record (FUN_00124886,
     // v1.01) adds it to (R − d) where the soldier gets 40: a satchel fells a radar tower (r 150).
     private const int ModelRadiusField = 0x0C;
+
+    /// <summary>DOS's 4r effect size (r the model radius in whole units, 0x120833 and FUN_00124793)
+    /// as a texel scale.</summary>
+    private float DosBlastScale(int offset) => 4 * MathF.Floor(RecordRadius(offset)) / WeaponSystem.DosScaleUnit;
+
+    /// <summary>The model radius of the record at <paramref name="offset"/> on the current map.</summary>
+    private float RecordRadius(int offset) =>
+        Map != null && Map.TryGetEntityAt(offset, out var e) ? ModelRadius(Map, e, []) : Blast.Pad;
 
     private float ModelRadius(MapFile map, MapEntity e, Dictionary<int, float> cache)
     {
@@ -1137,14 +1252,14 @@ public sealed class GameSession
 
             // Where Level draws its foot.
             var y = SpriteRules.Foot(e, Wld, World);
-            _pickups.Add(new Pickup(e.FileOffset, new Vector3(e.X, y, -e.Z), item));
+            _pickups.Add(new Pickup(e.FileOffset, new Vector3(e.X, y, -e.Z), item, new Vector3(e.X, -e.Y, -e.Z)));
         }
 
         foreach (var d in state.Drops)
         {
             if (PickupTable.Items.TryGetValue(d.Sprite, out var item))
             {
-                _pickups.Add(new Pickup(d.Id, d.At, item));
+                _pickups.Add(DropPickup(d.Id, d.At, item));
             }
         }
     }
@@ -1176,7 +1291,7 @@ public sealed class GameSession
         _state.Drops.Add(drop);
         if (PickupTable.Items.TryGetValue(sprite, out var item))
         {
-            _pickups.Add(new Pickup(drop.Id, drop.At, item));
+            _pickups.Add(DropPickup(drop.Id, drop.At, item));
         }
 
         Log($"drop: sprite {sprite >> 7}/{sprite & 0x7F} at {drop.At.X:0},{drop.At.Y:0},{drop.At.Z:0}");
@@ -1249,6 +1364,7 @@ public sealed class GameSession
             Drops = [.. p.Value.Drops],
             NextDrop = p.Value.NextDrop,
             Instance = p.Instance,
+            ShotOff = [.. p.Value.ShotOff.OrderBy(s => s.Key).Select(s => new SavedShotOff(s.Key, s.Value))],
         }).ToArray();
         var startKit = _startKit ?? Weapons.Inventory.Save();
         var startBody = _startKit != null ? _startBody : (Soldier.Health, Soldier.Armour);
@@ -1263,6 +1379,7 @@ public sealed class GameSession
             PreviousInstance = _previous?.Id,
             RandomState = Random.State,
             Seen = Seen.Save(),
+            Trail = Robots?.SaveTrail(),
         };
     }
 
@@ -1341,6 +1458,11 @@ public sealed class GameSession
             var state = new MapState(behaviour, WaterLevel.Find(files[m.Map]));
             state.Taken.UnionWith(m.Taken);
             state.Dead.UnionWith(m.Dead);
+            foreach (var s in m.ShotOff)
+            {
+                state.ShotOff[s.Robot] = s.Gone;
+            }
+
             foreach (var l in m.Loops)
             {
                 state.Loops[l.Source] = (l.Sound, l.At);
@@ -1393,6 +1515,8 @@ public sealed class GameSession
             Log("load: the robots do not match the map; they start afresh");
         }
 
+        Robots?.RestoreTrail(save.Trail);
+
         // Last: the generator stands where the saved game's stood, whatever the entry drew.
         if (save.RandomState is { } random)
         {
@@ -1405,6 +1529,7 @@ public sealed class GameSession
     private void ResetClock()
     {
         _clock = 0f;
+        _typedAt = 0f;
         _waterSoundsUntil.Clear();
     }
 
@@ -1420,11 +1545,12 @@ public sealed class GameSession
         // The last frame drew the flash's row: the next one (a hit in this tick starts it).
         HitFlash.Tick(Dt);
         var playing = Phase == SessionPhase.Playing;
-        var keys = playing && Torpedo is not { Riding: true } && (!Deathmatch || Soldier.Alive);
+        var keys = Steering;
         var moved = Player.Position;
         using (Prof.Zone(GameZones.Player))
         {
             WaterTick();
+            RadiationTick();
             FreeFromRobots();
             Player.Step(keys ? tick : default, Dt, actions);
             BodySounds();
@@ -1607,6 +1733,29 @@ public sealed class GameSession
         }
     }
 
+    private Radiation? _radiation;
+    private MapFile? _radiationMap;
+
+    /// <summary>One frame of radiation (FUN_0013ba9a): a silent hit, the Geiger sound and the dose.</summary>
+    private void RadiationTick()
+    {
+        if (Map != _radiationMap)
+        {
+            _radiationMap = Map;
+            _radiation = Map is { } map ? Radiation.Find(map) : null;
+        }
+
+        RadiationDose = _radiation is { } r && Phase == SessionPhase.Playing ? r.Dose(Player.EyePosition, Player.Eye) : 0;
+        if (RadiationDose <= 0)
+        {
+            return;
+        }
+
+        Soldier.Hurt(Radiation.Points(RadiationDose, Dt), silent: true);
+        // Flag 2 of FUN_0012ef06: not again while it plays, the water's test.
+        WaterSound(RadiationDose >= Radiation.Danger ? Radiation.SoundHigh : Radiation.SoundLow);
+    }
+
     /// <summary>A water sound unless the same one still plays (FUN_0012eee2's test).</summary>
     private void WaterSound(int id, Vector3? at = null)
     {
@@ -1667,8 +1816,7 @@ public sealed class GameSession
         for (var i = _pickups.Count - 1; i >= 0; i--)
         {
             var p = _pickups[i];
-            var d = Player.Position - p.Base;
-            if (new Vector2(d.X, d.Z).Length() > PickupTable.GrabAcross || MathF.Abs(d.Y) > PickupTable.GrabVertical)
+            if (Vector3.Distance(Player.EyePosition, p.Record) > PickupTable.GrabReach)
             {
                 continue;
             }
@@ -1688,7 +1836,7 @@ public sealed class GameSession
     }
 
     /// <summary>An item's effect (handler 0x11d670): the pool topped up, health, armour, the weapon
-    /// owned and selected, the "PICKED UP" line and sound 179; always consumed.</summary>
+    /// owned and selected when new (0x11d970), the "PICKED UP" line and sound 179; always consumed.</summary>
     public void Apply(in PickupItem item)
     {
         var inv = Weapons.Inventory;
@@ -1707,7 +1855,7 @@ public sealed class GameSession
             Soldier.AddArmour(item.Armour / 65536f);
         }
 
-        if (item.Weapon >= 0)
+        if (item.Weapon >= 0 && !inv.Owns(item.Weapon))
         {
             inv.Grant(item.Weapon);
             inv.Select(item.Weapon);
@@ -1719,9 +1867,23 @@ public sealed class GameSession
         Listener?.Status(text);
     }
 
+    /// <summary>A message starts typing (FUN_0012fa3d): one character a step of the 320 × 200 box's
+    /// wrapped stream, at <see cref="MessageBox.CharsPerSecond"/>, whatever HUD draws it.</summary>
+    private void Typing(string text)
+    {
+        if (_advance == null)
+        {
+            var font = HudFont.Load(Data, HudFont.FileName(HudFont.HudText));
+            _advance = c => font?.Advance(c) ?? 6;
+        }
+
+        _typedAt = _clock + TextLayout.Wrap(text, _advance, MessageBox.WrapPx).Length / MessageBox.CharsPerSecond;
+    }
+
     private void TimeTheEnd()
     {
-        if (Phase == SessionPhase.Playing && _completeAt is { } at && _clock >= at)
+        // FUN_00121fe3 waits for the typewriter too: the last line is read before WELL DONE.
+        if (Phase == SessionPhase.Playing && _completeAt is { } at && _clock >= at && _clock >= _typedAt)
         {
             _completeAt = null;
             Phase = SessionPhase.Complete;

@@ -57,13 +57,18 @@ Future Shock mode uses 0x341ce ([future-shock.md](future-shock.md)).
 
 ## End screens
 
+- **End gate** (FUN_00121fe3, v1.01): more than 0x68 clock ticks since the
+  counter reached 0 **and** flag 0x80 of [0x30a50] clear. FUN_0012fa3d sets
+  it with a new message (ObjFlipLink too, on a 0x1C-0x2A record); the
+  typewriter FUN_0012fb4c clears it at the text's end, so the last line is
+  typed out first.
 - **Won**: WELLDONE.IMG over the frozen frame, then the next briefing.
   Between missions the ammo grant applies
   ([weapons-ammo.md](weapons-ammo.md#ammo-pools-initial--max)).
 - **Failed / dead**: FAILED.IMG ≈2.4 s, then RESTART MISSION yes/no
   ([damage-hud.md](damage-hud.md#death)).
-- State never carries between missions except inventory: mission start =
-  full health and armour.
+- Inventory, health and armour carry between missions; a win adds ½
+  health and 0.5 armour ([damage-hud.md](damage-hud.md#health-and-armour)).
 
 ## Godot port
 

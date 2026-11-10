@@ -33,7 +33,8 @@ public sealed class CampaignControls
         Use = a.Add("Use", "E");
         Fire = a.Add("Fire", "Left mouse", "Left Ctrl");
         Throw = a.Add("Throw", "Right mouse");
-        WeaponKeys = [.. Enumerable.Range(1, 9).Select(k => a.Add($"Weapon {k}", k.ToString(CultureInfo.InvariantCulture)))];
+        // Keys 1-7 only: DOS gives 8-0 no weapon group (#44).
+        WeaponKeys = [.. Enumerable.Range(1, Inventory.KeyGroups.Length).Select(k => a.Add($"Weapon {k}", k.ToString(CultureInfo.InvariantCulture)))];
         PreviousWeapon = a.Add("Previous weapon", ";", "Wheel up");
         NextWeapon = a.Add("Next weapon", "'", "Wheel down");
         ThrownKeys = [.. Enumerable.Range(1, 5).Select(k => a.Add($"Thrown item {k}", $"F{k}"))];
@@ -138,7 +139,7 @@ public sealed class CampaignControls
         var thrown = Array.FindIndex(ThrownKeys, k => held.WasPressed(k));
         var cycle = (tick.WasPressed(NextWeapon) ? 1 : 0) - (tick.WasPressed(PreviousWeapon) ? 1 : 0);
         return new WeaponInput(tick.IsDown(Fire) || tick.WasPressed(Fire), tick.IsDown(Throw) || tick.WasPressed(Throw), tick.IsDown(Run),
-            select, thrown >= 0 ? Inventory.ThrowKeys[thrown] : -1, cycle, tick.WasPressed(NextThrown));
+            -1, thrown >= 0 ? Inventory.ThrowKeys[thrown] : -1, cycle, tick.WasPressed(NextThrown), select);
     }
 
     /// <summary>Whether Fire or Throw is held in <paramref name="tick"/>.</summary>

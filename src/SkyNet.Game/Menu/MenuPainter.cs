@@ -168,8 +168,9 @@ public sealed class MenuPainter : IDisposable
 
     /// <summary>Draws an .IMG 1:1 at DOS (x, y) in a .COL, both read from the game's own data, not
     /// the front archive (Future Shock reads SkyNET's first): Future Shock's own art. False when
-    /// either is missing.</summary>
-    public bool OwnImage(string name, string palette, int x, int y)
+    /// either is missing. Each of <paramref name="patches"/> then copies the art's Source over its
+    /// Target (image pixels): baked buttons covered with the art's own background.</summary>
+    public bool OwnImage(string name, string palette, int x, int y, (Rectangle Source, Rectangle Target)[]? patches = null)
     {
         // Cached beside the front archive's art under their own keys.
         var key = OwnKey + name;
@@ -197,6 +198,14 @@ public sealed class MenuPainter : IDisposable
 
         _renderer.DrawImage(i.Handle, handle, new Vector2(i.W, i.H), new RectangleF(0, 0, i.W, i.H),
             Frame.Canvas(new Rectangle(x, y, i.W, i.H)), Vector4.One);
+        foreach (var (source, target) in patches ?? [])
+        {
+            // Index 0 is clear: black first, as under the whole image, or the button shows through.
+            var canvas = Frame.Canvas(target with { X = target.X + x, Y = target.Y + y });
+            _renderer.FillRect(canvas, Black);
+            _renderer.DrawImage(i.Handle, handle, new Vector2(i.W, i.H), source, canvas, Vector4.One);
+        }
+
         return true;
     }
 

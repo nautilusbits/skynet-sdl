@@ -111,11 +111,12 @@ family 2 straight bolt), +0x04 → model record (name at +4) when a pointer,
 +0x10 blast radius, +0x18 life ticks, +0x1C fire sound, +0x20 impact
 sound. See [game-logic/weapons-ammo.md](../game-logic/weapons-ammo.md).
 
-## Dormant traps
+## Dormant robots
 
-Not in the table: a type-2 marker with sub+2 ≠ 0 becomes a dormant trap
-(state 12) that explodes within that distance, effect bank TEXTURE.367,
-sound 0x26 (`AisData.TrapEffectBank`, `TrapSound`).
+Not in the table: a type-2 marker with sub+2 ≠ 0 becomes dormant (state
+12): unseen and unstruck until the player is within that distance, then
+it teleports in with effect bank TEXTURE.367 and sound 0x26
+(`AisData.TrapEffectBank`, `TrapSound`).
 
 ## Open questions
 

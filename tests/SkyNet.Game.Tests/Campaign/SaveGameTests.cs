@@ -195,13 +195,25 @@ public class SaveGameTests
         Assert.Equal("MISSION 1 MAP 214  2026-10-10 12:34", back.Label);
     }
 
+    /// <summary>The label counts the campaign's missions, not the table's numbers: Future Shock
+    /// skips 4 and 8, so MAP.070's mission is the 6th (issue #39).</summary>
+    [Theory]
+    [InlineData(5, 70, "MISSION 4 MAP 070")]
+    [InlineData(7, 70, "MISSION 6 MAP 070")]
+    [InlineData(9, 90, "MISSION 7 MAP 090")]
+    public void AFutureShockLabelCountsTheMissions(int mission, int map, string label)
+    {
+        var save = Sample() with { Game = GameKind.FutureShock, Mission = mission, Map = map };
+        Assert.StartsWith(label, save.Label, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void ThePilotRoundTripsInFormatFourAndAFormatThreeSaveStillLoads()
     {
         var save = Sample() with { Pilot = new Pilot("Testpilot", "Ace") };
         var back = SaveFile.Read(SaveFile.Write(save));
         Assert.Equal(new Pilot("Testpilot", "Ace"), back.Pilot);
-        Assert.Equal(9, SaveFile.Version);
+        Assert.Equal(11, SaveFile.Version);
 
         // No pilot (a game started without the dialog) round-trips as none.
         Assert.Null(SaveFile.Read(SaveFile.Write(Sample())).Pilot);
@@ -223,6 +235,51 @@ public class SaveGameTests
 
         // A format-8 file (the previous build's) reads with nothing seen.
         Assert.Empty(SaveFile.Read(SaveFile.Write(save, 8)).Seen);
+    }
+
+    [Fact]
+    public void TheTrailAndTheHoversPlaceOnItRoundTripInFormatEleven()
+    {
+        var sample = Sample();
+        var trail = new SavedTrail(12.5, 7, [.. Enumerable.Range(0, 150)], [.. Enumerable.Range(0, 150).Select(i => new Vector3(i, 2f, 3f))]);
+        var save = sample with { Robots = [sample.Robots[0] with { Node = 7, NodeStamp = 6 }, .. sample.Robots[1..]] };
+        save = save with { Trail = trail };
+        var back = SaveFile.Read(SaveFile.Write(save));
+        Assert.Equal(11, SaveFile.Version);
+        Assert.Equal((12.5, 7), (back.Trail!.Clock, back.Trail.Head));
+        Assert.Equal(trail.Stamps, back.Trail.Stamps);
+        Assert.Equal(trail.Points, back.Trail.Points);
+        Assert.Equal((7, 6), (back.Robots[0].Node, back.Robots[0].NodeStamp));
+
+        // A format-10 file (the previous build's): no trail, no hover on one.
+        var old = SaveFile.Read(SaveFile.Write(save, 10));
+        Assert.Null(old.Trail);
+        Assert.Equal((0, 0), (old.Robots[0].Node, old.Robots[0].NodeStamp));
+    }
+
+    [Fact]
+    public void TheRobotsPartsRoundTripInFormatTenAndAFormatNineSaveLoadsThemWhole()
+    {
+        var sample = Sample();
+        var hurt = sample.Robots[0] with { Parts = [200f, 0f, 75f], Gone = 0b010, Senses = [0, 9, 2] };
+        var save = sample with
+        {
+            Robots = [hurt, .. sample.Robots[1..]],
+            Maps = [sample.Maps[0] with { ShotOff = [new SavedShotOff(0x2000, 0b110)] }, .. sample.Maps[1..]],
+        };
+        Assert.Equal([new SavedShotOff(0x2000, 0b110)], SaveFile.Read(SaveFile.Write(save)).Maps[0].ShotOff);
+        Assert.Empty(SaveFile.Read(SaveFile.Write(save, 9)).Maps[0].ShotOff);
+        var back = SaveFile.Read(SaveFile.Write(save)).Robots[0];
+        Assert.Equal(11, SaveFile.Version);
+        Assert.Equal([200f, 0f, 75f], back.Parts!);
+        Assert.Equal(0b010UL, back.Gone);
+        Assert.Equal([0, 9, 2], back.Senses!);
+
+        // A format-9 file (the previous build's): no parts kept, every one whole.
+        var old = SaveFile.Read(SaveFile.Write(save, 9)).Robots[0];
+        Assert.Equal((null, 0UL), (old.Parts, old.Gone));
+        Assert.Null(old.Senses);
+        Assert.Equal(hurt.Hp, old.Hp);
     }
 
     [Fact]

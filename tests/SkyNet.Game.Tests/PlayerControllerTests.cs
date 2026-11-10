@@ -393,4 +393,21 @@ public class PlayerControllerTests
         Run(p, 30, Hold());
         Assert.InRange(p.Position.Y - start.Y, 55f, 61f);
     }
+
+    // #51: the drawn view takes the mouse at once (the last tick's motion whole, the motion not yet
+    // ticked on top); the next tick turns by that motion, so the view does not jump back.
+    [Fact]
+    public void ViewShowsTheMouseBeforeTheTick()
+    {
+        var p = Standing(Floor());
+        p.Step(new TickInput(0, 0, 0, 100f, 40f, 0, 0, 0), Dt, Keys);
+        var shown = p.View(0.25f, new Vector2(50f, 20f));
+        Assert.Equal(p.Yaw - 50f * PlayerController.MouseRadians, shown.Yaw, 5);
+        Assert.Equal(p.Pitch - 20f * PlayerController.MouseRadians, shown.Pitch, 5);
+
+        p.Step(new TickInput(0, 0, 0, 50f, 20f, 0, 0, 0), Dt, Keys);
+        var next = p.View(0f);
+        Assert.Equal(shown.Yaw, next.Yaw, 5);
+        Assert.Equal(shown.Pitch, next.Pitch, 5);
+    }
 }

@@ -17,9 +17,9 @@ public enum WeatherKind { Storm, Rain, Clouds, Haze, Dust, Wind }
 /// out (logged). <c>weather/thunder.wav</c>, <c>weather/rain.wav</c> and <c>weather/wind.wav</c>
 /// replace the sounds made in code. Rain brings an overcast deck (no star shows through it).
 /// <code>
-///   weather/storm.json  ─► StormTable   ─► Storm (flash, bolt, thunder)
-///   weather/rain.json   ─► RainTable    ─► Rain  (streaks, hiss)
-///   weather/clouds.json ─► CloudTable   ─► WeatherSky (the deck, the moon and stars hidden)
+///   weather/storm.json  ─► StormTable   ─► WeatherMap ─► the engine's lightning; Storm (thunder)
+///   weather/rain.json   ─► RainTable    ─► WeatherMap ─► the engine's rain; Rain (hiss)
+///   weather/clouds.json ─► CloudTable   ─► WeatherSky (the deck, stars hidden), WeatherMap (cover)
 ///   weather/haze.json   ─► HazeAirTable ─► WeatherSky (the depth cue's colour and reach, the horizon)
 ///   weather/dust.json   ─► DustTable    ─► Dust  (sheets, grit)
 ///   weather/wind.json   ─► WindTable    ─► Wind  (gusts: rain, dust, clouds, smoke; the howl)

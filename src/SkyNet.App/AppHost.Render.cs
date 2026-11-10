@@ -98,6 +98,23 @@ internal sealed partial class AppHost
         menu.IsOpen || menu.Toast != null || devConsole.IsOpen || devConsole.Slide > 0f || window.Touch != null || churn != null
         || automap.IsOpen;
 
+    // Late look (#51): the mouse motion the next tick takes, drawn now (the tick turns by it as
+    // before: demos and the network see no change); none while it would not reach the soldier.
+    Vector2 PendingLook()
+    {
+        if (Frozen() || playback != null || menu.IsOpen || devConsole.IsOpen || !session.Steering)
+        {
+            return default;
+        }
+
+        if (dm is { InputBlocked: true } or { Replay: not null })
+        {
+            return default;
+        }
+
+        return new Vector2(input.MouseX, input.MouseY);
+    }
+
     // The simulation's half of a frame: the bookkeeping, the views and a copy of everything the
     // frame draws, into s.
     void CaptureFrame(FrameSnapshot s, float alpha)
@@ -135,10 +152,10 @@ internal sealed partial class AppHost
         s.Stereo = StereoNow();
         s.StereoGrid = options.StereoGrid;
         ApplyStereoFrame(s.Stereo);
-        var (eye, viewYaw, viewPitch, view) = player.View(alpha);
+        var (eye, viewYaw, viewPitch, view) = player.View(alpha, PendingLook());
         if (vehicles.Riding && !player.Noclip)
         {
-            (eye, _, _, view) = vehicles.Controller.View(alpha);
+            (eye, _, _, view) = vehicles.Controller.View(alpha, PendingLook());
         }
         else if (dm is { DeathView: > 0f } dying)
         {
@@ -297,7 +314,7 @@ internal sealed partial class AppHost
         s.Cockpit = vehicles.Riding && !player.Noclip && weapons.RocketEye == null && !riding;
         if (s.Cockpit)
         {
-            (s.CockpitMode, s.CockpitWorld) = (vehicles.Controller.Mode, vehicles.Controller.CockpitWorld(alpha));
+            (s.CockpitMode, s.CockpitWorld) = (vehicles.Controller.Mode, vehicles.Controller.CockpitWorld(alpha, PendingLook()));
         }
 
         // The ride's view has neither the weapon nor the panel.
@@ -315,7 +332,8 @@ internal sealed partial class AppHost
                 s.DmItems.AddRange(dm.Items);
             }
 
-            var frameSeconds = menu.PausesGame || devConsole.IsOpen || options.Freeze ? 0f : (float)(frameTimes[^1] / 1000.0);
+            // A capture's fixed step, not the wall clock (a saved frame takes far longer than a step).
+            var frameSeconds = menu.PausesGame || devConsole.IsOpen || options.Freeze ? 0f : (float)(capture?.Step ?? frameTimes[^1] / 1000.0);
             s.ViewModel = new ViewModelState(inventory.Primary, OnFoot: !vehicles.Riding, RocketEye: weapons.RocketEye != null,
                 Hidden: !soldier.Alive || session.Phase != SessionPhase.Playing || dm is { OwnView: false });
             viewModel.Tick(frameSeconds, s.ViewModel);
@@ -325,6 +343,7 @@ internal sealed partial class AppHost
                 Health = soldier.Health,
                 MaxHealth = dm?.MaxHealth ?? HudRecords.SoldierHealth,
                 Armour = soldier.Armour,
+                Radiation = session.RadiationDose,
                 PrimaryRecord = inventory.Primary,
                 PrimaryAmmo = inventory.AmmoFor(inventory.Primary),
                 SecondaryRecord = inventory.Thrown,
@@ -334,6 +353,8 @@ internal sealed partial class AppHost
                 CrosshairHidden = weapons.RocketEye != null || session.Phase != SessionPhase.Playing || dm != null && !soldier.Alive,
                 Crosshair = settings.Crosshair,
                 Countdown = FuseLeft(weapons),
+                // DOS 0x126016: LOCK under an aimed gun's crosshair while a steered rocket has a pick.
+                Lock = weapons.Lock != null && weapons.Table.Weapons[inventory.Primary].Aimed ? session.Text("TargetLock", "LOCK") : null,
             });
             hud.Capture(s.HudText);
         }
@@ -384,8 +405,7 @@ internal sealed partial class AppHost
     void CaptureLights(FrameSnapshot s, bool covered)
     {
         s.Lights.Clear();
-        s.Storm = default;
-        s.Rain.Table = null;
+        s.Weather = new SkyFrame(Weather.None, 0f, s.Eye, null);
         s.Air.Clouds = null;
         s.Air.Haze = null;
         s.Air.Dust = null;
@@ -415,12 +435,11 @@ internal sealed partial class AppHost
         // A mod's weather: its own clock (held while the game is), presentation only.
         var sky = level.Outdoor ? StormSky.Outdoor : StormSky.Indoor;
         var (weather, dt) = (Weather.Current, StormSeconds());
-        s.Storm = effects.Storm.Tick(dt, weather.Storm, level, sky, s.Eye);
-        s.Sky = Storm.SkyOf(s.Sky, s.Storm);
+        effects.Storm.Tick(dt, weather.Storm, level, sky, s.Eye);
         var air = effects.Air.Tick(dt, weather, level, sky, s.Eye, session.World);
-        var rain = effects.Rain.Tick(dt, weather.Rain, level, sky, s.Eye, session.World, air.Wind);
+        var rain = effects.Rain.Tick(dt, weather.Rain, level, sky, s.Eye, session.World);
         effects.Air.Capture(s.Air);
-        effects.Rain.Capture(s.Rain);
+        s.Weather = new SkyFrame(level.Outdoor ? weather : Weather.None, dt, s.Eye, effects.Storm.TakeStrike());
         weatherSound.Rain(rain.Sound, rain.Hiss);
         weatherSound.Wind(air.Sound, air.Howl, air.Pitch);
     }
@@ -492,7 +511,7 @@ internal sealed partial class AppHost
         renderer.ReversedZ = s.ReversedZ;
         renderer.PointCloud = s.MachinePoints ? machineCloud : displayCloud;
         renderer.Style = s.Style;
-        effects.Sky.Apply(renderer, s.Storm, s.Air, s.Level, s.Level?.Particles ?? ParticleLevel.Off);
+        effects.Sky.Apply(renderer, s.Weather, s.Air, s.Level, s.Level?.Particles ?? ParticleLevel.Off);
         var (width, height) = (s.Width, s.Height);
         if (s.Level is { } map && s.Automap)
         {
@@ -560,9 +579,7 @@ internal sealed partial class AppHost
         {
             map.Wind = s.Air.Wind;
             map.Draw(s.LevelFrame, s.Eye, s.PixelAngle);
-            effects.Storm.Draw(renderer, s.Storm, s.Eye, map.Far);
             effects.Dust.Draw(renderer, s.Air, s.Eye, map.Particles);
-            effects.Rain.Draw(renderer, s.Rain, s.Eye, map.Particles);
             effects.Glow.Draw(renderer, s.Air, s.Lights, s.Eye, s.LightReach);
         }
 
@@ -596,7 +613,7 @@ internal sealed partial class AppHost
                 if (s.Views.Count != 1 || !viewModel.DrawModel(s.ViewModel, s.ViewModelPose, s.Views.Centre, map.Enhanced,
                         width, height, s.HudStyle, drawFlash ??= (at, size, eye) => weaponView.DrawFlash(at, size, eye)))
                 {
-                    viewModel.Draw(s.ViewModel, s.ViewModelPose, width, height, s.HudStyle);
+                    viewModel.Draw(s.ViewModel, s.ViewModelPose, width, height, s.HudStyle, map.Enhanced ? Look.Enhanced : Look.Original);
                     DrawScope(s, width, height);
                 }
             }
@@ -741,5 +758,14 @@ internal sealed partial class AppHost
         var at = new Vector2(width * unit / 2f, height * unit * 0.3f);
         TextBatcher.DrawShadowed(renderer, font, text, at, pixel, new Vector4(0.42f, 0.92f, 0.48f, 1f), new Vector4(0f, 0f, 0f, 0.8f),
             align: TextAlign.Centre);
+    }
+
+    // The display mode and the queue that goes with it (#51): a mode that never waits for the
+    // refresh renders flat out anyway, so it shows the newest frame (one in flight, older dropped)
+    // at no extra cost; VSync on keeps every frame for even pacing.
+    private void SetVSync(VSync mode)
+    {
+        renderer.VSync = mode;
+        renderer.Latency = mode == VSync.On ? Latency.Smooth : Latency.Low;
     }
 }

@@ -130,6 +130,12 @@ public static class ActRules
             sign = -sign;
         }
 
+        if (fam == MoverFamily.Jump)
+        {
+            // The jump adds the signed p6, parity or not (v1.01 0x13832f).
+            sign = limit < 0 ? -1f : 1f;
+        }
+
         float span = Math.Abs(limit);
         if (fam == MoverFamily.Slide5F)
         {

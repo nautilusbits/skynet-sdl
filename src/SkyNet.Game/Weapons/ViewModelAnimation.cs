@@ -13,12 +13,10 @@ public readonly record struct ViewModelState(int Record, bool OnFoot = true, boo
 }
 
 /// <summary>
-/// The view-model's frame clock, without a GPU (fly_camera.gd _process): frame 0 is the idle
-/// pose; a shot plays frames 1..n−1 once and returns to 0. The Godot port runs each gun at a
-/// hand-tuned rate; here the animation is timed to the weapon's cooldown, a frame lasting
-/// <c>cooldown / n</c> (at most <see cref="MaxFrameSeconds"/>), so held fire runs the cycle back
-/// to back and one shot's animation ends before the next can start. The pipe's swing is its fire
-/// animation. Changing the held gun drops the animation.
+/// The view-model's frame clock, without a GPU: frame 0 is the idle pose; a shot plays frames
+/// 0..n−1 once at the weapon's own rate (<see cref="AnimFps"/>, DOS's) and returns to 0, and the
+/// next shot starts it over, as DOS does. The pipe's swing is its fire animation. Changing the
+/// held gun drops the animation.
 /// <para>A throw lowers the gun for <see cref="ThrowSeconds"/> (<see cref="ThrowDip"/>, 0..1..0):
 /// the port's own cue — neither DOS nor the Godot port is known to animate the throw.</para>
 /// </summary>
@@ -61,16 +59,23 @@ public sealed class ViewModelAnimation
     public static float FrameSeconds(float cooldown, int frames) =>
         frames <= 1 ? 0f : MathF.Min(MathF.Max(cooldown, 1e-3f) / frames, MaxFrameSeconds);
 
-    /// <summary>The frame shown <paramref name="t"/> seconds after a shot: 1, 2, … n−1, then 0
-    /// (the animation over).</summary>
-    public static int FrameAt(float t, float frameSeconds, int frames)
+    // Weapon table 0x43714 +0x2c, records 0-13: a gun's frames a second (FUN_00125deb).
+    private static readonly float[] DosFps = [18, 16, 16, 16, 12, 8, 12, 13, 16, 16, 16, 16, 16, ScannerFps];
+
+    /// <summary>The fire animation's frames a second for <paramref name="record"/> (SKYNET.EXE v1.01).</summary>
+    public static float AnimFps(int record) => record >= 0 && record < DosFps.Length ? DosFps[record] : 1f / MaxFrameSeconds;
+
+    /// <summary>The frame shown <paramref name="t"/> seconds after a shot at <paramref name="fps"/>:
+    /// 0, 1, … n−1, then 0 (the animation over). DOS starts at the rest frame and a new shot starts
+    /// over, so held fire may never reach the last frames (the laser rifle: 0, 1, 2).</summary>
+    public static int FrameAt(float t, float fps, int frames)
     {
-        if (frames <= 1 || frameSeconds <= 0f || t < 0f)
+        if (frames <= 1 || fps <= 0f || t < 0f)
         {
             return 0;
         }
 
-        var k = 1 + (int)MathF.Floor(t / frameSeconds);
+        var k = (int)MathF.Floor(t * fps);
         return k < frames ? k : 0;
     }
 
@@ -134,8 +139,8 @@ public sealed class ViewModelAnimation
         }
 
         _t += dt;
-        Frame = FrameAt(_t, FrameSeconds(cooldown, frames), frames);
-        if (Frame == 0)
+        Frame = FrameAt(_t, AnimFps(record), frames);
+        if (_t * AnimFps(record) >= frames)
         {
             Firing = false;
         }
@@ -193,6 +198,29 @@ public static class ViewModelLayout
         var top = MathF.Round(foot + (Overlap + dip * ThrowDrop - size.Height) * s);
         return new RectangleF(left, top, right - left, bottom - top);
     }
+
+    /// <summary>Whether a frame ends on the right in a hard cut (issue #44): at least half its last
+    /// column opaque, as WEAPON06 and WEAPON11, whose art DOS's 320-pixel screen clipped.</summary>
+    public static bool HardCut(ReadOnlySpan<byte> pixels, int width, int height)
+    {
+        if (width <= 0 || height <= 0 || pixels.Length < width * height)
+        {
+            return false;
+        }
+
+        var opaque = 0;
+        for (var y = 0; y < height; y++)
+        {
+            opaque += pixels[y * width + width - 1] != 0 ? 1 : 0;
+        }
+
+        return opaque * 2 >= height;
+    }
+
+    /// <summary>Where a hard-cut gun's last column is stretched to (its right edge to the screen's,
+    /// its own rectangle kept: the aim stays); null when the art reaches the edge.</summary>
+    public static RectangleF? EdgeFill(RectangleF gun, int width) =>
+        gun.Right < width ? RectangleF.FromLTRB(gun.Right, gun.Top, width, gun.Bottom) : null;
 
     /// <summary>The Godot port's view X per on-foot record 0..13 (fly_camera.gd _weapons vx), for
     /// a record whose table row has none (the shipped table's agree with it).</summary>

@@ -138,6 +138,7 @@ public static class ModRobots
             VerticalAccel = Field("verticalAccel", b.VerticalAccel),
             AvoidRadius = Field("avoidRadius", b.AvoidRadius),
             ForwardSpeed = Field("forwardSpeed", b.ForwardSpeed),
+            ShapeHeight = Field("shapeHeight", b.ShapeHeight),
             Fire = Fire(f, b.Fire),
             ScriptVa = script.ScriptVa,
             Events = script.Events,

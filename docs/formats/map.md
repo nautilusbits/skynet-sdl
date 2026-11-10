@@ -192,8 +192,8 @@ marker, not a sprite. `marker_type = sprite_index & 0x7F`.
 Note the overlap: types 2..8 are also inside the 0..99 spawn-set range;
 the consumers decide which reading applies.
 
-Enemy markers: a non-zero sub+2 makes the enemy a dormant trap that
-explodes when the player comes within that distance (see the AIS notes).
+Enemy markers: a non-zero sub+2 makes the enemy dormant: unseen until the
+player comes within that distance, then it teleports in (see the AIS notes).
 On Future Shock maps, robot markers also carry an action at sub+4 and a
 state at sub+5; state 0x04 fires the action when the robot dies (v1.01
 0x12a439). SkyNET maps have none.
@@ -222,5 +222,5 @@ bit 2 when hit points run out. Handlers are documented under
   between 0x2348 and 0x253C.
 - Variant-1 sub+0x10 and link record +3.
 - Meaning of flag bits 0x04 / 0x10 / 0x20 (unused by shipped SkyNET maps).
-- Enemy marker sub+2: orientation (one note) or dormant-trap distance
+- Enemy marker sub+2: orientation (one note) or dormant (teleport-in) distance
   (another note). Possibly both, depending on the enemy state.

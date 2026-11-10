@@ -90,6 +90,59 @@ public class CampaignTests
         Assert.Contains("mission1r+brief", seen.Seen);
     }
 
+    /// <summary>A won mission carries the body into the next one, +½ health and +0.5 armour
+    /// (SKYNET.EXE v1.01 campaign loop FUN_0011c900 after FUN_00126605; issue #40).</summary>
+    [BehaviourDataFact]
+    public void ANewGameStartsInFullArmour()
+    {
+        // DOS's new game sets the armour register to 0x10000 (loop FUN_0011c900).
+        var session = new GameSession(BehaviourData.Data);
+        session.StartMission(session.Table.ByNumber(1)!.Value);
+
+        Assert.Equal(Soldier.MaxHealth, session.Soldier.Health);
+        Assert.Equal(1f, session.Soldier.Armour);
+    }
+
+    [BehaviourDataFact]
+    public void TheNextMissionKeepsHealthAndArmour()
+    {
+        var session = new GameSession(BehaviourData.Data);
+        session.StartMission(session.Table.ByNumber(1)!.Value);
+        (session.Soldier.Health, session.Soldier.Armour) = (300f, 0.25f);
+
+        Assert.True(session.CompleteMission());
+        Tick(session, GameSession.CompleteDelay + GameSession.CompleteHold + 0.5f);
+
+        Assert.Equal(2, session.Mission?.Number);
+        Assert.Equal(300f + Soldier.MaxHealth / 2f, session.Soldier.Health);
+        Assert.Equal(0.75f, session.Soldier.Armour, 4);
+    }
+
+    /// <summary>A mission won in a vehicle leaves the soldier as he climbed in: DOS gives the
+    /// bonus to the hull's registers and FUN_0011d41f puts the stashed body back.</summary>
+    [BehaviourDataFact]
+    public void AVehicleMissionCarriesNoBonus()
+    {
+        var session = new GameSession(BehaviourData.Data);
+        var rig = new SkyNet.Game.Vehicles.VehicleRig(session);
+        session.Listener = new RigListener(rig);
+        session.StartMission(session.Table.ByNumber(2)!.Value);
+        Assert.True(rig.Riding);
+        (session.Soldier.Health, session.Soldier.Armour) = (300f, 0.25f);
+
+        Assert.True(session.CompleteMission());
+        Tick(session, GameSession.CompleteDelay + GameSession.CompleteHold + 0.5f);
+
+        Assert.Equal(3, session.Mission?.Number);
+        Assert.Equal(300f, session.Soldier.Health);
+        Assert.Equal(0.25f, session.Soldier.Armour, 4);
+    }
+
+    private sealed class RigListener(SkyNet.Game.Vehicles.VehicleRig rig) : ISessionListener
+    {
+        public void MapEntered(GameSession session) => rig.MapEntered();
+    }
+
     [BehaviourDataFact]
     public void WithoutAutoRestartAFailedMissionWaitsForTheRestart()
     {
@@ -143,6 +196,32 @@ public class CampaignTests
         Assert.False(session.Robots!.All.Single(r => r.MarkerOffset == marker).Alive);
         session.RestartMission();
         Assert.True(session.Robots!.All.Single(r => r.MarkerOffset == marker).Alive);
+    }
+
+    /// <summary>Issue #58: DOS logs a segment's EnemyKill in the map's state (0x129f30: kind 3, its
+    /// record) and replays it on re-entry (0x12e7f0), so a shot-off gun stays off.</summary>
+    [BehaviourDataFact]
+    public void ShotOffSegmentsStayOffOnTheirMapUntilARestart()
+    {
+        var session = new GameSession(BehaviourData.Data);
+        session.StartMission(session.Table.ByNumber(1)!.Value);
+        var robot = session.Robots!.All.First(r => r.Name == "hvytrrt");
+        var marker = robot.MarkerOffset;
+        var gun = robot.Root.Children[0];
+        gun.TakeDamage(new SkyNet.Game.Weapons.Damage(1e6f, SkyNet.Game.Weapons.DamageKind.Direct, gun.Centre, true));
+        robot.Root.Children[1].TakeDamage(new SkyNet.Game.Weapons.Damage(10f, SkyNet.Game.Weapons.DamageKind.Direct, gun.Centre, true));
+        Assert.True(gun.Gone);
+
+        Assert.True(session.EnterMap(214, 0));
+        Assert.True(session.EnterMap(210, 0));
+        var back = session.Robots!.All.Single(r => r.MarkerOffset == marker);
+        Assert.Equal((true, false), (back.Root.Children[0].Gone, back.Root.Children[1].Gone));
+        Assert.Equal(back.Root.Children[1].Type!.HitPoints, back.Root.Children[1].Hp);   // a wound is not logged
+        Assert.True(back.Alive);
+        Assert.DoesNotContain((SkyNet.Game.Weapons.IDamageable)back.Root.Children[0], session.Weapons.Targets.All);
+
+        session.RestartMission();
+        Assert.False(session.Robots!.All.Single(r => r.MarkerOffset == marker).Root.Children[0].Gone);
     }
 
     [BehaviourDataFact]

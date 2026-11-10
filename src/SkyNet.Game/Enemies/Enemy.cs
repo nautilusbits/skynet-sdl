@@ -17,13 +17,6 @@ public sealed partial class Enemy : IDamageable
 {
     /// <summary>DOS perception cap (FUN_0013c4da: &lt; 0x7d1).</summary>
     public const float PerceptionRange = 2000f;
-    /// <summary>Default aim cone: 0x8c of 2048 (24.6°).</summary>
-    public const float AimCone = 140f / 2048f * MathF.Tau;
-    /// <summary>Calibration (the Godot port's): the DOS bolt speed field × 5 is units/s; shots per
-    /// second = rate / 128 (DOS rolls rand&amp;1023 &lt; rate × difficulty once per frame).</summary>
-    public const float BoltSpeedScale = 5f;
-    public const float FireRateDiv = 128f;
-    public const float AimSpread = 0.055f * 0.6f;
     /// <summary>Where the robots aim and look: this high above the soldier's feet.</summary>
     public const float AimHeight = 60f;
     public const float EyeHeight = 60f;
@@ -37,6 +30,8 @@ public sealed partial class Enemy : IDamageable
     private const float SurfaceUp = 6000f, SurfaceDown = 20000f;
     /// <summary>A hover keeps its origin this far under a ceiling: the eye (<see cref="EyeHeight"/>) and a margin below it.</summary>
     private const float CeilingGap = EyeHeight + 20f;
+    /// <summary>A segment looks from 0xF over its record (0x13c4da).</summary>
+    private const float SegmentEye = 15f;
     public const float KamikazeReach = 40f;
     public const float MachineMargin = 60f;
     public const float MachineHitDamage = 4f;
@@ -46,12 +41,15 @@ public sealed partial class Enemy : IDamageable
     /// <summary>A turret's rest pose: DOS aims it at (x, y − 200, z − 300), a world offset.</summary>
     public static readonly Vector3 TurretRest = new(0f, 200f, 300f);
     public const float HitMargin = 1.18f, HitMin = 45f;
+    private const int MotionKind = 27, BobRate = 28, BobStep = 29, BobKind = 1;
+    /// <summary>The frames a second the bob's per-frame step counts at (DOS's 35, as WaterBreath's).</summary>
+    private const float BobFps = 35f;
     /// <summary>The death blast (EnemyKill 0x129a28, value 75 for every robot) strikes this long after.</summary>
     public const float DeathBlastDelay = 0.375f;
     public const int DeathBlast = 75, DeathBlastPad = 40, DeathBlastMin = 37;
     public const int DeathEffectBank = 358;
-    /// <summary>A dormant trap's bang (0x26).</summary>
-    public const int TrapSound = AisData.TrapSound;
+    /// <summary>A dormant robot's teleport-in: its sound (0x26) and effect (TEXTURE.367).</summary>
+    public const int TrapSound = AisData.TrapSound, TrapEffectBank = AisData.TrapEffectBank;
 
     /// <summary>Ground speed of a walker, measured from its walk cycle's root motion (enemy_anim.gd
     /// WALK_SPEED): DOS moves state-7 actors by the model's planted foot, not the table speed.</summary>
@@ -67,7 +65,7 @@ public sealed partial class Enemy : IDamageable
         "msslpodl", "hvyplsm", "hvybrrl", "hmslpodl", "hmslpodr", "bosstrrt", "bossgun", "grabbase",
     };
 
-    public static readonly HashSet<string> FlyingNames = new(StringComparer.OrdinalIgnoreCase) { "globe", "drone", "scout", "hk_ftr", "hk_bmbr" };
+    public static readonly HashSet<string> FlyingNames = new(StringComparer.OrdinalIgnoreCase) { "globe", "drone", "scout", "hk_ftr", "hk_bmbr", "flencer" };
     public static readonly HashSet<string> PassiveNames = new(StringComparer.OrdinalIgnoreCase) { "boxtrck" };
 
     private readonly Robots _ctx;
@@ -80,6 +78,8 @@ public sealed partial class Enemy : IDamageable
     private bool _blocked;
     private Vector3 _wanderTarget;
     private float _wanderT;
+    /// <summary>The bob's phase (radians) and its drop under the place now and at the last tick's end.</summary>
+    private float _bobPhase, _bob, _previousBob;
     private float _stripT;
     private int _kamikaze = -1;
     private readonly float _rootRestYaw;
@@ -103,6 +103,12 @@ public sealed partial class Enemy : IDamageable
         Segments = [.. Root.Walk()];
         foreach (var p in Root.Walk())
         {
+            p.Robot = this;
+            if (p != Root)
+            {
+                p.SenseCount = ctx.NextSensePhase();   // 0x129a9d deals each segment's actor its own (0x12a57e)
+            }
+
             if (p.IsTurret)
             {
                 _turrets.Add(p);
@@ -156,7 +162,7 @@ public sealed partial class Enemy : IDamageable
     public float PreviousYaw { get; private set; }
 
     /// <summary>A tick's start: the pose now becomes the one the frames glide from.</summary>
-    public void KeepPose() => (PreviousPosition, PreviousYaw) = (Position, Yaw);
+    public void KeepPose() => (PreviousPosition, PreviousYaw, _previousBob) = (Position, Yaw, _bob);
 
     /// <summary>The root's world transform between the last two ticks (<see cref="Interpolation"/>).</summary>
     public Matrix4x4 DrawnRoot(float alpha)
@@ -168,7 +174,8 @@ public sealed partial class Enemy : IDamageable
 
         var at = Interpolation.Lerp(PreviousPosition, Position, alpha);
         var yaw = at == Position ? Yaw : Interpolation.LerpAngle(PreviousYaw, Yaw, alpha);
-        return Matrix4x4.CreateRotationY(yaw) * _rootTilt * Matrix4x4.CreateTranslation(at);
+        var bob = new Vector3(0f, float.Lerp(_previousBob, _bob, alpha), 0f);
+        return Matrix4x4.CreateRotationY(yaw) * _rootTilt * Matrix4x4.CreateTranslation(at + bob);
     }
 
     /// <summary>
@@ -187,7 +194,8 @@ public sealed partial class Enemy : IDamageable
             * Matrix4x4.CreateRotationZ(-(float)MapFile.AngleRadians(p[3]));
     }
 
-    public float Hp { get; private set; }
+    /// <summary>The root segment's hit points: only they kill the whole robot.</summary>
+    public float Hp { get => Root.Hp; private set => Root.Hp = value; }
     public float MaxHp { get; }
     public float MoveSpeed { get; }
     public float TurnRate { get; }
@@ -203,7 +211,8 @@ public sealed partial class Enemy : IDamageable
     public bool OnPath { get; set; }
     /// <summary>Hit points 0 on a path vehicle: ObjHit does nothing below 1 HP.</summary>
     public bool Indestructible { get; set; }
-    /// <summary>&gt; 0: a dormant trap that goes off when the soldier comes this close.</summary>
+    /// <summary>&gt; 0: dormant (marker sub+2): unseen and untouchable until the soldier comes this
+    /// close, then it teleports in (state 12, 0x14305e).</summary>
     public float DormantDistance { get; private set; }
     /// <summary>The start marker's file offset (-1 none).</summary>
     public int MarkerOffset { get; }
@@ -232,9 +241,10 @@ public sealed partial class Enemy : IDamageable
     /// <summary>Counted shots fired (tests and logs).</summary>
     public int ShotsFired { get; private set; }
 
-    public Vector3 Centre => Position + Vector3.Transform(BoundsCentre, Matrix4x4.CreateRotationY(Yaw));
+    public Vector3 Centre => Position + new Vector3(0f, _bob, 0f) + Vector3.Transform(BoundsCentre, Matrix4x4.CreateRotationY(Yaw));
     public float Radius { get; private set; } = HitMin;
-    public bool Alive => !Dead && !Hidden;
+    /// <summary>Drawn and struck: a dormant robot is neither (0x136dee, 0x13aa1e).</summary>
+    public bool Alive => !Dead && !Hidden && DormantDistance <= 0f;
     /// <summary>A blast pads its distance with the root model's radius (.3D +0x0C, 1/256 units;
     /// RAPTOR 57.5) and measures it to the origin (FUN_00124886).</summary>
     public float BlastPad => Root.Model is { Model.Header: { Length: >= ModelRadiusEnd } h }
@@ -270,7 +280,7 @@ public sealed partial class Enemy : IDamageable
     /// <summary>Places every segment in the world from the root's position and yaw.</summary>
     public void UpdateTransforms()
     {
-        Root.World = Matrix4x4.CreateRotationY(Yaw) * _rootTilt * Matrix4x4.CreateTranslation(Position);
+        Root.World = Matrix4x4.CreateRotationY(Yaw) * _rootTilt * Matrix4x4.CreateTranslation(Position + new Vector3(0f, _bob, 0f));
         foreach (var c in Root.Children)
         {
             Place(c);
@@ -332,7 +342,7 @@ public sealed partial class Enemy : IDamageable
 
     // ------------------------------------------------------------------ lifecycle
 
-    /// <summary>Marks the actor as a dormant trap (marker sub+2).</summary>
+    /// <summary>Makes the actor dormant (marker sub+2, 0x143000).</summary>
     public void MakeDormant(float distance) => DormantDistance = MathF.Max(distance, 1f);
 
     public void HideUntilSpawned() => Hidden = true;
@@ -367,7 +377,73 @@ public sealed partial class Enemy : IDamageable
     /// turrets' aim start again on load.</summary>
     internal RobotSnapshot Snapshot() =>
         new(MarkerOffset, SpawnSource, Position, Yaw, Hp, Dead, Hidden, DormantDistance, DeathAct, _initDone, _alert,
-            _senseCount, _perceived);
+            _senseCount, _perceived) { Parts = PartsHp(), Gone = PartsGone(), Senses = PartsSenses(), Node = _node, NodeStamp = _nodeStamp };
+
+    private const int SensePerceived = 4, SenseAlerted = 8, SenseSwapped = 16;
+
+    /// <summary>Each segment's counter, last answer, pending alert and swapped muzzle, a byte each
+    /// (the root's: its muzzle alone).</summary>
+    private byte[] PartsSenses() =>
+        [.. Segments.Select(p => (byte)((p.MuzzleSwapped ? SenseSwapped : 0) | (p == Root ? 0
+            : (p.SenseCount & 3) | (p.Perceived ? SensePerceived : 0) | (p.Alerted ? SenseAlerted : 0))))];
+
+    /// <summary>Every segment's hit points (root first, <see cref="Segments"/>' order); null while
+    /// every segment but the root is whole.</summary>
+    private float[]? PartsHp()
+    {
+        for (var i = 1; i < Segments.Length; i++)
+        {
+            if (Segments[i].Gone || Segments[i].Hp != Segments[i].FullHp)
+            {
+                return [.. Segments.Select(p => p.Hp)];
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>The shot-off segments, a bit each in <see cref="Segments"/>' order.</summary>
+    internal ulong GoneBits => PartsGone();
+
+    /// <summary>Marks the segments of <paramref name="bits"/> shot off, without a part or a bang.</summary>
+    internal void ShootOff(ulong bits)
+    {
+        for (var i = 1; i < Segments.Length && i < 64; i++)
+        {
+            Segments[i].Gone |= (bits & 1UL << i) != 0;
+        }
+    }
+
+    private ulong PartsGone()
+    {
+        var bits = 0UL;
+        for (var i = 0; i < Segments.Length && i < 64; i++)
+        {
+            bits |= Segments[i].Gone ? 1UL << i : 0UL;
+        }
+
+        return bits;
+    }
+
+    /// <summary>A snapshot's segments put back; none kept (an older save): every one whole.</summary>
+    private void RestoreParts(in RobotSnapshot s)
+    {
+        Root.MuzzleSwapped = s.Senses is { Length: > 0 } all && all.Length == Segments.Length && (all[0] & SenseSwapped) != 0;
+        for (var i = 1; i < Segments.Length; i++)
+        {
+            var p = Segments[i];
+            p.Hp = s.Parts is { } hp && hp.Length == Segments.Length ? hp[i] : p.FullHp;
+            p.Gone = i < 64 && (s.Gone & 1UL << i) != 0;
+            if (s.Senses is not { } senses || senses.Length != Segments.Length)
+            {
+                (p.Perceived, p.Alerted, p.MuzzleSwapped) = (false, false, false);
+                continue;
+            }
+
+            (p.SenseCount, p.Perceived, p.Alerted) = (senses[i] & 3, (senses[i] & SensePerceived) != 0, (senses[i] & SenseAlerted) != 0);
+            p.MuzzleSwapped = (senses[i] & SenseSwapped) != 0;
+        }
+    }
 
     /// <summary>Puts a <see cref="Snapshot"/> back; true when the robot was alive and is now dead.</summary>
     internal bool Restore(in RobotSnapshot s)
@@ -376,6 +452,7 @@ public sealed partial class Enemy : IDamageable
         Position = s.Position;
         Yaw = s.Yaw;
         Hp = s.Hp;
+        RestoreParts(s);
         Dead = s.Dead;
         Hidden = s.Hidden;
         DormantDistance = s.DormantDistance;
@@ -384,6 +461,7 @@ public sealed partial class Enemy : IDamageable
         _alert = s.Alert;
         _senseCount = s.SenseCount & 3;
         _perceived = s.Perceived;
+        (_node, _nodeStamp) = (s.Node is > 0 and < PlayerTrail.Length ? s.Node : 0, s.NodeStamp);
         UpdateTransforms();
         KeepPose();
         return died;
@@ -419,16 +497,24 @@ public sealed partial class Enemy : IDamageable
         Settle();
         if (DormantDistance > 0f)
         {
-            if (player is { } pp && Vector3.Distance(Position, pp) < DormantDistance)
+            // State 12 (0x14305e): within sub+2 it wakes as its own type; till then nothing runs.
+            if (player is { } pp && Vector3.Distance(Position, pp) <= DormantDistance)
             {
-                Detonate();
+                DormantDistance = 0f;
+                _ctx.Woke(this, pp);
             }
 
             return;
         }
 
+        Bob(dt);
         UpdateTransforms();
         var senses = Sense(player);
+        for (var i = 1; i < Segments.Length; i++)
+        {
+            // 0x129d71 counts every segment's actor down each tick (0x12a599).
+            Segments[i].SenseCount = Segments[i].SenseCount == 0 ? 3 : Segments[i].SenseCount - 1;
+        }
         Sees = senses.See;
         if (Improved)
         {
@@ -473,24 +559,34 @@ public sealed partial class Enemy : IDamageable
         UpdateTransforms();
         foreach (var seg in _turrets)
         {
-            Aim(seg, dt, senses.See, feet);
+            if (!seg.Gone)
+            {
+                Aim(seg, dt, seg == Root ? senses.See : Looks(seg, feet), feet);
+            }
         }
 
         foreach (var m in _machines)
         {
-            TickMachine(m, dt, senses, feet);
+            if (!m.Gone)
+            {
+                TickMachine(m, dt, senses, feet);
+            }
         }
 
         if (Root.Fire is { } fire && !Root.IsTurret)
         {
-            var gate = State == 7 && Brain is { HasScript: true } ? Brain.FiringPose : true;
+            // A walker or hover fires in a firing pose (frame flags 0x100: 0x13c899, 0x1377ad); a
+            // hover without a script keeps its table's flags (dw26: drone, scout 0x101).
+            var gate = State switch
+            {
+                7 when Brain is { HasScript: true } => Brain.FiringPose,
+                6 when Brain is { HasScript: true } => Brain.FiringPose,
+                6 => Type?.Params is { Length: > HoverFlags } p && (p[HoverFlags] & AisAnimBlock.FiringPose) != 0,
+                _ => true,
+            };
             if (gate)
             {
                 TryFire(Root, fire, dt, feet);
-            }
-            else
-            {
-                Root.Cooldown -= dt;
             }
         }
     }
@@ -558,24 +654,38 @@ public sealed partial class Enemy : IDamageable
         return _perceived = DosDistance(p - Position) <= PerceptionRange && LineOfSight(p);
     }
 
-    /// <summary>FUN_00137965: some head has the soldier within its engage range (dw8).</summary>
-    private bool InEngageRange(Vector3 feet)
+    /// <summary>FUN_00137965 on the root's own actor: the soldier within its engage range (dw8).</summary>
+    private bool InEngageRange(Vector3 feet) => InRange(Root, feet);
+
+    private static bool InRange(EnemyPart seg, Vector3 feet) =>
+        Vector3.Distance(feet + new Vector3(0f, AimHeight, 0f), seg.World.Translation) <= (seg.Type?.Range ?? 800);
+
+    /// <summary>A turret segment's own look (FUN_00137965 → 0x13c4da on its actor): within its engage
+    /// range, on its own counter, its alert counting as seen; else from its record, 15 over it, to
+    /// the soldier. Beyond the range its alert waits.</summary>
+    private bool Looks(EnemyPart seg, Vector3 feet)
     {
-        if (_turrets.Count == 0)
+        if (!InRange(seg, feet))
         {
-            return true;
+            return false;
         }
 
-        var aim = feet + new Vector3(0f, AimHeight, 0f);
-        foreach (var seg in _turrets)
+        if (seg.SenseCount != 0)
         {
-            if (Vector3.Distance(aim, seg.World.Translation) <= (seg.Type!.Range ?? 800))
-            {
-                return true;
-            }
+            return seg.Perceived;
         }
 
-        return false;
+        if (seg.Alerted)
+        {
+            seg.Alerted = false;
+            return seg.Perceived = true;
+        }
+
+        var from = seg.World.Translation + new Vector3(0f, SegmentEye, 0f);
+        var to = feet + new Vector3(0f, AimHeight, 0f) - from;
+        var d = to.Length();
+        var clear = d < 1f || !_ctx.World.Raycast(from, to / d, d - 1f, out _);
+        return seg.Perceived = DosDistance(feet - seg.World.Translation) <= PerceptionRange && clear;
     }
 
     /// <summary>FUN_0014d794: the largest axis plus a quarter of each of the other two.</summary>
@@ -624,6 +734,12 @@ public sealed partial class Enemy : IDamageable
         }
 
         var see = senses.See;
+        if (State == 6)
+        {
+            MoveHover(dt, see, player);
+            return;
+        }
+
         Vector3 target;
         if (see)
         {
@@ -717,15 +833,26 @@ public sealed partial class Enemy : IDamageable
             var need = HoverNeed();
             Position += new Vector3(0f, Math.Clamp(need, -FlyerSinkSpeed * dt, FlyerClimbSpeed * dt), 0f);
         }
-        else if (State == 6 && IsFlying && IsKamikaze && see)
-        {
-            var dy = player.Y + 40f - Position.Y;
-            Position += new Vector3(0f, Math.Clamp(dy, -speed * dt, speed * dt), 0f);
-        }
         else if (!IsFlying)
         {
             SnapToGround(false);
         }
+    }
+
+    /// <summary>A hover's motion kind (dw27) runs after its move (v1.01 0x137797: 0x13cf00, table
+    /// 0x5c8fc). Kind 1, the bob (0x13cf19): phase += dw28·dt (2048 a turn), then
+    /// y += sin(phase)·dw29 every frame, DOS Y down. Summed over <see cref="BobFps"/> frames a
+    /// second that sinks the drone 0..2·dw29·fps/ω under its place: 45 every 2 s.</summary>
+    private void Bob(float dt)
+    {
+        if (State != 6 || Type?.Params is not { Length: > BobStep } p || p[MotionKind] != BobKind || p[BobRate] == 0)
+        {
+            return;
+        }
+
+        var w = p[BobRate] / 2048f * MathF.Tau;
+        _bobPhase = (_bobPhase + w * dt) % MathF.Tau;
+        _bob = -p[BobStep] * BobFps * (1f - MathF.Cos(_bobPhase)) / w;
     }
 
     private Vector3 Wander(float dt)
@@ -808,6 +935,74 @@ public sealed partial class Enemy : IDamageable
 
         return Vector3.Normalize(flat);
     }
+
+    /// <summary>
+    /// CLASSIC hover (state 6, v1.01 0x137545). More than dw6 from the soldier's eye (0x137576) it
+    /// flies straight, in 3D, dw4 u/s, at its point on his trail (<see cref="PlayerTrail"/>), lifted
+    /// by its shape's height: none held, it takes the newest once it perceives him, else stands. Within
+    /// 15 of the point it takes the next (0x13b817) and flies at that one's own place. Blocked, it backs
+    /// 3 points (0x13b7d8; none: it lets go). Outdoors dw10 caps its height over the ground
+    /// (0x137683). It always turns to face him (dw7). No ground test.
+    /// Not ported: the slide along walls (0x13b35e) and its contact codes (0x1376f5); when no next
+    /// point exists DOS flies at a stale register (0x13b817 fails with eax/ebx/edx clobbered), the
+    /// port keeps its point.
+    /// </summary>
+    private void MoveHover(float dt, bool see, Vector3 player)
+    {
+        var eye = player + new Vector3(0f, DosEye, 0f);
+        var to = eye - Position;
+        Yaw = Wrap(Approach(Yaw, MathF.Atan2(-to.X, -to.Z), TurnRate * dt));
+        _blocked = false;
+        if (to.Length() > (Type?.Near ?? 0) && !StepHover(dt, see))
+        {
+            return;
+        }
+
+        _nodeStamp = _node != 0 ? _ctx.Trail.Stamp(_node) : 0;   // 0x137738: what its point holds now
+    }
+
+    /// <summary>One hover step; false when it holds no point and stands (no stamp refresh).</summary>
+    private bool StepHover(float dt, bool see)
+    {
+        var trail = _ctx.Trail;
+        if (_node == 0)
+        {
+            if (!see || !trail.Ready || trail.Head == 0)
+            {
+                return false;
+            }
+
+            (_node, _nodeStamp) = (trail.Head, trail.Stamp(trail.Head));
+        }
+
+        var target = trail.At(_node) + new Vector3(0f, Type?.ShapeHeight ?? 0, 0f);
+        if (Vector3.Distance(target, Position) <= TrailReach && trail.Ahead(_node, _nodeStamp, 1) is >= 0 and var next)
+        {
+            (_node, target) = (next, trail.At(next));
+        }
+
+        var way = target - Position;
+        var step = way.LengthSquared() > 1e-6f ? Vector3.Normalize(way) * (MoveSpeed * dt) : Vector3.Zero;
+        if (PathBlocked(step))
+        {
+            _blocked = true;
+            _node = _node == 0 ? trail.Head : Math.Max(trail.Back(_node, _nodeStamp, 3), 0);
+            _nodeStamp = trail.Stamp(_node);
+            return true;
+        }
+
+        Position += step;
+        if (_ctx.Outdoor && Type?.Params is { Length: > HoverCeiling } p && p[HoverCeiling] > 0)
+        {
+            Position = Position with { Y = MathF.Min(Position.Y, SurfaceAt(Position) + p[HoverCeiling]) };
+        }
+
+        return true;
+    }
+
+    private const float TrailReach = 15f;
+    private const int HoverCeiling = 10;
+    private int _node, _nodeStamp;
 
     /// <summary>A flying mine with the soldier in sight: it homes on him.</summary>
     private bool Homes(bool see) => see && State == 6 && IsFlying && IsKamikaze;
@@ -981,7 +1176,6 @@ public sealed partial class Enemy : IDamageable
         UpdateTransforms();
         if (!engaged)
         {
-            seg.Cooldown -= dt;
             return;
         }
 
@@ -1019,42 +1213,35 @@ public sealed partial class Enemy : IDamageable
         }
     }
 
-    /// <summary>Fires from <paramref name="part"/> when the soldier is in range, in the aim cone and
-    /// (a walker's gun, not a turret's) in sight, paced by the rate and the difficulty's fire multiplier.</summary>
+    /// <summary>DOS fire (0x137d10), once a DOS frame: the soldier within range of the segment's
+    /// origin and in its aim cosine (or within 140 and 45°, 0x137d3a), a walker or hover only while it
+    /// perceives him (its callers test 0x13c59e), then rand &amp; 0x3ff under rate × the difficulty's
+    /// fire factor (0x13c17a). The bolt leaves the muzzle (its X swapped each shot when the speed is
+    /// negative) r·17/16 out along the line to the target (0x13c055) at |speed| u/s, no spread.</summary>
     private void TryFire(EnemyPart part, AisFire fire, float dt, Vector3 player)
     {
-        part.Cooldown -= dt;
-        if (part.Cooldown > 0f || _ctx.HoldFire)
+        if (_ctx.HoldFire || !_ctx.FrameDue)
         {
             return;
         }
 
-        var aim = player + new Vector3(0f, AimHeight, 0f);
-        var muzzle = Vector3.Transform(new Vector3(fire.MuzzleX, -fire.MuzzleY, -fire.MuzzleZ), part.World);
-        var to = aim - muzzle;
+        // The target: the eye (0xd49b4); a walker's 18 under it (0x13c8ac: [0x8de9] / 2).
+        var aim = player + new Vector3(0f, State == 7 && part == Root ? DosEye - WalkerAimDrop : DosEye, 0f);
+        var to = aim - part.World.Translation;
         var dist = to.Length();
         if (dist > fire.Range || dist < 1f)
         {
             return;
         }
 
-        var cone = AimCone;
-        if (fire.AimGate > 4096)
-        {
-            cone = MathF.Acos(Math.Clamp(fire.AimGate / 65536f, -1f, 1f));
-        }
-        else if (fire.AimGate > 0)
-        {
-            cone = fire.AimGate / 2048f * MathF.Tau;
-        }
-
-        var fwd = part.Forward;
-        var cos = Vector3.Dot(fwd, to / dist);
-        // DOS turret fire (0x137d10 from FUN_00137965) asks range, aim cone and rate, never sight.
-        if (MathF.Acos(Math.Clamp(cos, -1f, 1f)) > cone || !part.IsTurret && !LineOfSight(player))
+        var cos = Vector3.Dot(part.Forward, to / dist);
+        if (!(dist < CloseRange && cos > CloseCos) && cos < fire.AimGate / Fixed1 || !part.IsTurret && !Sees)
         {
             return;
         }
+
+        var x = part.MuzzleSwapped != fire.Speed < 0 ? -fire.MuzzleX : fire.MuzzleX;
+        var muzzle = Vector3.Transform(new Vector3(x, -fire.MuzzleY, -fire.MuzzleZ), part.World);
 
         // IMPROVED: no shot into a wall, turrets included (the eye's line and the muzzle's).
         if (Improved && !ClearShot(part, muzzle, aim, player))
@@ -1062,13 +1249,21 @@ public sealed partial class Enemy : IDamageable
             return;
         }
 
-        var rate = MathF.Max(fire.Rate, 1f);
-        var rng = _ctx.Rng;
-        part.Cooldown = FireRateDiv / rate * (0.8f + 0.5f * rng.NextSingle()) / MathF.Max(_ctx.Difficulty.EnemyFire, 0.01f);
-        var dir = Vector3.Normalize(to / dist + new Vector3(rng.NextSingle() * 2f - 1f, rng.NextSingle() * 2f - 1f, rng.NextSingle() * 2f - 1f) * AimSpread);
+        var chance = (int)((fire.Rate * (long)(_ctx.Difficulty.EnemyFire * Fixed1) + 0x8000) >> 16);
+        if (_ctx.Rng.Next(RollRange) >= chance)
+        {
+            return;
+        }
+
+        part.MuzzleSwapped ^= fire.Speed < 0;
+        var dir = Vector3.Normalize(aim - muzzle);
+        var r = ((int)(part.BlastPad * 256f) + 0x80) >> 8;   // 0x13c2d1: the model radius, rounded
         ShotsFired++;
-        _ctx.Shoot(this, fire.Ammo, muzzle, dir, MathF.Max(MathF.Abs(fire.Speed), 200f) * BoltSpeedScale);
+        _ctx.Shoot(this, fire.Ammo, muzzle + dir * (r + (r >> 4)), dir, MathF.Abs(fire.Speed));
     }
+
+    private const float DosEye = 75f, WalkerAimDrop = 18f, CloseRange = 140f, CloseCos = 0xb504 / 65536f, Fixed1 = 65536f;
+    private const int RollRange = 1024, HoverFlags = 26;
 
     /// <summary>No fire parameters of its own and no armed segment: a flying mine.</summary>
     public bool IsKamikaze
@@ -1088,29 +1283,58 @@ public sealed partial class Enemy : IDamageable
 
     public void TakeDamage(in Damage damage)
     {
-        if (Indestructible || Dead || Hidden)
+        if (Indestructible || !Alive)
         {
             return;
         }
 
         Hp -= MathF.Max(damage.Points, 0f);
         _ctx.HitSound(Position + new Vector3(0f, 40f, 0f));
-        if (DormantDistance > 0f)
-        {
-            if (Hp <= 0f)
-            {
-                Detonate();
-            }
-
-            return;
-        }
 
         // FUN_00139819 (0x1398e6) sets the alert bit 0x8000 on the actor and its children: the next
         // perception test (Sense) counts as seen, and that answer holds until the test after it.
         _alert = true;
+        foreach (var c in Root.Children)
+        {
+            Alert(c);
+        }
         if (Hp <= 0f)
         {
             Die();
+        }
+    }
+
+    /// <summary>ObjHit (0x139819) on one segment's record: its own hit points alone, none below 1;
+    /// at zero EnemyKill takes it and its children off (<see cref="Robots"/>), the robot fights on.
+    /// The root's is <see cref="TakeDamage"/>: it alone kills the robot.</summary>
+    internal void Hit(EnemyPart part, in Damage damage)
+    {
+        if (part == Root)
+        {
+            TakeDamage(damage);
+            return;
+        }
+
+        if (Dead || Hidden || part.Gone || part.Hp <= 0f)
+        {
+            return;
+        }
+
+        part.Hp -= MathF.Max(damage.Points, 0f);
+        _ctx.HitSound(part.World.Translation);
+        Alert(part);
+        if (part.Hp <= 0f)
+        {
+            _ctx.PartDestroyed(this, part);
+        }
+    }
+
+    /// <summary>0x12a280: the alert bit on a segment's actor and on every segment under it.</summary>
+    private static void Alert(EnemyPart part)
+    {
+        foreach (var p in part.Walk())
+        {
+            p.Alerted = true;
         }
     }
 
@@ -1140,7 +1364,7 @@ public sealed partial class Enemy : IDamageable
         _ctx.Destroyed(this, false);
     }
 
-    /// <summary>A dormant trap or flying mine: ObjHit on itself (the bang 0x26), then the ordinary death blast.</summary>
+    /// <summary>A flying mine: ObjHit on itself (the bang 0x26), then the ordinary death blast.</summary>
     public void Detonate()
     {
         if (Dead)

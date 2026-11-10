@@ -10,7 +10,20 @@ namespace SkyNet.Game.Enemies;
 /// <summary>What a save keeps of one robot (<see cref="Robots.Snapshot"/>): which one it is (its
 /// marker or spawn sprite), where it stands, its hit points and its life.</summary>
 public readonly record struct RobotSnapshot(int MarkerOffset, int SpawnSource, Vector3 Position, float Yaw, float Hp,
-    bool Dead, bool Hidden, float DormantDistance, int DeathAct, bool InitDone, bool Alert, int SenseCount = 0, bool Perceived = false);
+    bool Dead, bool Hidden, float DormantDistance, int DeathAct, bool InitDone, bool Alert, int SenseCount = 0, bool Perceived = false)
+{
+    /// <summary>Every segment's hit points, root first in the segments' depth-first order (issue #58);
+    /// null: every segment whole (and so a save from before).</summary>
+    public float[]? Parts { get; init; }
+    /// <summary>The shot-off segments, a bit each in that order.</summary>
+    public ulong Gone { get; init; }
+    /// <summary>Every segment's own look in that order, the root's 0 (its are the fields above):
+    /// counter 0..3, bit 2 the last answer, bit 3 a pending alert. Null: none kept.</summary>
+    public byte[]? Senses { get; init; }
+    /// <summary>A hover's point on the soldier's trail (0 none) and the stamp it read there.</summary>
+    public int Node { get; init; }
+    public int NodeStamp { get; init; }
+}
 
 /// <summary>A robot's act on death: the marker's act byte, its file offset, and the robot.</summary>
 public readonly record struct RobotActEvent(int Act, int MarkerOffset, Enemy Robot);
@@ -73,6 +86,37 @@ public sealed class Robots
     public int PendingBlasts => _blasts.Count;
     /// <summary>No robot fires (verifier runs).</summary>
     public bool HoldFire { get; set; }
+
+    /// <summary>The robots' own clock (seconds run), counting DOS frames for the fire roll.</summary>
+    internal double Clock { get; set; }
+
+    /// <summary>A DOS frame began this tick: robots roll their fire once a frame (0x13c17a). DOS's
+    /// rate is the machine's (5..50, 0x124c38); the port counts <see cref="DosFps"/>.</summary>
+    internal bool FrameDue { get; private set; }
+
+    public const double DosFps = 35.0;
+
+    /// <summary>Where the soldier went: the hovers follow it out of sight (0x137545).</summary>
+    internal PlayerTrail Trail { get; } = new();
+
+    /// <summary>The map is outdoors (MAP +0x2344 = 1, [0x24c96]): a hover keeps under its ceiling.</summary>
+    internal bool Outdoor => _map?.IsOutdoor == true;
+
+    /// <summary>The trail and the clock for a save; null before the soldier was seen.</summary>
+    public SavedTrail? SaveTrail() => Trail.Ready ? Trail.Save(Clock) : null;
+
+    /// <summary>A saved trail and clock put back (none: filled again where he stands).</summary>
+    public void RestoreTrail(SavedTrail? saved)
+    {
+        Trail.Clear();
+        if (saved == null)
+        {
+            return;
+        }
+
+        Clock = saved.Clock;
+        Trail.Restore(saved);
+    }
     /// <summary>The level's path vehicles (<c>LevelBehaviour.Paths</c>): a robot on a path stands
     /// where its machine has driven. Null: the path robots stay at their markers.</summary>
     public PathVehicles? Paths { get; set; }
@@ -105,6 +149,11 @@ public sealed class Robots
     public event Action<RobotActEvent>? DeathAct;
     /// <summary>A robot was destroyed (after its act).</summary>
     public event Action<Enemy>? Died;
+    /// <summary>A segment was shot off a robot that lives on.</summary>
+    public event Action<Enemy>? PartLost;
+
+    /// <summary>The id a map keeps a robot's fate under: its marker, else its spawn sprite.</summary>
+    public static int Id(Enemy r) => r.MarkerOffset >= 0 ? r.MarkerOffset : r.SpawnSource;
 
     /// <summary>A brain's generator: the shared one (one stream for the whole simulation).</summary>
     internal SimRandom NewRng() => Rng;
@@ -113,6 +162,7 @@ public sealed class Robots
     public void Populate(MapFile map)
     {
         _map = map;
+        Trail.Clear();
         var spawns = 0;
         foreach (var e in map.Entities)
         {
@@ -163,8 +213,44 @@ public sealed class Robots
         position = StandOnFloor(type, position);
         var robot = new Enemy(this, type, position, yaw, markerOffset) { SpawnSource = spawnSource };
         _all.Add(robot);
-        Weapons?.Targets.Add(robot);
+        AddTargets(robot);
         return robot;
+    }
+
+    /// <summary>Each segment a target of its own (issue #58: each is a map record, 0x129a9d).</summary>
+    private void AddTargets(Enemy robot)
+    {
+        foreach (var p in robot.Segments)
+        {
+            if (!p.Gone)
+            {
+                Weapons?.Targets.Add(p);
+            }
+        }
+    }
+
+    /// <summary>A restored robot's targets: its whole segments while it lives, none once dead.</summary>
+    private void SyncTargets(Enemy robot)
+    {
+        foreach (var p in robot.Segments)
+        {
+            if (robot.Dead || p.Gone)
+            {
+                Weapons?.Targets.Remove(p);
+            }
+            else
+            {
+                Weapons?.Targets.Add(p);
+            }
+        }
+    }
+
+    private void RemoveTargets(Enemy robot)
+    {
+        foreach (var p in robot.Segments)
+        {
+            Weapons?.Targets.Remove(p);
+        }
     }
 
     /// <summary>
@@ -265,10 +351,26 @@ public sealed class Robots
         var set = offsets.ToHashSet();
         foreach (var r in _all)
         {
-            if (set.Contains(r.MarkerOffset >= 0 ? r.MarkerOffset : r.SpawnSource) && r.Retire())
+            if (set.Contains(Id(r)) && r.Retire())
             {
-                Weapons?.Targets.Remove(r);
+                RemoveTargets(r);
             }
+        }
+    }
+
+    /// <summary>Segments shot off on an earlier visit stay off, quietly: DOS replays the map's logged
+    /// EnemyKill on that segment's record (0x129f30 logs kind 3; 0x12e7f0 replays it).</summary>
+    public void ShootOff(IReadOnlyDictionary<int, ulong> parts)
+    {
+        foreach (var r in _all)
+        {
+            if (r.Dead || !parts.TryGetValue(Id(r), out var bits))
+            {
+                continue;
+            }
+
+            r.ShootOff(bits);
+            SyncTargets(r);
         }
     }
 
@@ -277,7 +379,7 @@ public sealed class Robots
     {
         foreach (var r in _all)
         {
-            Weapons?.Targets.Remove(r);
+            RemoveTargets(r);
         }
 
         _blasts.Clear();
@@ -311,9 +413,10 @@ public sealed class Robots
         for (var i = 0; i < robots.Count; i++)
         {
             var r = _all[i];
-            if (r.Restore(robots[i]))
+            var died = r.Restore(robots[i]);
+            SyncTargets(r);
+            if (died)
             {
-                Weapons?.Targets.Remove(r);
                 if (r.OnPath)
                 {
                     Paths?.Kill(r.MarkerOffset);
@@ -369,6 +472,14 @@ public sealed class Robots
             _centre = seen;
         }
 
+        var frames = Math.Floor(Clock * DosFps);
+        Clock += dt;
+        FrameDue = Math.Floor(Clock * DosFps) > frames;
+        if (player is { } feet)
+        {
+            Trail.Record(feet, (int)(Clock * PlayerTrail.StampRate));   // the soldier moves before the robots (0x12251b)
+        }
+
         var all = !_spawnRunDone || _centre == null;
         _spawnRunDone = true;
         var cx = 0;
@@ -394,9 +505,9 @@ public sealed class Robots
                 r.UpdateTransforms();
             }
 
-            if (!r.Alive || r.OnPath)
+            if (r.Dead || r.Hidden || r.OnPath)
             {
-                continue;
+                continue;                             // a dormant robot ticks: state 12 watches for the soldier
             }
 
             if (!all && Ai == RobotAi.Improved)
@@ -454,17 +565,21 @@ public sealed class Robots
             }
         }
 
+        // Each segment by its own origin and model radius (FUN_00124886 walks the records).
         foreach (var r in _all.ToArray())
         {
-            if (!r.Alive)
+            foreach (var p in r.Segments)
             {
-                continue;
-            }
+                if (!p.Alive)
+                {
+                    continue;
+                }
 
-            var ed = Enemy.DeathBlastDamage(Vector3.Distance(at, r.Position), r.BlastPad);
-            if (ed > 0 && Clear(at, r.Position))
-            {
-                r.TakeDamage(new Damage(ed, DamageKind.Blast, at, false));
+                var ed = Enemy.DeathBlastDamage(Vector3.Distance(at, p.BlastOrigin), p.BlastPad);
+                if (ed > 0 && Clear(at, p.BlastOrigin))
+                {
+                    p.TakeDamage(new Damage(ed, DamageKind.Blast, at, false));
+                }
             }
         }
     }
@@ -554,6 +669,20 @@ public sealed class Robots
         return kind == 1;
     }
 
+    /// <summary>State 12's wake (0x14305e): TEXTURE.367 half the model's radius toward the soldier,
+    /// sized 20 per two radius units (0x143034), sound 0x26 there and at the robot.</summary>
+    internal void Woke(Enemy robot, Vector3 player)
+    {
+        var half = (((int)(robot.BlastPad * 256f) + 0x80) >> 8) >> 1;   // 0x13c2d1: radius, rounded
+        var to = player - robot.Position;
+        var at = robot.Position + (to.LengthSquared() > 0f ? Vector3.Normalize(to) * half : Vector3.Zero);
+        Weapons?.Warp(at, Enemy.TrapEffectBank, robot.BodySize * 0.55f, half * WarpSize / WeaponSystem.DosScaleUnit);
+        Sound(Enemy.TrapSound, at);
+        Sound(Enemy.TrapSound, robot.Position);
+    }
+
+    private const float WarpSize = 20f;
+
     internal void Destroyed(Enemy robot, bool trap)
     {
         var centre = robot.Position + new Vector3(0f, robot.BodyHeight * 0.5f, 0f);
@@ -568,7 +697,7 @@ public sealed class Robots
         Wreckage.Throw(robot, this);
         foreach (var seg in robot.Root.Walk())
         {
-            if (!ExplodesOnDeath(seg.Type))
+            if (seg.Gone || !ExplodesOnDeath(seg.Type))
             {
                 continue;
             }
@@ -581,11 +710,7 @@ public sealed class Robots
             }
             else
             {
-                var at = seg.World.Translation;
-                Sounds?.Play3D(SoundIds.Explosion1 + Cosmetic.Next(4), at, -4f);
-                var size = seg.Model is { } m ? (m.Bounds.Max - m.Bounds.Min).Length() : 60f;
-                Weapons?.Explosion(at, Enemy.DeathEffectBank, size * 0.55f);
-                _blasts.Add((Enemy.DeathBlastDelay, at));
+                Explode(seg);
             }
         }
 
@@ -594,7 +719,43 @@ public sealed class Robots
             Paths?.Kill(robot.MarkerOffset);
         }
 
-        Weapons?.Targets.Remove(robot);
+        RemoveTargets(robot);
         Died?.Invoke(robot);
+    }
+
+    /// <summary>A segment's own explosion (0x124793): the effect, one of four sounds, the blast 75.</summary>
+    private void Explode(EnemyPart seg)
+    {
+        var at = seg.World.Translation;
+        Sounds?.Play3D(SoundIds.Explosion1 + Cosmetic.Next(4), at, -4f);
+        var size = seg.Model is { } m ? (m.Bounds.Max - m.Bounds.Min).Length() : 60f;
+        Weapons?.Explosion(at, Enemy.DeathEffectBank, size * 0.55f);
+        _blasts.Add((Enemy.DeathBlastDelay, at));
+    }
+
+    /// <summary>EnemyKill (0x129f30) on one segment, not the root: its parts thrown and its
+    /// children's, each exploding by its own spec; it leaves its parent's list (0x12a00b) and is not
+    /// drawn, run or struck again. No act, no kill: the robot fights on.</summary>
+    internal void PartDestroyed(Enemy robot, EnemyPart part)
+    {
+        robot.UpdateTransforms();
+        Wreckage.Throw(part, robot, this);
+        foreach (var seg in part.Walk())
+        {
+            if (seg.Gone)
+            {
+                continue;
+            }
+
+            if (ExplodesOnDeath(seg.Type))
+            {
+                Explode(seg);
+            }
+
+            seg.Gone = true;
+            Weapons?.Targets.Remove(seg);
+        }
+
+        PartLost?.Invoke(robot);
     }
 }

@@ -26,6 +26,7 @@ public class StormTests
     [Theory]
     [InlineData("""{ "rain": true }""")]
     [InlineData("""{ "interval": 0.2 }""")]
+    [InlineData("""{ "interval": 3601 }""")]
     [InlineData("""{ "brightness": -1 }""")]
     [InlineData("""{ "thunderVolume": 2 }""")]
     [InlineData("""{ "distance": [500] }""")]
@@ -35,147 +36,123 @@ public class StormTests
     public void ABadFileIsAnError(string json) =>
         Assert.ThrowsAny<Exception>(() => Parse(json));
 
+    /// <summary>An engine strike <paramref name="metres"/> away along +X from the origin.</summary>
+    private static Strike StrikeAt(float metres, int seed = 3) =>
+        new(0f, new Vector3(metres * Storm.UnitsPerMetre, 0f, 0f), metres * Storm.UnitsPerMetre, 1f, seed);
+
     [Fact]
-    public void NoTableOrIndoorsMeansNoStrikeEvenWhenAsked()
+    public void NoTableOrIndoorsMeansNoThunder()
     {
-        var storm = new Storm(1);
-        storm.Strike();
-        Assert.Null(storm.Tick(Dt, null, Scene, StormSky.Outdoor, Vector3.Zero).Strike);
-        storm.Strike();
-        Assert.Null(storm.Tick(Dt, StormTable.Defaults, Scene, StormSky.Indoor, Vector3.Zero).Strike);
-        for (var i = 0; i < 60 * 120; i++)
+        var storm = new Storm();
+        var heard = 0;
+        storm.Thunder = (_, _, _) => heard++;
+        storm.Post(StrikeAt(1000f));
+        storm.Tick(Dt, null, Scene, StormSky.Outdoor, Vector3.Zero);
+        storm.Post(StrikeAt(1000f));
+        for (var i = 0; i < 60 * 10; i++)
         {
-            Assert.Null(storm.Tick(Dt, StormTable.Defaults, Scene, StormSky.Indoor, Vector3.Zero).Strike);
+            storm.Tick(Dt, StormTable.Defaults, Scene, StormSky.Indoor, Vector3.Zero);
         }
 
         Assert.Equal(0, storm.ThunderPending);
+        Assert.Equal(0, heard);
     }
 
     [Fact]
-    public void WaitsAverageTheTablesInterval()
+    public void AStrikeAskedForIsTakenOnce()
     {
-        var storm = new Storm(7);
-        const int Count = 20000;
-        var sum = 0.0;
-        for (var i = 0; i < Count; i++)
-        {
-            var w = storm.NextWait(10f);
-            Assert.True(w >= Storm.MinGap);
-            sum += w;
-        }
-
-        Assert.InRange(sum / Count, 9.6, 10.5);
-    }
-
-    [Fact]
-    public void StrikesComeAtTheTablesRate()
-    {
-        var storm = new Storm(3);
-        var table = StormTable.Defaults with { Interval = 5f };
-        StormStrike? last = null;
-        var strikes = 0;
-        const float Seconds = 3000f;
-        for (var t = 0f; t < Seconds; t += Dt)
-        {
-            var f = storm.Tick(Dt, table, Scene, StormSky.Outdoor, Vector3.Zero);
-            if (f.Strike != null && !ReferenceEquals(f.Strike, last))
-            {
-                strikes++;
-            }
-
-            last = f.Strike;
-        }
-
-        Assert.InRange(strikes, 0.85f * Seconds / 5f, 1.15f * Seconds / 5f);
-    }
-
-    [Fact]
-    public void AStrikeFlickersAndEnds()
-    {
-        var storm = new Storm(11);
-        var table = StormTable.Defaults with { Interval = 1000f, Brightness = 1f };
-        storm.Strike();
-        var first = storm.Tick(0f, table, Scene, StormSky.Outdoor, Vector3.Zero);
-        var strike = first.Strike!;
-        Assert.InRange(strike.Pulses.Length, 2, 3);
-        Assert.Equal(Storm.DistanceScale(strike.Metres), first.Flash, 1e-4f);
-        Assert.InRange(strike.Metres, table.NearMetres, table.FarMetres);
-
-        // Dark between the pulses, bright again at the second.
-        var second = strike.Pulses[1].At;
-        Assert.True(Storm.FlashAt(strike, second - 0.001f) < Storm.FlashAt(strike, second));
-        Assert.True(Storm.BoltAlphaAt(strike, 0f) > 0.9f);
-
-        var age = 0f;
-        while (storm.Tick(Dt, table, Scene, StormSky.Outdoor, Vector3.Zero).Strike != null)
-        {
-            age += Dt;
-            Assert.True(age < 1.5f, "a strike lasts under 1.5 s");
-        }
+        var storm = new Storm();
+        Assert.Null(storm.TakeStrike());
+        storm.Strike(Vector3.UnitX);
+        Assert.Equal(Vector3.UnitX, storm.TakeStrike());
+        Assert.Null(storm.TakeStrike());
     }
 
     [Fact]
     public void ThunderComesAfterTheSoundsTravelTime()
     {
-        var storm = new Storm(5);
-        var table = StormTable.Defaults with { Interval = 1000f, NearMetres = 1715f, FarMetres = 1715f, ThunderVolume = 0.5f };
-        var heard = new List<(Sound Sound, float Gain, float At)>();
+        var storm = new Storm();
+        var table = StormTable.Defaults with { ThunderVolume = 0.5f };
+        var heard = new List<(Sound Sound, Vector3 At, float Gain, float Time)>();
         var time = 0f;
-        storm.Thunder = (sound, _, gain) => heard.Add((sound, gain, time));
-        storm.Strike();
+        storm.Thunder = (sound, at, gain) => heard.Add((sound, at, gain, time));
+
+        // 1715 m at 343 m/s: 5 s.
+        storm.Post(StrikeAt(1715f));
         storm.Tick(0f, table, Scene, StormSky.Outdoor, Vector3.Zero);
         Assert.Equal(1, storm.ThunderPending);
-
-        // 1715 m at 343 m/s: 5 s; in world units 1715 × 40 / (343 × 40).
-        Assert.Equal(5f, Storm.ThunderDelay(1715f * Storm.UnitsPerMetre), 1e-4f);
         while (time < 6f)
         {
             time += Dt;
             storm.Tick(Dt, table, Scene, StormSky.Outdoor, Vector3.Zero);
         }
 
-        var (thunder, gain, at) = Assert.Single(heard);
-        Assert.InRange(at, 5f - Dt, 5f + 2 * Dt);
+        var (thunder, at, gain, when) = Assert.Single(heard);
+        Assert.InRange(when, 5f - Dt, 5f + 2 * Dt);
         Assert.Equal(Storm.ThunderGain(0.5f, 1715f), gain, 1e-4f);
         Assert.Equal(Thunder.Rate, thunder.SampleRate);
+        // From the bolt's side (+X), high over the ears.
+        Assert.True(at.X > 0f && at.Y > at.X);
     }
 
     [Fact]
-    public void ANewSceneDropsTheStrikeAndItsThunder()
+    public void ANewSceneDropsTheThunder()
     {
-        var storm = new Storm(9);
-        var table = StormTable.Defaults with { Interval = 1000f };
-        storm.Strike();
-        Assert.NotNull(storm.Tick(0f, table, Scene, StormSky.Outdoor, Vector3.Zero).Strike);
-        Assert.Null(storm.Tick(Dt, table, new object(), StormSky.Outdoor, Vector3.Zero).Strike);
+        var storm = new Storm();
+        storm.Post(StrikeAt(1000f));
+        storm.Tick(0f, StormTable.Defaults, Scene, StormSky.Outdoor, Vector3.Zero);
+        Assert.Equal(1, storm.ThunderPending);
+        storm.Tick(Dt, StormTable.Defaults, new object(), StormSky.Outdoor, Vector3.Zero);
         Assert.Equal(0, storm.ThunderPending);
     }
 
     [Fact]
-    public void TheFlashLightsFromTheBoltsWay()
+    public void AStrikePostedForTheOldSceneIsNotHeardOnTheNew()
     {
-        var lighting = LookLighting.For(LightPreset.Night, null, 4000f, 1f);
-        Assert.Same(lighting, Storm.Lit(lighting, default));
-
-        var strike = new StormStrike(1, 1000f, MathF.PI / 2f, [(0f, 1f)], []);
-        var lit = Storm.Lit(lighting, new StormFrame(strike, 0f, 1f, 1f));
-        // The bolt lies along +X: its light goes towards -X and down.
-        Assert.True(lit.SunDirection.X < -0.5f && lit.SunDirection.Y < 0f);
-        Assert.True(lit.Sky.X > lighting.Sky.X && lit.Sun.X > lighting.Sun.X);
-        Assert.Equal(0f, lit.Stars!.Brightness);
-        Assert.True(Storm.SkyOf(new Vector4(0.1f, 0.1f, 0.1f, 1f), new StormFrame(strike, 0f, 1f, 1f)).X > 0.1f);
+        var storm = new Storm();
+        storm.Tick(0f, StormTable.Defaults, Scene, StormSky.Outdoor, Vector3.Zero);
+        storm.Post(StrikeAt(1000f));
+        storm.Tick(Dt, StormTable.Defaults, new object(), StormSky.Outdoor, Vector3.Zero);
+        Assert.Equal(0, storm.ThunderPending);
     }
 
     [Fact]
-    public void TheBoltRunsFromTheCloudToTheGroundWithBranches()
+    public void TheEngineStrikesAtTheTablesRate()
     {
-        var bolt = Storm.Bolt.Make(new Random(4));
-        var main = bolt[0].Points;
-        Assert.Equal((1 << Storm.Bolt.MainDepth) + 1, main.Length);
-        Assert.Equal(1f, main[0].Y);
-        Assert.Equal(0f, main[^1].Y);
-        Assert.InRange(bolt.Length, 4, 7);
-        Assert.All(bolt.Skip(1), b => Assert.True(b.Brightness < 1f && b.Points[^1].Y < b.Points[0].Y));
+        var table = StormTable.Defaults with { Interval = 5f };
+        var system = new WeatherSystem(WeatherMap.Of(SkyNet.Game.Enhanced.Weather.None with { Storm = table }, 0f), Vector3.UnitY, 3);
+        var strikes = 0;
+        system.Struck += _ => strikes++;
+        const float Seconds = 3000f;
+        for (var t = 0f; t < Seconds; t += 0.1f)
+        {
+            system.Update(0.1f, Vector3.Zero);
+        }
+
+        Assert.InRange(strikes, 0.85f * Seconds / 5f, 1.15f * Seconds / 5f);
+    }
+
+    [Fact]
+    public void TheEngineWorksInWorldUnitsAtTheTablesBrightness()
+    {
+        var night = LookLighting.For(LightPreset.Night, null, 4000f, 1f);
+        var table = StormTable.Defaults with { Interval = 1f, Brightness = 2f };
+        var mapped = WeatherMap.Of(SkyNet.Game.Enhanced.Weather.None with { Storm = table }, 0f);
+        Assert.Equal(2f, mapped.LightningIntensity);
+
+        var system = new WeatherSystem(mapped, Vector3.UnitY, 1) { MetresPerUnit = 1f / Storm.UnitsPerMetre };
+        system.Strike(new Vector3(800f * Storm.UnitsPerMetre, 0f, 0f), table.Brightness);
+        var frame = system.Apply(night).Weather!;
+        Assert.Equal(1f / Storm.UnitsPerMetre, frame.Scale);
+        Assert.True(frame.Reach > 10f * Storm.UnitsPerMetre);
+        Assert.True(frame.Flash.Y > 0f && frame.Bolt!.Brightness > 1f);
+
+        // The effects table's lightning row on the bolt; the stars washed out by a full flash.
+        var lit = night with { Weather = frame };
+        Assert.Equal(frame.Bolt.Width * (float)EffectTable.Current[EffectTable.Lightning].Size, WeatherSky.Bolted(lit).Weather!.Bolt!.Width);
+        Assert.Same(night, WeatherSky.Bolted(night));
+        Assert.Same(night, WeatherSky.Washed(night, 0f));
+        Assert.Equal(0f, WeatherSky.Washed(night, 1f).Stars!.Brightness);
     }
 
     [Fact]

@@ -71,9 +71,8 @@ public class WeatherTests
     [Fact]
     public void RainTurnedOffIsNone() => Assert.False(Parse(("weather/rain.json", """{ "on": false }""")).Any);
 
-    /// <summary>The streaks of a rain ticked a while over <paramref name="world"/>.</summary>
-    private static (Particle[] Drops, int Count, RainFrame Frame) Rained(Rain rain, RainTable table, CollisionWorld? world,
-        StormSky sky = StormSky.Outdoor, ParticleLevel level = ParticleLevel.High)
+    /// <summary>A rain's frame after ticking a while over <paramref name="world"/>.</summary>
+    private static RainFrame Rained(Rain rain, RainTable table, CollisionWorld? world, StormSky sky = StormSky.Outdoor)
     {
         RainFrame frame = default;
         for (var i = 0; i < 120; i++)
@@ -81,28 +80,15 @@ public class WeatherTests
             frame = rain.Tick(Dt, table, Scene, sky, Eye, world);
         }
 
-        var view = new RainView();
-        rain.Capture(view);
-        var drops = Array.Empty<Particle>();
-        var n = Rain.Drops(view, Eye, level, new Vector3(0.1f), ref drops);
-        return (drops, n, frame);
+        return frame;
     }
 
     [Fact]
-    public void ItRainsOutdoorsAndNotIndoorsOrWithParticlesOff()
+    public void ItHissesOutdoorsAndNotIndoors()
     {
         var table = RainTable.Defaults with { Intensity = 1f };
-        var open = Rained(new Rain(), table, null);
-        Assert.InRange(open.Count, Rain.DropCount[(int)ParticleLevel.High] / 2, Rain.DropCount[(int)ParticleLevel.High]);
-        Assert.True(open.Frame.Hiss > 0f);
-        Assert.All(open.Drops.Take(open.Count), d => Assert.True(d.Shape == ParticleShape.Streak && d.Axis.Y < 0f));
-
-        var indoor = Rained(new Rain(), table, null, StormSky.Indoor);
-        Assert.Equal(0, indoor.Count);
-        Assert.Equal(0f, indoor.Frame.Hiss);
-
-        Assert.Equal(0, Rained(new Rain(), table, null, level: ParticleLevel.Off).Count);
-        Assert.True(Rained(new Rain(), table, null, level: ParticleLevel.Low).Count < open.Count);
+        Assert.True(Rained(new Rain(), table, null).Hiss > 0f);
+        Assert.Equal(0f, Rained(new Rain(), table, null, StormSky.Indoor).Hiss);
     }
 
     /// <summary>A flat roof 200 units over the eye, <paramref name="half"/> units each way round it.</summary>
@@ -115,20 +101,12 @@ public class WeatherTests
     }
 
     [Fact]
-    public void NoDropFallsUnderARoofAndTheHissIsQuieterThere()
+    public void TheHissIsQuieterUnderARoof()
     {
         var table = RainTable.Defaults with { Intensity = 1f };
-        const float Half = 300f;
-        var (drops, n, frame) = Rained(new Rain(), table, Roof(Half));
-        var under = drops.Take(n).Count(d => MathF.Abs(d.Position.X - Eye.X) < Half - Rain.CoverCell
-            && MathF.Abs(d.Position.Z - Eye.Z) < Half - Rain.CoverCell && d.Position.Y < Eye.Y + 200f);
-        Assert.Equal(0, under);
-        // Above the roof and round it, it rains.
-        Assert.True(n > 500);
-        Assert.Contains(drops.Take(n), d => d.Position.Y > Eye.Y + 200f);
-
-        var open = Rained(new Rain(), table, null).Frame;
-        Assert.InRange(frame.Hiss, 0.9f * Rain.ShelteredHiss * open.Hiss, 1.1f * Rain.ShelteredHiss * open.Hiss);
+        var covered = Rained(new Rain(), table, Roof(300f));
+        var open = Rained(new Rain(), table, null);
+        Assert.InRange(covered.Hiss, 0.9f * Rain.ShelteredHiss * open.Hiss, 1.1f * Rain.ShelteredHiss * open.Hiss);
     }
 
     [Fact]
@@ -142,9 +120,6 @@ public class WeatherTests
         }
 
         Assert.Null(rain.Tick(Dt, null, Scene, StormSky.Outdoor, Eye, null).Table);
-        var view = new RainView();
-        rain.Capture(view);
-        Assert.Null(view.Table);
 
         // A new scene: the hiss rises again from silence.
         var first = rain.Tick(Dt, table, new object(), StormSky.Outdoor, Eye, null);
@@ -217,11 +192,11 @@ public class WeatherTests
         Assert.Same(recorded, frame.Sound);
         Assert.Same(RainHiss.Sound, rain.Tick(Dt, RainTable.Defaults, Scene, StormSky.Outdoor, Eye, null).Sound);
 
-        var storm = new Storm(2);
+        var storm = new Storm();
         var thunder = new Sound(new float[100], 1, 11025, Looping.Once);
         Sound? heard = null;
         storm.Thunder = (sound, _, _) => heard = sound;
-        storm.Strike();
+        storm.Post(new Strike(0f, Eye + Vector3.UnitX * 4000f, 4000f, 1f, 1));
         var table = StormTable.Defaults with { Interval = 1000f, NearMetres = 100f, FarMetres = 100f, Recorded = thunder };
         for (var i = 0; i < 60; i++)
         {

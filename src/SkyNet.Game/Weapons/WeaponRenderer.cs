@@ -204,7 +204,7 @@ public sealed class WeaponRenderer
         frame.Effects.Clear();
         foreach (var e in weapons.Effects)
         {
-            frame.Effects.Add(new EffectPose(e.Kind, e.Bank, e.Record, e.Size, e.Frame, e.Position, e.Ammo, e.Age, e.Direction, e.Seed));
+            frame.Effects.Add(new EffectPose(e.Kind, e.Bank, e.Record, e.Size, e.Frame, e.Position, e.Ammo, e.Age, e.Direction, e.Seed, e.DosScale));
         }
 
         frame.Projectiles.Clear();
@@ -266,7 +266,7 @@ public sealed class WeaponRenderer
                 _ownFlash = e;
             }
 
-            if (generated && !flash)
+            if (generated && Generated(e.Kind))
             {
                 continue;
             }
@@ -288,8 +288,7 @@ public sealed class WeaponRenderer
                 continue;
             }
 
-            var max = MathF.Max(s.Texture.Width, s.Texture.Height);
-            var scale = e.Size / MathF.Max(max, 1f);
+            var scale = EffectScale(e, Math.Max(s.Texture.Width, s.Texture.Height), LookNow);
             var frame = Math.Min(e.Frame, s.Texture.Frames - 1);
             DrawBillboard(s, eye, e.Position, s.Texture.Width * scale, s.Texture.Height * scale, frame, effect: true);
         }
@@ -468,6 +467,14 @@ public sealed class WeaponRenderer
         new(_white.Texture, _white.Palette, new Vector4(colour, 1f), 1, GunFlashState, Shading.Unlit);
 
     /// <summary>The look the effects are drawn in now (<see cref="Apply"/>).</summary>
+    /// <summary>World units per texel of an effect's sprite whose largest side is <paramref name="texMax"/>:
+    /// DOS's own scale in the ORIGINAL look, the port's size otherwise (issue #44).</summary>
+    /// <summary>Drawn by the ENHANCED look's particles in place of the sprite (dust, fireballs).</summary>
+    private static bool Generated(EffectKind kind) => kind is EffectKind.Impact or EffectKind.Explosion;
+
+    internal static float EffectScale(in EffectPose e, int texMax, Menu.Look look) =>
+        look == Menu.Look.Original && e.DosScale > 0f ? e.DosScale : e.Size / MathF.Max(texMax, 1f);
+
     private Menu.Look LookNow => _spriteTint != null ? Menu.Look.Enhanced : Menu.Look.Original;
 
     /// <summary>A flash effect as <see cref="Enhanced.MuzzleFlashes"/> draws it: at <paramref name="at"/>, <paramref name="size"/> across.</summary>
@@ -493,7 +500,7 @@ public sealed class WeaponRenderer
 
 /// <summary>An effect sprite as caught for a frame (<see cref="Effect"/>).</summary>
 public readonly record struct EffectPose(EffectKind Kind, int Bank, int Record, float Size, int Frame, Vector3 Position,
-    AmmoRecord? Ammo = null, float Age = 0f, Vector3 Direction = default, int Seed = 0);
+    AmmoRecord? Ammo = null, float Age = 0f, Vector3 Direction = default, int Seed = 0, float DosScale = 0f);
 
 /// <summary>A projectile as caught for a frame (<see cref="Projectile"/>).</summary>
 public readonly record struct ProjectilePose(bool Lobbed, AmmoRecord Ammo, Vector3 Position, Vector3 Velocity);

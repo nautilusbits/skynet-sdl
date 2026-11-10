@@ -491,6 +491,15 @@ public class MenuNavigationTests
         Assert.Equal(MenuLayout.BriefPalette, pages[0].Palette);
     }
 
+    /// <summary>The header counts the campaign's missions as DOS's stats screen does ("Level NN",
+    /// 0x12cdb2): Future Shock's mission 7 is the 6th (issue #39).</summary>
+    [Fact]
+    public void AFutureShockBriefingCountsTheMissions()
+    {
+        var pages = MissionScreen.BuildPages(new MissionBriefing(GameKind.FutureShock, 7, 70, null));
+        Assert.Equal("MISSION 6", pages[0].Title);
+    }
+
     [Fact]
     public void FrameMapsDosPixelsBothWays()
     {
@@ -690,6 +699,24 @@ public class SettingsStoreTests : IDisposable
         Rebind.Restore(binds, s.Bindings);
         Assert.Equal(["I"], input.Bindings(controls.Forward));
         Assert.Equal(["S", "Down"], input.Bindings(controls.Back)); // absent from the file: the default
+    }
+
+    /// <summary>#44: keys 8-0 hold no weapon in DOS; a file from before keeps loading.</summary>
+    [Fact]
+    public void OldWeaponEightAndNineLoad()
+    {
+        Directory.CreateDirectory(_dir);
+        var path = PathOf("weapons.json");
+        File.WriteAllText(path, $"{{\"format\":\"{SettingsStore.Format}\",\"bindings\":{{\"Weapon 7\":[\"7\"],\"Weapon 8\":[\"8\"],\"Weapon 9\":[\"9\"],\"Weapon 0\":[\"0\"]}}}}");
+        var s = SettingsStore.Load(path);
+        var controls = SkyNet.Game.Campaign.CampaignControls.Create();
+        var input = new RetroEng.Platform.Input(controls.Actions);
+        Rebind.Restore(new InputBindings(input), s.Bindings);
+
+        Assert.Equal(7, controls.WeaponKeys.Length);
+        Assert.DoesNotContain(controls.Names, n => n is "Weapon 8" or "Weapon 9" or "Weapon 0");
+        Assert.Equal(["7"], input.Bindings(controls.WeaponKeys[6]));
+        Assert.DoesNotContain(Enumerable.Range(0, controls.Actions.Count), a => input.Bindings(a).Any(c => c is "8" or "9" or "0"));
     }
 
     [Fact]

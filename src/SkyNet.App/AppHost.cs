@@ -265,7 +265,7 @@ internal sealed partial class AppHost : IDisposable
 
         // .3D faces wind counter-clockwise seen from their visible side; DOS culls the back.
         renderer.FrontFace = Winding.CounterClockwise;
-        renderer.VSync = options.NoVsync ? VSync.Off : settings.VSync;
+        SetVSync(options.NoVsync ? VSync.Off : settings.VSync);
         renderer.RenderScale = settings.RenderScale;
         renderer.DepthSharing = options.DepthSharing ?? DefaultDepthSharing;
         renderer.Gamma = settings.Gamma;
@@ -663,7 +663,7 @@ internal sealed partial class AppHost : IDisposable
         {
             // --timedemo: one tick a frame from the first frame on.
             loop.OneTickPerFrame = true;
-            renderer.VSync = VSync.Off;
+            SetVSync(VSync.Off);
             timedemoStart = Stopwatch.GetTimestamp();
         }
 
@@ -1169,7 +1169,7 @@ internal sealed partial class AppHost : IDisposable
 
         if (s.VSync != applied.VSync)
         {
-            renderer.VSync = s.VSync;
+            SetVSync(s.VSync);
         }
 
         if (s.ShowFps != applied.ShowFps && displays.Fps != s.ShowFps)

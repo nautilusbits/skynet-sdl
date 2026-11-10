@@ -21,8 +21,8 @@ namespace SkyNet.Game.Vehicles;
 /// at wheel·721.6 / v rad/s, at most 1.074, reversed when backing; the wheel goes lock to lock in
 /// 0.305 s. The turret's pitch is DOS's ±0x100 of 2048 = ±45° (0x135b04); its yaw is relative to
 /// the car (DAT_00069911) and DOS clamps it nowhere, so the turret turns the full circle while the
-/// cockpit stays with the car; the guns fire along the view. Port tuning kept: gravity 4500, TURN keys swing
-/// the car at 2.4 rad/s, the cab tilts with the ground and shakes with speed, a wall throws the car
+/// cockpit stays with the car; the guns fire along the view. Port tuning kept: TURN keys swing
+/// the car at 2.4 rad/s, the cab tilts with the ground, a wall throws the car
 /// back at its own speed.</para>
 /// <para><b>HK</b> (mover 0x131100): thrust along the view, no gravity; 800 ahead, 400 back at
 /// 900 u/s², sidestep 400 (550 with RUN) and climb 200 at 700 u/s²; keyboard yaw a flat 90 °/s,
@@ -55,8 +55,8 @@ public sealed class VehicleController : IPlayerMover
     public const float JeepTurnMax = 1.074f;
     public const float JeepWheelRate = 3.28f;
     public const float JeepSkidSpeed = 171f;
-    /// <summary>The port's hand tuning (DOS's jeep gravity was never read).</summary>
-    public const float JeepGravity = 4500f;
+    /// <summary>DOS 0x135fb4: 0x188 u/s² on every wheel, the soldier's gravity.</summary>
+    public const float JeepGravity = 392f;
     public const float JeepKeyTurnRate = 2.4f;
     public const float JeepTiltRate = 6f;
     /// <summary>The turret's pitch ±45° (DOS 0x135b04); its yaw about the car is free (no clamp in DOS).</summary>
@@ -90,9 +90,11 @@ public sealed class VehicleController : IPlayerMover
 
     private readonly CollisionWorld _world;
     private SphereBody _sphere = new(JeepRadius, new Vector3(0f, JeepRadius, 0f));
-    private float _bumpT, _skidCooldown;
+    private float _skidCooldown;
     private Vector3 _prevPos;
     private float _prevCarYaw, _prevViewYaw, _prevViewPitch, _prevRoll, _prevTiltPitch, _prevTiltRoll, _prevEye;
+    // The last tick's mouse turn of the view (drawn whole, not interpolated: #51); presentation only.
+    private float _mouseYaw, _mousePitch;
 
     public VehicleController(CollisionWorld world, PlayerController body)
     {
@@ -113,7 +115,7 @@ public sealed class VehicleController : IPlayerMover
     public float Wheel { get; private set; }
     public float TiltPitch { get; private set; }
     public float TiltRoll { get; private set; }
-    /// <summary>The view's roll (the cab's tilt and shake; 0 in the HK).</summary>
+    /// <summary>The view's roll (the cab's tilt; 0 in the HK).</summary>
     public float Roll { get; private set; }
     public bool OnFloor { get; private set; }
     public bool OnWall { get; private set; }
@@ -151,7 +153,6 @@ public sealed class VehicleController : IPlayerMover
         Wheel = 0f;
         TiltPitch = TiltRoll = Roll = 0f;
         AimYaw = AimPitch = 0f;
-        _bumpT = 0f;
         Body.Velocity = Vector3.Zero;
         CarYaw = Body.Yaw;
         if (mode == VehicleMode.Foot)
@@ -219,6 +220,7 @@ public sealed class VehicleController : IPlayerMover
         str = Math.Clamp(str + tick.MoveX, -1f, 1f);
         var mouseYaw = tick.LookX * PlayerController.MouseRadians;
         var mousePitch = tick.LookY * PlayerController.MouseRadians;
+        (_mouseYaw, _mousePitch) = (-mouseYaw, Tilt(mousePitch));
         if (Mode == VehicleMode.Jeep)
         {
             AimYaw -= mouseYaw;
@@ -259,9 +261,8 @@ public sealed class VehicleController : IPlayerMover
         {
             if (fwdIn > 0.1f)
             {
-                Speed = Speed < 0f
-                    ? MathF.Min(Speed + JeepBrake * dt, 0f)
-                    : MathF.Min(Speed + JeepAccel / MathF.Max(1f, MathF.Floor(Speed / JeepGear)) * dt, JeepMaxSpeed);
+                // DOS 0x135744: the throttle whatever the sign (backing is gear 1, 0x135c67).
+                Speed = MathF.Min(Speed + JeepAccel / MathF.Max(1f, MathF.Floor(Speed / JeepGear)) * dt, JeepMaxSpeed);
                 _skidCooldown = 0f;
             }
             else if (fwdIn < -0.1f)
@@ -284,8 +285,9 @@ public sealed class VehicleController : IPlayerMover
                 _skidCooldown = 0f;
             }
 
-            // Downhill pulls, uphill holds back: 1148·sin of the slope along the heading.
-            Speed += JeepAccel * Vector3.Dot(Body.FloorNormal, ahead) * dt;
+            // Downhill pulls, uphill holds back: 1148·sin of the slope along the heading, within
+            // the pedals' range (DOS 0x136193).
+            Speed = Math.Clamp(Speed + JeepAccel * Vector3.Dot(Body.FloorNormal, ahead) * dt, -JeepReverseSpeed, JeepMaxSpeed);
         }
 
         var vy = grounded ? 0f : Body.Velocity.Y - JeepGravity * dt;
@@ -317,13 +319,11 @@ public sealed class VehicleController : IPlayerMover
         var k = Math.Clamp(dt * JeepTiltRate, 0f, 1f);
         TiltPitch = float.Lerp(TiltPitch, wantPitch, k);
         TiltRoll = float.Lerp(TiltRoll, wantRoll, k);
-        var shake = Math.Clamp(MathF.Abs(Speed) / JeepMaxSpeed, 0f, 1f);
-        _bumpT += dt * (6f + 14f * shake);
-        // The camera is the turret: the aim turns it, the cab tilts and shakes it.
+        // The camera is the turret: the aim turns it, the cab tilts it (DOS 0x1361c2 shakes nothing).
         Body.Yaw = CarYaw + AimYaw;
-        Body.Pitch = AimPitch + TiltPitch + MathF.Sin(_bumpT) * 0.004f * shake;
-        Roll = TiltRoll + MathF.Cos(_bumpT * 0.7f) * 0.006f * shake;
-        Body.Eye = JeepEye + MathF.Sin(_bumpT * 1.3f) * 3f * shake;
+        Body.Pitch = AimPitch + TiltPitch;
+        Roll = TiltRoll;
+        Body.Eye = JeepEye;
     }
 
     /// <summary>Runs <see cref="Ram"/> on the move just made and applies its outcome; true when the
@@ -507,11 +507,11 @@ public sealed class VehicleController : IPlayerMover
     // ------------------------------------------------------------------ the view
 
     /// <summary>The eye and the view between the last two ticks, the cab's roll included.</summary>
-    public (Vector3 Eye, Vector3 Forward, Vector3 Up, Matrix4x4 View) View(float alpha)
+    public (Vector3 Eye, Vector3 Forward, Vector3 Up, Matrix4x4 View) View(float alpha, Vector2 look = default)
     {
         var eye = Vector3.Lerp(_prevPos + new Vector3(0f, _prevEye, 0f), Body.EyePosition, alpha);
-        var q = Quaternion.CreateFromYawPitchRoll(float.Lerp(_prevViewYaw, Body.Yaw, alpha),
-            float.Lerp(_prevViewPitch, Body.Pitch, alpha), float.Lerp(_prevRoll, Roll, alpha));
+        var (yaw, pitch) = Aim(alpha, look);
+        var q = Quaternion.CreateFromYawPitchRoll(yaw, pitch, float.Lerp(_prevRoll, Roll, alpha));
         var forward = Vector3.Transform(-Vector3.UnitZ, q);
         var up = Vector3.Transform(Vector3.UnitY, q);
         return (eye, forward, up, Matrix4x4.CreateLookAt(eye, eye + forward, up));
@@ -524,7 +524,7 @@ public sealed class VehicleController : IPlayerMover
     /// that rides the CAR and tilts with the cab, so the turret camera swings across it; the HK's
     /// (0, 4, 16) is (0, −4, −16), riding the camera.
     /// </summary>
-    public Matrix4x4 CockpitWorld(float alpha)
+    public Matrix4x4 CockpitWorld(float alpha, Vector2 look = default)
     {
         var pos = Vector3.Lerp(_prevPos, Body.Position, alpha);
         var eye = float.Lerp(_prevEye, Body.Eye, alpha);
@@ -537,8 +537,9 @@ public sealed class VehicleController : IPlayerMover
                 * Matrix4x4.CreateTranslation(pos);
         }
 
+        var (yaw, pitch) = Aim(alpha, look);
         return Matrix4x4.CreateTranslation(CockpitOffset(Mode))
-            * Matrix4x4.CreateFromYawPitchRoll(float.Lerp(_prevViewYaw, Body.Yaw, alpha), float.Lerp(_prevViewPitch, Body.Pitch, alpha), 0f)
+            * Matrix4x4.CreateFromYawPitchRoll(yaw, pitch, 0f)
             * Matrix4x4.CreateTranslation(pos + new Vector3(0f, eye, 0f));
     }
 
@@ -558,8 +559,23 @@ public sealed class VehicleController : IPlayerMover
         _ => Vector3.Zero,
     };
 
+    // The view's yaw and pitch between the last two ticks, the mouse late-latched (#51): the last
+    // tick's turn whole and look, the motion the next tick takes, on top.
+    private (float Yaw, float Pitch) Aim(float alpha, Vector2 look)
+    {
+        var yaw = float.Lerp(_prevViewYaw, Body.Yaw, alpha) + _mouseYaw * (1f - alpha);
+        var pitch = float.Lerp(_prevViewPitch, Body.Pitch, alpha) + _mousePitch * (1f - alpha);
+        return (yaw - look.X * PlayerController.MouseRadians, pitch + Tilt(look.Y * PlayerController.MouseRadians));
+    }
+
+    // What a mouse pitch of by turns the view now, within the jeep's aim or the HK's limit.
+    private float Tilt(float by) => Mode == VehicleMode.Jeep
+        ? Math.Clamp(AimPitch - by, -JeepAimPitch, JeepAimPitch) - AimPitch
+        : Math.Clamp(Body.Pitch - by, -HkPitchMax, HkPitchMax) - Body.Pitch;
+
     private void Snapshot()
     {
+        (_mouseYaw, _mousePitch) = (0f, 0f);
         _prevPos = Body.Position;
         _prevEye = Body.Eye;
         _prevCarYaw = CarYaw;

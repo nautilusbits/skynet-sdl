@@ -220,6 +220,27 @@ public sealed class MapBlockTests(ITestOutputHelper output) : IDisposable
         store.Unmount();
     }
 
+    /// <summary>A map's shipped hand lights and texture cuts (data/lights) are baked into its lamps:
+    /// they are an input of its block, so a changed row bakes the map (and its light) again.</summary>
+    [Fact]
+    public void TheShippedLightsAreAnInput()
+    {
+        if (Data() is not { } data || data.Game != GameKind.SkyNet)
+        {
+            return;
+        }
+
+        // MAP.229 has hand lights, MAP.210 none.
+        foreach (var n in new[] { 229, 210 })
+        {
+            var block = MapBaker.Bake(data, n)!;
+            Assert.Contains(block.Inputs, i => i.Name == BakeInputs.LightsOf(n));
+        }
+
+        using var inputs = new BakeInputs(data);
+        Assert.NotEqual(inputs.Md5Of(BakeInputs.LightsOf(229)), inputs.Md5Of(BakeInputs.LightsOf(210)));
+    }
+
     [Fact]
     public void ACutOrForeignBlockIsRefused()
     {

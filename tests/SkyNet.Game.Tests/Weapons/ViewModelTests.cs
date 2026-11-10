@@ -15,43 +15,47 @@ public class ViewModelTests
         Assert.Equal(expected, ViewModelAnimation.FrameSeconds(cooldown, frames), 5);
 
     [Fact]
-    public void A_shot_plays_frames_one_to_last_then_rests()
+    public void A_shot_plays_from_the_rest_frame_at_the_record_rate()
     {
-        const float step = 0.05f;
-        Assert.Equal(1, ViewModelAnimation.FrameAt(0f, step, 4));
-        Assert.Equal(1, ViewModelAnimation.FrameAt(0.049f, step, 4));
-        Assert.Equal(2, ViewModelAnimation.FrameAt(0.051f, step, 4));
-        Assert.Equal(3, ViewModelAnimation.FrameAt(0.149f, step, 4));
-        Assert.Equal(0, ViewModelAnimation.FrameAt(0.151f, step, 4));
-        Assert.Equal(0, ViewModelAnimation.FrameAt(0.01f, step, 1));
+        // DOS (FUN_00125deb): frame = rate (+0x2c) · t from 0; the last frame done, back to 0.
+        Assert.Equal(0, ViewModelAnimation.FrameAt(0f, 13f, 4));
+        Assert.Equal(0, ViewModelAnimation.FrameAt(0.076f, 13f, 4));
+        Assert.Equal(1, ViewModelAnimation.FrameAt(0.078f, 13f, 4));
+        Assert.Equal(3, ViewModelAnimation.FrameAt(0.3f, 13f, 4));
+        Assert.Equal(0, ViewModelAnimation.FrameAt(0.31f, 13f, 4));
+        Assert.Equal(0, ViewModelAnimation.FrameAt(0.01f, 13f, 1));
     }
 
+    [Theory]
+    [InlineData(1, 16f)]
+    [InlineData(7, 13f)]
+    [InlineData(13, ViewModelAnimation.ScannerFps)]
+    public void Frame_rates_are_the_weapon_table_s(int record, float fps) =>
+        Assert.Equal(fps, ViewModelAnimation.AnimFps(record));
+
     [Fact]
-    public void Held_fire_runs_the_cycle_back_to_back()
+    public void Held_laser_fire_jumps_once_a_shot()
     {
+        // The laser rifle (13 fps, frames 1 and 3 recoiled) fires every 6 DOS frames: DOS shows
+        // 0, 1, 2 and the next shot starts over, so the gun and its scope jump once a shot, not twice.
         var a = new ViewModelAnimation();
-        const float dt = 1f / 60f, cooldown = 0.2f;
-        a.Tick(dt, 1, 4, cooldown);
-        Assert.Equal(0, a.Frame);
+        const float dt = 1f / 60f, cooldown = 6f / 35f;
+        a.Tick(dt, LaserScope.Record, 4, cooldown);
         var seen = new List<int>();
-        for (var shot = 0; shot < 2; shot++)
+        for (var shot = 0; shot < 3; shot++)
         {
             a.Fire();
-            for (var t = 0; t < 12; t++) // 0.2 s at 60 Hz
+            for (var t = 0; t < 10; t++)
             {
-                a.Tick(dt, 1, 4, cooldown);
+                a.Tick(dt, LaserScope.Record, 4, cooldown);
                 seen.Add(a.Frame);
             }
-
-            Assert.False(a.Firing);
         }
 
-        // 1, 2, 3 in order, then the rest pose before the next shot.
-        var first = seen.Take(12).ToList();
-        Assert.Equal(1, first[0]);
-        Assert.Equal([1, 2, 3, 0], first.Distinct());
-        Assert.Equal(0, first[11]);
-        Assert.Equal(seen.Take(12), seen.Skip(12));
+        Assert.Equal(0, seen[0]);
+        Assert.DoesNotContain(3, seen);
+        var jumps = seen.Zip(seen.Skip(1)).Count(p => p.First != 1 && p.Second == 1);
+        Assert.Equal(3, jumps);
     }
 
     [Fact]

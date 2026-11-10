@@ -13,27 +13,22 @@ namespace SkyNet.Game.Enhanced;
 /// one-off effect loops after <see cref="Duration"/>), drawing queues the particles.
 /// <code>
 ///   Spawn("explosion", at) ─► Advance(dt) per frame ─► Draw(renderer, row, eye)
-///                                                       └─► ImpactEffects / FireFlames / Atmosphere / Storm
+///                                                       └─► ImpactEffects / FireFlames / Atmosphere
 /// </code>
-/// Nothing needs the GPU: <see cref="Draw"/> only calls <see cref="IFrameRecorder.DrawParticles"/>.
+/// Nothing needs the GPU: <see cref="Draw"/> only calls <see cref="IFrameRecorder.DrawParticles"/>. Lightning
+/// shows nothing: the engine draws its bolt in the main view only (<see cref="WeatherSky"/>).
 /// </summary>
 public sealed class EffectPreview
 {
     /// <summary>The preview's size (units): a fire's height, a blast's radius, a smoke source's height.</summary>
     public const float DefaultScale = 120f;
 
-    /// <summary>A preview's lightning strikes this far off (metres).</summary>
-    private const float StrikeMetres = 3000f;
-    /// <summary>A strike's flashes (start in seconds, strength).</summary>
-    private static readonly (float At, float Strength)[] StrikePulses = [(0f, 1f), (0.1f, 0.7f)];
     private const int Seed = 7;
     private const int PreviewPieces = 10;
 
     private readonly FireFlames _fire = new();
     private readonly Atmosphere _atmosphere = new();
     private readonly ImpactEffects _impacts = new();
-    private readonly Storm _storm = new(Seed);
-    private readonly StormStrike _strike = new(Seed, StrikeMetres, 0f, StrikePulses, Storm.Bolt.Make(new Random(Seed)));
     private readonly ImpactPieces.Piece[] _pieces = new ImpactPieces.Piece[PreviewPieces];
 
     /// <summary>The effect shown (a name of <see cref="EffectTable.Names"/>).</summary>
@@ -55,7 +50,6 @@ public sealed class EffectPreview
         EffectTable.Explosion or EffectTable.ExplosionDust or EffectTable.ExplosionDebris or EffectTable.ExplosionSmoke => BlastCloud.MaxLife,
         EffectTable.ImpactDust or EffectTable.ImpactSparks => BulletPuff.MaxLife,
         EffectTable.Sparks => 1f,
-        EffectTable.Lightning => 1f,
         _ => float.PositiveInfinity,
     };
 
@@ -115,9 +109,6 @@ public sealed class EffectPreview
             case EffectTable.Sparks:
                 _impacts.DrawSparks(renderer, Pieces(), level, effects);
                 break;
-            case EffectTable.Lightning:
-                DrawStrike(renderer, effects, eye);
-                break;
         }
     }
 
@@ -157,15 +148,5 @@ public sealed class EffectPreview
         }
 
         return _pieces;
-    }
-
-    // The strike on the way to At, drawn there (a far clip set so the bolt stands at At).
-    private void DrawStrike(IFrameRecorder renderer, EffectTable effects, Vector3 eye)
-    {
-        var to = At - eye;
-        var strike = _strike with { Azimuth = MathF.Atan2(to.X, to.Z) };
-        var frame = new StormFrame(strike, Age, Storm.FlashAt(strike, Age), Storm.BoltAlphaAt(strike, Age));
-        var far = new Vector2(to.X, to.Z).Length() / Storm.DrawDistance;
-        _storm.Draw(renderer, frame, eye, far, effects);
     }
 }

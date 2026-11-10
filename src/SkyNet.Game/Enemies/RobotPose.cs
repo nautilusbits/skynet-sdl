@@ -8,7 +8,7 @@ namespace SkyNet.Game.Enemies;
 
 /// <summary>A segment as a frame caught it: its model, its placement under its parent now
 /// (<see cref="EnemyPart.Local"/>: a turret's aim), its model frame, where it is in the world.</summary>
-public readonly record struct SegmentState(EnemyModelInfo? Model, Matrix4x4 Local, int Frame, Matrix4x4 World);
+public readonly record struct SegmentState(EnemyModelInfo? Model, Matrix4x4 Local, int Frame, Matrix4x4 World, bool Gone = false);
 
 /// <summary>One robot as a frame caught it (<see cref="EnemyRenderer.Capture"/>), pooled: drawn on
 /// another thread while the next tick runs.</summary>
@@ -42,7 +42,7 @@ public sealed class RobotShot
         _segments.Clear();
         foreach (var part in robot.Segments)
         {
-            _segments.Add(new SegmentState(part.Model, part.Local, part.Frame, shift is { } s ? part.World * s : part.World));
+            _segments.Add(new SegmentState(part.Model, part.Local, part.Frame, shift is { } s ? part.World * s : part.World, part.Gone));
         }
     }
 }
@@ -131,6 +131,12 @@ public sealed class RobotPose
         var segment = Rig.SegmentOf(node);
         if (segment <= 0 || segment >= _segments.Count)
         {
+            return;
+        }
+
+        if (_segments[segment].Gone)
+        {
+            local.Scale = Vector3.Zero;                // shot off (issue #58): what is skinned to it collapses
             return;
         }
 

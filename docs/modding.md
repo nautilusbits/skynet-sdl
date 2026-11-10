@@ -1039,10 +1039,13 @@ and thunder), `"rain"`, `"clouds"`, `"haze"`, `"dust"` or `"wind"`. Left out,
 the kind is the file's name (`weather/storm.json` is a storm). Kinds combine: a
 mod with `storm.json` and `rain.json` brings a rainstorm. A second file of a kind already read is left
 out. Without files there is no weather; indoors and in the ORIGINAL look never.
+The rain, the lightning and the clouds' cover run on the engine's weather
+(`WeatherSystem`, `WeatherMap`); the haze, the dust and every sound are the
+game's own.
 
 ### Storm
 
-`"kind": "storm"` (`StormTable`, `Storm`, `Thunder`). Every key is optional:
+`"kind": "storm"` (`StormTable`, `Storm`, `Thunder`, the engine's lightning). Every key is optional:
 
 ```json
 { "kind": "storm", "on": true, "interval": 18, "brightness": 1, "distance": [800, 6000], "thunderVolume": 0.8 }
@@ -1052,20 +1055,21 @@ out. Without files there is no weather; indoors and in the ORIGINAL look never.
 |---|---|---|
 | `kind` | the file's name | `"storm"`. |
 | `on` | `true` | `false` turns the storm off (the file stays). |
-| `interval` | `20` | Mean seconds between strikes (1 or more). The waits are random (exponential), never under 0.8 s. |
-| `brightness` | `1` | The flash's strength (0-4): the sky, the ambient and the light from the bolt. |
+| `interval` | `20` | Mean seconds between strikes (1-3600): the engine's `LightningRate` is 60 / `interval` a minute, the waits random (exponential). |
+| `brightness` | `1` | The flash's strength (0-4): the sky, the ambient, the deck and the bolt. |
 | `distance` | `[800, 6000]` | Near and far, in metres: each bolt strikes at a random distance between them. |
 | `thunderVolume` | `0.8` | The thunder's gain (0-1), on the Effects bus (SOUND volume). |
 | `comment` | - | Free text. |
 
-A strike flashes two or three times in 0.3 s: the sky and the light all around
-brighten, the stars wash out, and a strong light from the bolt's way (35 degrees
-up) lights the map and throws the sun's shadows. The bolt, a jagged channel with
-a few branches, is drawn past the far clip in its direction, sized to look as
-far away as it is (its top at the 1500 m cloud base), and fades 0.2 s after the
-last flash. A nearer bolt flashes stronger (full up to 1500 m).
+The engine strikes (each strike 0.5-1.5 times `brightness`, at random) at a
+random way round the eye and a distance between near and far. A strike flashes
+two or three times in about 0.3 s, then glows faintly to 1.2 s: the sky and the
+light all around brighten, the deck lights up from the bolt's side and the stars
+wash out. The bolt, a jagged channel with a few branches, runs from the cloud
+deck (its height; 1500 m without clouds) to the ground. `tables/effects.json`'s
+`lightning` row scales its width (`size`) and colour.
 
-The thunder is made in code (filtered noise: a rumble in swells with a body
+The thunder is the game's: made in code (filtered noise: a rumble in swells with a body
 small speakers play, and under 2000 m a crack before it) and comes after the
 sound's travel time: the distance over 343 m/s, at 40 world units a metre (the
 soldier's eye is 75 u up). Its gain is `thunderVolume`, full up to 1500 m, then
@@ -1076,7 +1080,7 @@ or 16 bits) plays instead for every strike.
 
 ### Rain
 
-`"kind": "rain"` (`RainTable`, `Rain`, `RainHiss`). Every key is optional:
+`"kind": "rain"` (`RainTable`, `Rain`, `RainHiss`, the engine's rain). Every key is optional:
 
 ```json
 { "kind": "rain", "on": true, "intensity": 0.7, "windDirection": 30, "windSpeed": 4, "volume": 0.6 }
@@ -1086,22 +1090,23 @@ or 16 bits) plays instead for every strike.
 |---|---|---|
 | `kind` | the file's name | `"rain"`. |
 | `on` | `true` | `false` turns the rain off (the file stays). |
-| `intensity` | `0.6` | How hard it rains (0-1): the streaks' number and the hiss. |
+| `intensity` | `0.6` | How hard it rains (0-1): the drops' number, how wet the ground is and the hiss. |
 | `windDirection` | `30` | The way the drops are blown, in degrees round the up axis (0 towards +Z, 90 towards +X). |
-| `windSpeed` | `4` | The wind in m/s (0-30): how slanted the drops fall. |
+| `windSpeed` | `4` | The wind in m/s (0-30): how slanted the drops fall (steady, no gusts). |
 | `volume` | `0.6` | The hiss's gain (0-1) at full intensity, on the Effects bus. |
 | `comment` | - | Free text. |
 
-Streaks fall at 9 m/s with the wind in a 1000-unit box round the eye (1800 at
-PARTICLES LOW, 4500 at HIGH, times the intensity; none at OFF), lit by the
-scene's light (a lightning flash too). None falls under cover: a ray down from
-high over each 48-unit cell round the eye finds where the rain stops, a roof or
-the ground, and no drop shows below it. The hiss (band-passed noise with
+The engine's drops fall at 8 m/s with the wind in a box 22 m each way round
+the eye (1500 at PARTICLES LOW, 6000 at HIGH, phones 3000 at most, times the
+intensity; none at OFF), lit by the scene's light (a lightning flash too), with
+faint splashes on flat open ground within 12 m. Exposed surfaces darken and gloss with the
+wetness (the intensity). Nothing falls, splashes or wets under a roof: the
+engine's roof map looks down round the eye (96 m each way; past it all is open).
+The hiss's shelter is the game's: a ray down from high over each 48-unit cell
+round the ears finds whether a roof is overhead. The hiss (band-passed noise with
 pattering drops, a soft low-mid loop: a bed about 20 dB under a gunshot at full
 intensity) plays at `volume` times the root of the intensity, a third as loud under a roof with no open sky near the ears, and
 pauses with the game. `weather/rain.wav` (PCM, 8 or 16 bits) loops instead.
-There is no wet sheen: the materials (`materials.json`) are set per texture,
-so a wet look would wet roofs' undersides and floors indoors alike.
 
 A storm with rain is a rainstorm: put `storm.json` and `rain.json` in one mod
 (or turn on both sample mods). The flash lights the rain. Rain falls from an
@@ -1110,7 +1115,7 @@ without `clouds.json`), so no star shows through it.
 
 ### Clouds
 
-`"kind": "clouds"` (`CloudTable`, `WeatherSky`, the engine's `CloudLayer`):
+`"kind": "clouds"` (`CloudTable`, `WeatherSky`, the engine's `CloudLayer` and `WeatherSystem`):
 
 ```json
 { "kind": "clouds", "coverage": 0.85, "height": 400, "size": 250, "colour": [0.11, 0.1, 0.095], "fireGlow": 1, "drift": 2 }
@@ -1121,16 +1126,18 @@ without `clouds.json`), so no star shows through it.
 | `coverage` | `0.85` | The share of the sky covered (0-1; 1 overcast). |
 | `height` | `400` | The deck's height over the eye (metres, 50-5000). |
 | `size` | `250` | A cloud's size (metres). |
-| `colour` | `[0.11, 0.1, 0.095]` | Its colour at night (sRGB 0-1), scaled by the map's light around. |
-| `fireGlow` | `1` | How much the map's fires near the eye light it from below (0-4). |
+| `colour` | `[0.11, 0.1, 0.095]` | Its colour at night (sRGB 0-1), scaled by the map's light around; on the desktop the volume's tint (the default a 0.4 albedo). |
+| `fireGlow` | `1` | How much the map's fires near the eye light the flat deck from below (0-4). |
 | `drift` | `2` | Its drift as a multiple of the wind (0-10); a calm 1.5 m/s without one. |
 
-Value-noise clouds on a flat deck, drawn where nothing else is (over the clear
-colour, the moon, a dusk dome; under the rain, the bolt and the far smoke). They
-hide the stars behind them and take up to 80 % of the moon's (or dusk sun's)
-light. A lightning flash lights them from the bolt's side. Far along the deck
-they fade into their mean cover and, at the horizon, into the haze (or the depth
-cue's colour). PARTICLES sets the noise's detail (OFF 2, LOW 3, HIGH 5 octaves).
+On the desktop the deck is the engine's volumetric clouds (500 m deep, its base
+at `height`, cells about 20 times `size`, lit by the moon and the sky); on
+phones a flat value-noise deck. Both are drawn where nothing else is (over the
+clear colour, the moon, a dusk dome). They hide the stars behind them; the
+engine's overcast takes up to 90 % of the moon's (or dusk sun's) light and
+dims the sky's. A lightning flash lights them from the bolt's side. At the
+horizon they fade into the haze (or the depth cue's colour). PARTICLES sets the
+flat deck's noise detail (OFF 2, LOW 3, HIGH 5 octaves).
 
 ### Haze
 
@@ -1184,7 +1191,7 @@ does not. Grit streaks (420 at PARTICLES HIGH, 140 at LOW, times `streaks`) blow
 only inside a cloud. A cloud is drawn as soft puffs (40 / 14 each, none at OFF;
 faded near the eye, where the haze takes over); faint sheets (44 / 16, times
 `amount`) drift between the clouds. Every particle sits on the ground (or roof)
-of its cell of the rain's cover grid: none under a roof, none indoors. The
+of its cell of the weather's cover grid: none under a roof, none indoors. The
 editor shows none. The schedule and the clouds use the weather's own clock and
 random numbers.
 
@@ -1200,7 +1207,7 @@ random numbers.
 |---|---|---|
 | `direction` | `60` | The way it blows, degrees round the up axis (0 towards +Z, 90 towards +X). |
 | `speed` | `8` | Its mean speed (m/s, 0-30). |
-| `gusts` | `0.5` | How gusty (0 steady, 1 wild): the speed swells 0.15-2.2 times, the way wanders up to 20 degrees. |
+| `gusts` | `0.5` | How gusty (0 steady, 1 wild): the speed swells 1 ± `gusts` times along its way (the engine's `Wind`). |
 | `volume` | `0.5` | The howl's gain (0-1) in a 12 m/s wind, on the Effects bus. |
 
 One wind for everything: it slants the rain (in place of the rain's own
@@ -1223,8 +1230,8 @@ The weather is presentation only: its own random numbers and clock, the
 collision world only read; the simulation, demos and network games are not
 touched (a demo plays back without a desync with it on). It shows in the
 campaign, deathmatch, Future Shock and the editor's views (no sound there, the
-rain without cover). The console's `weather` says what is on, `storm` prints
-the storm's settings, `storm strike` strikes now, ahead of the view
+rain under the engine's roof map). The console's `weather` says what is on, `storm` prints
+the storm's settings, `storm strike` strikes now, ahead of the view at the near distance
 (`--menu-script "wait 20; run storm strike; wait 1; shot flash.bmp; quit"`
 takes a screenshot of the flash). `weather gust` raises a dust cloud upwind
 now (`--menu-script "wait 90; run weather gust; sleep 12000; shot dust.bmp; quit"`). A file that does not read is logged under
@@ -1269,7 +1276,7 @@ An effect reads only some columns; the others change nothing
 | `impact_dust` | a bullet strike's dust | low high size speed rise colour | 4/7 |
 | `impact_sparks` | a bullet strike's sparks on metal | low high life size speed gravity colour | 4/8, 0.35 |
 | `sparks` | streaks behind flying impact pieces; low/high: more thrown off each | low high life size spread gravity colour | 0/2, 0.45 |
-| `lightning` | a storm's bolt ([Storm](#storm)) | size colour | - |
+| `lightning` | a storm's bolt ([Storm](#storm), the engine's: no preview in the editor) | size colour | - |
 
 ("colour" is `intensity`, `r`, `g`, `b`.) The lights the effects cast (a
 fire's lamp, a blast's flash) and the weather's own settings stay as they are:

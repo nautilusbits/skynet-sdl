@@ -92,10 +92,8 @@ internal sealed class FrameSnapshot
     public readonly List<PointLight> Lights = [];
     public float LightReach;
     public int LightBudget;
-    // The storm's flash and bolt (a mod's weather/storm.json, outdoors).
-    public SkyNet.Game.Enhanced.StormFrame Storm;
-    // The rain's clock and cover (a mod's weather/rain.json, outdoors).
-    public readonly SkyNet.Game.Enhanced.RainView Rain = new();
+    // A mod's weather for the engine's (rain, lightning; none indoors).
+    public SkyNet.Game.Enhanced.SkyFrame Weather;
     // A mod's clouds, haze, dust and wind (outdoors).
     public readonly SkyNet.Game.Enhanced.AirView Air = new();
 

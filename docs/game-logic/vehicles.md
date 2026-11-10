@@ -13,15 +13,16 @@ rule: an interior of a jeep mission is on foot).
 | Jeep data | ds:0x23700 (v1.01) | read by 0x134eec |
 | HUD (cockpit) table | 0x44700 | per mode `{handle, x, y, z, name}`: jeep {0, 26, 22, 8, "hummer.3d"}, HK {0, 0, 4, 16, "hkcockpt.3d"} |
 | Aim table | 0x443ca | MDMAIM.IMG on foot, CROSHAIR.IMG in both vehicles |
-| Secondary default | 0x4449a | {15, 25, 22}: jeep throw key = rockets |
-| Weapons | records 20/21 jeep plasma (ammo 18, pool 10, cost 100, rate 8), 22/23 jeep rockets (ammo 5, pool 11), 24 HK laser (ammo 22), 25 HK rockets | odd records = other barrel |
+| Primary default | 0x44476 | {0, 24, 21} by mode (0x1257a4): jeep laser, HK plasma |
+| Secondary default | 0x4449a | {15, 25, 22}: jeep rockets 25, HK rockets 22 |
+| Weapons | records 24 jeep laser (ammo 22, pool 10, cost 100, rate 8), 25 jeep rockets (ammo 5, pool 11), 20/21 HK plasma (ammo 18), 22/23 HK rockets | odd records = other barrel |
 
 ## Jeep
 
 | Quantity | Value |
 |---|---|
 | Max speed | 683.59 u/s |
-| Throttle | 1148.4 ÷ max(1, v / 21.449) u/s² |
+| Throttle | 1148.4 ÷ max(1, v / 21.449) u/s², also while backing (gear 1; v1.01 0x135744, 0x135c67) |
 | Brake | 459.4 u/s², reverse to −140 u/s |
 | Drag (coasting only) | 153.1 u/s² |
 | Slope | adds 1148 × sin(slope) |
@@ -111,13 +112,13 @@ a wreck never returns. See [../multiplayer.md](../multiplayer.md) step 9.
 
 ## Deviations in the Godot port
 
-- Jeep gravity 4500 (`JEEP_GRAVITY`) and arrow-key car turning 2.4 rad/s
-  are the port's hand tuning; DOS jeep gravity was never read.
+- Arrow-key car turning 2.4 rad/s is the port's hand tuning. Jeep gravity is
+  DOS's 392 u/s² on every wheel (v1.01 0x135fb4, 0x188).
 - Jeep plasma is drawn as a bolt with a halo; DOS shows a thin red streak.
 - A rammed target is hit at most once per 0.3 s (`RAM_REARM`); DOS has no wait.
 - Vehicle energy recharges (port addition, see damage-hud.md).
 
 ## Open questions
 
-- DOS jeep gravity and suspension.
+- DOS jeep suspension (four wheels, landing bounce [0x35c8c]).
 - Flag that picks hull 1000 vs 1500 per vehicle kind.

@@ -4,22 +4,39 @@ using SkyNet.Game.Menu;
 
 namespace SkyNet.Game.Enhanced;
 
+/// <summary>What the frame build needs of the weather: the mods' weather (<see cref="Weather.None"/>
+/// indoors, in the original look), the seconds it moves on (0: held), the eye and a strike asked for
+/// ahead (its way; null: none).</summary>
+public readonly record struct SkyFrame(Weather Weather, float Seconds, Vector3 Eye, Vector3? Strike);
+
 /// <summary>
 /// The weather's sky and air on the renderer, on the frame build's thread: the level's own light and
-/// depth cue (whatever was last set from outside) with a storm's flash, a cloud deck and a haze on them.
+/// depth cue (whatever was last set from outside) under the engine's <see cref="WeatherSystem"/> (rain,
+/// wet ground, overcast, lightning) with our cloud deck, haze and dust on them.
 /// <code>
-///   Lighting ─► Storm.Lit (flash) ─► + CloudLayer (cover, drift, fires and flash under it, the
-///                                      horizon's haze), the moon dimmed, no stars when overcast
+///   Lighting ─► + CloudLayer (colour, height, fires under it, the horizon's haze), no stars when overcast
+///            ─► WeatherSystem.Apply (cover, drift, rain, flash, bolt; 40 u a metre) ─► the bolt's effects row
 ///   Fog      ─► the haze's colour (lit by a flash), ending at its visibility, held past it
 ///            ─► in a dust cloud: closing towards a few metres, tinted the dust's colour
+///   Struck   ─► the caller (Storm.Post: the thunder on the simulation's thread)
 /// </code>
 /// </summary>
 public sealed class WeatherSky
 {
     /// <summary>The deck's noise octaves per PARTICLES level (OFF, LOW, HIGH).</summary>
     public static readonly int[] CloudOctaves = [2, 3, 5];
-    /// <summary>The share of the moon's (or the dusk sun's) light a full cover takes away.</summary>
-    public const float CoveredLight = 0.8f;
+    /// <summary>The engine's drops at full intensity per PARTICLES level (OFF, LOW, HIGH), and a phone's most.</summary>
+    public static readonly int[] DropCount = [0, 1500, 6000];
+    public const int PhoneDrops = 3000;
+    /// <summary>The volumetric deck on the desktop, the flat one on phones.</summary>
+    public static readonly CloudQuality DeckQuality = OperatingSystem.IsAndroid() ? CloudQuality.Flat : CloudQuality.Volumetric;
+    /// <summary>The volumetric deck's depth (metres) and its weather cell per flat noise cell (the
+    /// engine's 8000 over its own flat deck's 400).</summary>
+    public const float DeckMetres = 500f, VolumeCells = 20f;
+    /// <summary>The default deck colour's albedo in the volume: a dark storm deck under the moon.</summary>
+    public const float VolumeAlbedo = 0.4f;
+    /// <summary>A changed weather (another mod) blends in over this (seconds).</summary>
+    public const float BlendSeconds = 5f;
     /// <summary>The map's own deck's drift (units a second: about 3 m/s).</summary>
     private static readonly Vector3 OwnDrift = new(72f, 0f, 96f);
     /// <summary>A cover from which no star is drawn at all.</summary>
@@ -28,8 +45,14 @@ public sealed class WeatherSky
     /// fire counts fully within.</summary>
     public static readonly Vector3 FireUnderlight = new(0.035f, 0.014f, 0.005f);
     public const float FireReach = 2500f, FiresForFull = 4f;
-    /// <summary>A flash's light under the deck and on the whole of it.</summary>
-    public const float FlashUnder = 1.2f, FlashDeck = 0.12f, FlashHaze = 0.2f;
+    /// <summary>The engine's flash at a strike of intensity 1 (its green): a full flash.</summary>
+    public const float FullFlash = 2.35f;
+    /// <summary>A flash weaker than this (of a full one) leaves the stars as they are.</summary>
+    public const float MinFlash = 0.01f;
+    /// <summary>A full flash's light on the haze (linear).</summary>
+    public static readonly Vector3 FlashSky = new(0.55f, 0.6f, 0.8f);
+    /// <summary>A flash's share on the haze.</summary>
+    public const float FlashHaze = 0.2f;
     /// <summary>Without a haze the deck fades into the depth cue's colour at the horizon this much.</summary>
     public const float CueHorizon = 0.5f;
     /// <summary>The elevation (its sine: about 10 degrees) the horizon's haze fades out at.</summary>
@@ -53,15 +76,22 @@ public sealed class WeatherSky
     private Fog? _baseFog, _litFog;
     private object? _firesOf;
     private Vector3[] _fires = [];
+    private WeatherSystem? _system;
+    private object? _systemOf;
+    private Weather? _weatherOf;
+    private float _flash;
 
-    /// <summary>Sets the renderer's light and depth cue for the frame seen from <paramref name="eye"/>:
-    /// the level's own with <paramref name="storm"/>'s flash and <paramref name="air"/>'s clouds and
-    /// haze on them; <paramref name="level"/>'s fires light the deck.</summary>
-    public void Apply(Renderer renderer, in StormFrame storm, AirView air, Level? level, ParticleLevel particles)
+    /// <summary>A lightning strike (on this thread): its thunder is the caller's (<see cref="Storm.Post"/>).</summary>
+    public event Action<Strike>? Struck;
+
+    /// <summary>Sets the renderer's light and depth cue for <paramref name="frame"/>: the level's own
+    /// under the engine's weather with <paramref name="air"/>'s clouds, haze and dust on them;
+    /// <paramref name="level"/>'s fires light the deck.</summary>
+    public void Apply(Renderer renderer, in SkyFrame frame, AirView air, Level? level, ParticleLevel particles)
     {
         if (renderer.Lighting is not { } now)
         {
-            (_base, _lit, _baseFog, _litFog) = (null, null, null, null);
+            (_base, _lit, _baseFog, _litFog, _system, _systemOf, _weatherOf, _flash) = (null, null, null, null, null, null, null, 0f);
             return;
         }
 
@@ -76,10 +106,16 @@ public sealed class WeatherSky
             _baseFog = renderer.Fog;
         }
 
-        var flash = storm.Flash > Storm.MinFlash ? storm.Flash : 0f;
-        _lit = Clouded(Storm.Lit(_base!, storm), _base!, air, _baseFog, flash, storm.Strike?.Way ?? Vector3.Zero,
-            FireAmount(level, air), particles);
-        _litFog = Dusted(Hazed(_baseFog, air.Haze, flash), air);
+        var system = SystemFor(frame, level, particles);
+        system?.Update(frame.Seconds, frame.Eye);
+        if (system != null && frame.Strike is { } ahead && frame.Weather.Storm is { } storm)
+        {
+            StrikeAhead(system, storm, frame.Eye, ahead);
+        }
+
+        // Our deck drifts by the wind times its drift; the engine adds the wind's travel once.
+        var drift = system != null && air.Clouds is { } clouds ? system.Drift * (clouds.Drift - 1f) : Vector3.Zero;
+        _lit = Clouded(_base!, _base!, air, _baseFog, FireAmount(level, air), particles, drift);
 
         // The map's own deck (no mod's clouds) drifts slowly on the effects' clock.
         if (air.Clouds == null && _lit.Clouds is { } own)
@@ -87,16 +123,97 @@ public sealed class WeatherSky
             _lit = _lit with { Clouds = own with { Drift = OwnDrift * renderer.EffectTime } };
         }
 
+        _flash = system == null ? 0f : system.Flash.Y / FullFlash;
+        if (system != null)
+        {
+            // The game's unweathered light every frame (Apply would compound on its own).
+            _lit = Washed(Bolted(system.Apply(_lit)), _flash);
+        }
+
+        _litFog = Dusted(Hazed(_baseFog, air.Haze, _flash), air);
         renderer.Lighting = _lit;
         renderer.Fog = _litFog;
     }
 
+    /// <summary>The engine's weather for <paramref name="frame"/>: made for a new level, blended to a
+    /// changed weather; none without rain, clouds or a storm.</summary>
+    private WeatherSystem? SystemFor(in SkyFrame frame, Level? level, ParticleLevel particles)
+    {
+        var w = frame.Weather;
+        if (w.Storm == null && w.Rain == null && w.Clouds == null)
+        {
+            (_system, _systemOf, _weatherOf) = (null, null, null);
+            return null;
+        }
+
+        var target = WeatherMap.Of(w, _base!.Clouds?.Coverage ?? 0f);
+        if (_system == null || !ReferenceEquals(level, _systemOf))
+        {
+            _system = new WeatherSystem(target, Vector3.UnitY, level?.Number ?? 0) { MetresPerUnit = 1f / Storm.UnitsPerMetre };
+            _system.Struck += OnStruck;
+            (_systemOf, _weatherOf) = (level, w);
+        }
+        else if (!ReferenceEquals(w, _weatherOf))
+        {
+            _system.Change(target, BlendSeconds);
+            _weatherOf = w;
+        }
+
+        if (w.Storm is { } storm)
+        {
+            _system.LightningNear = storm.NearMetres * Storm.UnitsPerMetre;
+            _system.LightningFar = storm.FarMetres * Storm.UnitsPerMetre;
+        }
+
+        // The flat deck's bolts reach up to it (the volume's to its base on their own).
+        if (w.Clouds is { } clouds)
+        {
+            _system.BoltHeight = clouds.HeightMetres * Storm.UnitsPerMetre;
+        }
+
+        var drops = DropCount[(int)particles];
+        _system.Drops = OperatingSystem.IsAndroid() ? Math.Min(drops, PhoneDrops) : drops;
+        return _system;
+    }
+
+    private void OnStruck(Strike strike) => Struck?.Invoke(strike);
+
+    /// <summary>A strike along <paramref name="ahead"/> (level), at the storm's nearest and brightness.</summary>
+    private static void StrikeAhead(WeatherSystem system, StormTable storm, Vector3 eye, Vector3 ahead)
+    {
+        var level = new Vector3(ahead.X, 0f, ahead.Z);
+        var way = level.LengthSquared() > 0f ? Vector3.Normalize(level) : Vector3.UnitZ;
+        system.Strike(eye + way * (storm.NearMetres * Storm.UnitsPerMetre), storm.Brightness);
+    }
+
+    /// <summary><paramref name="lit"/>'s bolt as <see cref="EffectTable.Lightning"/>'s row draws it.</summary>
+    public static Lighting Bolted(Lighting lit)
+    {
+        if (lit.Weather is not { Bolt: { } bolt } w)
+        {
+            return lit;
+        }
+
+        var row = EffectTable.Current[EffectTable.Lightning];
+        bolt = bolt with { Colour = bolt.Colour * EffectTable.Light(row), Width = bolt.Width * (float)row.Size };
+        return lit with { Weather = w with { Bolt = bolt } };
+    }
+
+    /// <summary><paramref name="lit"/>'s stars washed out by a flash (<paramref name="flash"/> of a full one).</summary>
+    public static Lighting Washed(Lighting lit, float flash)
+    {
+        if (flash <= MinFlash || lit.Stars is not { } stars)
+        {
+            return lit;
+        }
+
+        return lit with { Stars = stars with { Brightness = stars.Brightness * MathF.Max(0f, 1f - flash) } };
+    }
+
     /// <summary><paramref name="lit"/> under <paramref name="air"/>'s deck and haze: the deck's colour
-    /// from <paramref name="around"/>'s light, the fires (<paramref name="fires"/> 0-1) and a flash
-    /// (<paramref name="flash"/> from <paramref name="way"/>) under it; the moon dimmed by the cover,
-    /// no stars when overcast. As it is without clouds or haze.</summary>
-    public static Lighting Clouded(Lighting lit, Lighting around, AirView air, Fog? cue, float flash, Vector3 way, float fires,
-        ParticleLevel particles)
+    /// from <paramref name="around"/>'s light and the fires (<paramref name="fires"/> 0-1) under it,
+    /// drifted by <paramref name="drift"/>; no stars when overcast. As it is without clouds or haze.</summary>
+    public static Lighting Clouded(Lighting lit, Lighting around, AirView air, Fog? cue, float fires, ParticleLevel particles, Vector3 drift)
     {
         if (air.Clouds == null && air.Haze == null)
         {
@@ -104,7 +221,7 @@ public sealed class WeatherSky
         }
 
         var cover = air.Clouds?.Coverage ?? 0f;
-        var horizon = air.Haze is { } haze ? new Vector4(Linear(haze.Colour) + Storm.FlashSky * (flash * FlashHaze), haze.Horizon)
+        var horizon = air.Haze is { } haze ? new Vector4(Linear(haze.Colour), haze.Horizon)
             : cue is { Colour.W: > 0f } c ? new Vector4(Linear(new Vector3(c.Colour.X, c.Colour.Y, c.Colour.Z)), CueHorizon) : Vector4.Zero;
         // A haze alone keeps the map's own deck (a dusk sky's) under its horizon.
         var own = air.Clouds == null ? lit.Clouds : null;
@@ -112,22 +229,47 @@ public sealed class WeatherSky
         if (air.Clouds is { } clouds)
         {
             var light = ((around.Sky + around.Ground) * 0.5f).Length() / NightAround;
+            var colour = Linear(clouds.Colour) * Math.Clamp(light, 0.3f, 4f);
             layer = layer with
             {
-                Colour = Linear(clouds.Colour) * Math.Clamp(light, 0.3f, 4f) + Storm.FlashSky * (flash * FlashDeck),
+                Colour = DeckQuality == CloudQuality.Flat ? colour : Albedo(clouds.Colour),
                 Height = clouds.HeightMetres * Storm.UnitsPerMetre,
                 Scale = clouds.SizeMetres * Storm.UnitsPerMetre,
-                Drift = air.CloudDrift,
-                Underlight = FireUnderlight * (fires * clouds.FireGlow) + Storm.FlashLight * (flash * FlashUnder),
-                UnderlightWay = flash > 0f ? way : Vector3.Zero,
+                Drift = drift,
+                Underlight = FireUnderlight * (fires * clouds.FireGlow),
+                Quality = DeckQuality,
+                Volume = VolumeOf(clouds),
             };
         }
 
         return lit with
         {
-            Sun = lit.Sun * (1f - CoveredLight * cover),
             Stars = cover >= Overcast ? null : lit.Stars,
             Clouds = layer,
+        };
+    }
+
+    /// <summary>The volume's albedo of a deck's colour <paramref name="srgb"/> (the flat deck shows its
+    /// colour, the volume is lit): the default colour's at <see cref="VolumeAlbedo"/>, the rest as bright.</summary>
+    public static Vector3 Albedo(Vector3 srgb) =>
+        Vector3.Min(Linear(srgb) * (VolumeAlbedo / Luma(Linear(CloudTable.Defaults.Colour))), Vector3.One);
+
+    /// <summary>The volumetric deck of <paramref name="clouds"/>: the engine's in world units, its base
+    /// at the deck's height, its cells by the deck's size.</summary>
+    public static CloudVolume VolumeOf(CloudTable clouds)
+    {
+        const float U = Storm.UnitsPerMetre;
+        var d = new CloudVolume();
+        var cell = clouds.SizeMetres * U * VolumeCells;
+        return d with
+        {
+            Base = clouds.HeightMetres * U,
+            Thickness = DeckMetres * U,
+            Density = d.Density / U,
+            WeatherScale = cell,
+            ShapeScale = cell * (d.ShapeScale / d.WeatherScale),
+            DetailScale = cell * (d.DetailScale / d.WeatherScale),
+            Reach = d.Reach * U,
         };
     }
 
@@ -142,7 +284,7 @@ public sealed class WeatherSky
         }
 
         var end = MathF.Min(haze.VisibilityMetres * Storm.UnitsPerMetre, cue.End);
-        var colour = Linear(haze.Colour) + Storm.FlashSky * (flash * FlashHaze);
+        var colour = Linear(haze.Colour) + FlashSky * (flash * FlashHaze);
         var from = Linear(new Vector3(cue.Colour.X, cue.Colour.Y, cue.Colour.Z));
         var mixed = Vector3.Lerp(cue.Colour.W > 0f ? from : colour, colour, haze.Density);
         return cue with

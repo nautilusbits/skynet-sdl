@@ -90,6 +90,14 @@ public sealed class MissionScreen : MenuScreen
         _clock += seconds;
     }
 
+    /// <summary>The mission's place in the campaign, as DOS's stats screen counts it ("Level NN",
+    /// 0x12cdb2): Future Shock's table skips 4 and 8; its number when the table has none.</summary>
+    private static int Ordinal(MissionBriefing m)
+    {
+        var table = Campaign.MissionTable.Playable(m.Game);
+        return table.ByNumber(m.Mission) is { } mission ? table.IndexOf(mission) + 1 : m.Mission;
+    }
+
     public static IReadOnlyList<BriefingPage> BuildPages(MissionBriefing m)
     {
         var pages = new List<BriefingPage>();
@@ -99,13 +107,13 @@ public sealed class MissionScreen : MenuScreen
             : ($"BRIEF{m.Map:D3}.IMG", ScenePalette);
         if (m.Briefing is not { } brief)
         {
-            pages.Add(new BriefingPage(scene, scenePal, $"MISSION {m.Mission}", ""));
+            pages.Add(new BriefingPage(scene, scenePal, $"MISSION {Ordinal(m)}", ""));
             return pages;
         }
 
         if (brief.Objectives.Length > 0)
         {
-            pages.Add(new BriefingPage(scene, scenePal, $"MISSION {m.Mission}  OBJECTIVES{(m.Restart ? " - RESTART" : "")}", m.Pilot.Expand(brief.Objectives)));
+            pages.Add(new BriefingPage(scene, scenePal, $"MISSION {Ordinal(m)}  OBJECTIVES{(m.Restart ? " - RESTART" : "")}", m.Pilot.Expand(brief.Objectives)));
         }
 
         foreach (var line in brief.Lines.Where(l => l.Text.Length > 0))
@@ -115,7 +123,7 @@ public sealed class MissionScreen : MenuScreen
 
         if (pages.Count == 0)
         {
-            pages.Add(new BriefingPage(scene, scenePal, $"MISSION {m.Mission}", ""));
+            pages.Add(new BriefingPage(scene, scenePal, $"MISSION {Ordinal(m)}", ""));
         }
 
         return pages;

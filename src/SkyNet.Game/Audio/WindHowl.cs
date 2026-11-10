@@ -18,11 +18,11 @@ public static class WindHowl
     public const int Rate = RainHiss.Rate;
     /// <summary>The loop's length and its crossfade (seconds).</summary>
     public const float Seconds = 8f, Overlap = 1f;
-    /// <summary>The loop's level (RMS).</summary>
-    public const float HowlRms = 0.3f;
+    /// <summary>The loop's level (RMS): low enough that its peaks fit under <see cref="RainHiss.Peak"/>.</summary>
+    public const float HowlRms = 0.18f;
     /// <summary>The howl's gain at a table's full volume in a <see cref="Enhanced.Air.HowlMetres"/> wind:
     /// a bed well under the game's sounds (about -20 dB under a gunshot).</summary>
-    public const float Gain = 0.12f;
+    public const float Gain = 0.2f;
     /// <summary>The band-passes' pitch is set anew every this many samples.</summary>
     private const int Block = 64;
 

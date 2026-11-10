@@ -43,9 +43,9 @@ public class ThrowTests
         var molotov = Assert.Single(weapons.Projectiles);
         Assert.Equal(15, molotov.Weapon.Index);
 
-        // Both held: the UZI fires again after its 0.2 s while the throw waits out its second.
+        // Both held: the UZI fires every 8 DOS frames while the throw waits out its 36 (62 ticks).
         fired.Clear();
-        for (var t = 1; t < 60; t++)
+        for (var t = 1; t < 62; t++)
         {
             weapons.Tick(new WeaponInput(Fire: true, Throw: true, Run: false), shooter, Dt);
         }
@@ -56,7 +56,12 @@ public class ThrowTests
         Assert.Contains((15, true), fired);
         Assert.Equal(18, inv.AmmoFor(15));
 
-        // The first molotov came down on the floor and burst there.
+        // The first molotov came down on the floor and burst there (DOS's arc: 1.5 s to fall 100).
+        for (var t = 0; t < 30; t++)
+        {
+            weapons.Tick(new WeaponInput(Fire: false, Throw: false, Run: false), shooter, Dt);
+        }
+
         Assert.Contains(reports, r => r.Weapon == 15 && r.What == "burst");
     }
 

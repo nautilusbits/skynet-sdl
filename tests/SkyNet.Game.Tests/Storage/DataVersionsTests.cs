@@ -189,6 +189,31 @@ public sealed class DataVersionsTests : IDisposable
         Assert.Equal(["A.BSA", "B.BSA", "C.BSA"], DataVersions.Differs(near, []));
     }
 
+    // Players' archives, from their logs (#41, #42): every one of them saw UNKNOWN GAME DATA.
+    private static readonly DataFile SkyNetImages =
+        new("MDMDIMGS.BSA", 5424890, "590aa45d52b272b50c732ec809b8484603e9c83a78d09b1f765c39ca6341a878");
+    private static readonly DataFile ShockBriefs =
+        new("MDMDBRIF.BSA", 171857, "1ace67ac45bf487c78c62826cc8f87573b3df54f28306613fcb55fa35c6d3a44");
+    private static readonly DataFile ShockBriefsB =
+        new("MDMDBRIF.BSA", 171857, "f8c28ee2793d828def715377334d3f5c66e2821661ffb7e900423312d5af7298");
+
+    // A known release of game with one archive swapped for the player's.
+    private static List<DataFile> Swapped(GameKind game, DataFile file) =>
+        KnownData.Of(game)[0].Select(f => f.Name == file.Name ? file : f).ToList();
+
+    [Fact]
+    public void The_players_skynet_release_is_known()
+    {
+        Assert.Empty(DataVersions.Differs(Swapped(GameKind.SkyNet, SkyNetImages), KnownData.Of(GameKind.SkyNet)));
+    }
+
+    [Fact]
+    public void Future_shock_before_v130_is_known()
+    {
+        Assert.Empty(DataVersions.Differs(Swapped(GameKind.FutureShock, ShockBriefs), KnownData.Of(GameKind.FutureShock)));
+        Assert.Empty(DataVersions.Differs(Swapped(GameKind.FutureShock, ShockBriefsB), KnownData.Of(GameKind.FutureShock)));
+    }
+
     [Fact]
     public void The_hires_archive_may_be_missing()
     {

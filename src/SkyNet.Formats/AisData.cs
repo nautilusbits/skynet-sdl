@@ -120,6 +120,9 @@ public sealed class EnemyType
     public int? VerticalAccel { get; init; }
     public int? AvoidRadius { get; init; }
     public int? ForwardSpeed { get; init; }
+    /// <summary>A hover's shape (dw5 → {x, y, z, r}): |y|, how far above the soldier's trail it
+    /// flies (0x1375e6).</summary>
+    public int? ShapeHeight { get; init; }
     /// <summary>Null when the layout has no fire fields or rate or range is not positive (the type never shoots).</summary>
     public AisFire? Fire { get; init; }
     /// <summary>First op of the AIS script (VA), when the layout has a script that points into the image.</summary>
@@ -161,7 +164,7 @@ public sealed class AisData
     public const int RecordSize = 0x1C;
     public const int AmmoStride = 0x32;
     public const int AmmoCount = 25;
-    /// <summary>Dormant traps (state 12, marker sub+2 ≠ 0): the effect bank and the sound of the bang.</summary>
+    /// <summary>Dormant robots (state 12, marker sub+2 ≠ 0): the teleport-in effect bank and sound.</summary>
     public const int TrapEffectBank = 367, TrapSound = 0x26;
 
     // v1.00 handler addresses; a build adds its CodeShift.
@@ -185,12 +188,12 @@ public sealed class AisData
     /// <summary>Parameter-block indices per AI state (the Godot generator's LAYOUT).</summary>
     sealed record Layout(int Speed = -1, int Near = -1, int Turn = -1, int Axis = -1, int AMin = -1, int AMax = -1,
         int Range = -1, int Alt = -1, int VAccel = -1, int Avoid = -1, int FSpeed = -1, int[]? Fire = null,
-        int Script = -1, int Events = -1, int Engine = -1);
+        int Script = -1, int Events = -1, int Engine = -1, int Shape = -1);
 
     static readonly Dictionary<int, Layout> Layouts = new()
     {
         [7] = new(Speed: 4, Near: 6, Turn: 7, Fire: [11, 12, 13, 14, 15, 18, 19, 16], Script: 26, Events: 29),
-        [6] = new(Speed: 4, Near: 6, Turn: 7, Fire: [12, 13, 14, 15, 16, 19, 20, 17], Script: 21),
+        [6] = new(Speed: 4, Near: 6, Turn: 7, Fire: [12, 13, 14, 15, 16, 19, 20, 17], Script: 21, Shape: 5),
         [2] = new(Axis: 4, AMin: 5, AMax: 6, Turn: 7, Range: 8, Fire: [12, 13, 14, 15, 16, 19, 20, 17]),
         [8] = new(Axis: 4, AMin: 5, AMax: 6, Turn: 7, Range: 8, Fire: [12, 13, 14, 15, 16, 19, 20, 17], Script: 24, Events: 27),
         [9] = new(Speed: 4, Turn: 5, Alt: 6, VAccel: 7, Avoid: 8, FSpeed: 9, Fire: [17, 18, 19, 20, 21, 24, 25, 22], Script: 14, Engine: 26),
@@ -275,6 +278,7 @@ public sealed class AisData
         if (lay.Fire is { } fi && p[fi[5]] > 0 && p[fi[6]] > 0)
             fire = new AisFire(p[fi[0]], p[fi[1]], p[fi[2]], p[fi[3]], p[fi[4]], p[fi[5]], p[fi[6]], p[fi[7]]);
 
+        int? shape = lay.Shape >= 0 && IsPointer(p[lay.Shape]) ? Math.Abs(_exe.I32((uint)p[lay.Shape] + PointerBase + 4)) : null;
         uint? script = null;
         if (lay.Script >= 0 && IsPointer(p[lay.Script]))
         {
@@ -344,7 +348,7 @@ public sealed class AisData
             HitPoints = Math.Clamp(p[0], 0, 0x7FFF),
             Speed = F(lay.Speed), Near = F(lay.Near), Turn = F(lay.Turn), Axis = F(lay.Axis),
             AngleMin = F(lay.AMin), AngleMax = F(lay.AMax), Range = F(lay.Range), Altitude = F(lay.Alt),
-            VerticalAccel = F(lay.VAccel), AvoidRadius = F(lay.Avoid), ForwardSpeed = F(lay.FSpeed),
+            VerticalAccel = F(lay.VAccel), AvoidRadius = F(lay.Avoid), ForwardSpeed = F(lay.FSpeed), ShapeHeight = shape,
             Fire = fire,
             ScriptVa = script,
             Events = events.ToImmutable(),

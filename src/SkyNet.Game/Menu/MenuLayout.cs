@@ -26,6 +26,12 @@ public static class MenuLayout
     /// <summary>Future Shock's loading art: its own T-800 title still (MDMDIMGS.BSA) and palette.</summary>
     public const string ShockLoadingImage = "DEMOSCR3.IMG";
     public const string ShockLoadingPalette = "DEMOSCR3.COL";
+    /// <summary>The demo menu's BEGIN and DOS buttons baked into DEMOSCR3.IMG's top corners, shadows
+    /// included: a loading frame has no buttons.</summary>
+    public static readonly Rectangle[] ShockLoadingButtons = [new(0, 0, 56, 15), new(274, 0, 46, 15)];
+    /// <summary>Each button covered by the plain background strip just below it (rows 15-29).</summary>
+    public static readonly (Rectangle Source, Rectangle Target)[] ShockLoadingPatches =
+        [.. ShockLoadingButtons.Select(b => (b with { Y = b.Bottom }, b))];
     public const string TitleBar = "MAIN1.IMG";
     public const string GameBar = "MAIN2.IMG";
     public const int BarHeight = 17;

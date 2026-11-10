@@ -29,6 +29,7 @@ public class FlyingMineTests
         robots.Populate(map);
         var mine = robots.All.Where(r => r.TypeIndex == GlobeType).ElementAt(globe);
         var feet = new Vector3(x, y, z);
+        robots.Tick(Dt, feet + new Vector3(10f, 0f, 0f));   // he steps up: a trail point a hover can take (0x13b7b6)
         for (var t = 0; t < Budget / Dt && mine.Alive; t++)
         {
             robots.Tick(Dt, feet);

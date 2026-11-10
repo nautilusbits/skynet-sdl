@@ -180,6 +180,7 @@ public static class TableSchemas
         VerticalAccel = OptI(r, "verticalAccel"),
         AvoidRadius = OptI(r, "avoidRadius"),
         ForwardSpeed = OptI(r, "forwardSpeed"),
+        ShapeHeight = OptI(r, "shapeHeight"),
         Fire = r.Member("fire") is { IsNull: false } f
             ? new AisFire(I(f, "muzzleX"), I(f, "muzzleY"), I(f, "muzzleZ"), I(f, "ammo"), I(f, "speed"), I(f, "rate"), I(f, "range"), I(f, "aimGate"))
             : null,
@@ -197,7 +198,7 @@ public static class TableSchemas
         .Add("state", e.State).Add("params", Ints(e.Params)).Add("hitPoints", e.HitPoints).Add("speed", e.Speed).Add("near", e.Near)
         .Add("turn", e.Turn).Add("axis", e.Axis).Add("angleMin", e.AngleMin).Add("angleMax", e.AngleMax).Add("range", e.Range)
         .Add("altitude", e.Altitude).Add("verticalAccel", e.VerticalAccel).Add("avoidRadius", e.AvoidRadius)
-        .Add("forwardSpeed", e.ForwardSpeed)
+        .Add("forwardSpeed", e.ForwardSpeed).Add("shapeHeight", e.ShapeHeight)
         .Add("fire", e.Fire is { } f
             ? JsonItem.NewObject().Add("muzzleX", f.MuzzleX).Add("muzzleY", f.MuzzleY).Add("muzzleZ", f.MuzzleZ).Add("ammo", f.Ammo)
                 .Add("speed", f.Speed).Add("rate", f.Rate).Add("range", f.Range).Add("aimGate", f.AimGate)

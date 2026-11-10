@@ -28,6 +28,13 @@ public interface IDamageable
     float BlastPad => Blast.Pad;
     /// <summary>Where a blast measures its distance to: a robot's or record's origin, else the centre.</summary>
     Vector3 BlastOrigin => Centre;
+    /// <summary>The whole a part belongs to (a robot's segment: its robot): a shot passes through its
+    /// shooter's own parts.</summary>
+    object Body => this;
+
+    /// <summary>Where a unit ray first meets the target within <paramref name="max"/>; by default its sphere.</summary>
+    bool Ray(Vector3 origin, Vector3 direction, float max, out float distance) =>
+        DamageTargets.RaySphere(origin, direction, Centre, Radius, out distance) && distance <= max;
 }
 
 /// <summary>The targets of a level: by collision owner (map entity file offset, <see cref="Hit.Owner"/>)
@@ -86,12 +93,12 @@ public sealed class DamageTargets
         IDamageable? best = null;
         foreach (var t in _spheres)
         {
-            if (t == ignore || !t.Alive || t.Radius <= 0f)
+            if (t == ignore || (ignore != null && t.Body == ignore.Body) || !t.Alive || t.Radius <= 0f)
             {
                 continue;
             }
 
-            if (RaySphere(origin, direction, t.Centre, t.Radius, out var d) && d <= distance)
+            if (t.Ray(origin, direction, distance, out var d))
             {
                 (distance, best) = (d, t);
             }

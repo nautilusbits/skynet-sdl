@@ -8,7 +8,8 @@ namespace SkyNet.Game.Enemies;
 /// ROBOT AI IMPROVED (<see cref="RobotAi.Improved"/>). DOS's states, scripts, attacks, weapons and
 /// damage stay; only how a robot moves and when it fires change:
 /// <code>
-///   flyers   swept body (never inside the level) + look-ahead: turn or climb round props
+///   flyers   swept body (never inside the level) + look-ahead: turn or climb round props;
+///            hovers keep apart from other hovers
 ///   walkers  probe ahead (middle and shoulders) → follow the obstacle round; no progress for 1 s →
 ///            back off;
 ///            keep apart from other robots
@@ -737,6 +738,73 @@ public sealed partial class Enemy
         var way = _avoidT > 0f ? Forward : MineWay(see, player - Position);
         var motion = way * (speed * dt) + new Vector3(0f, Lift(dt, speed, see, player), 0f);
         _blocked = Slide(hull, motion);
+        FlyApart(dt, hull);
+    }
+
+    /// <summary>The hover's keep-apart reach: half its largest side.</summary>
+    private float FlyRoom => MathF.Max(BodySize * 0.5f, 20f);
+    /// <summary>Kept beyond the touch, so the chase drawing them in does not close the gap (units).</summary>
+    private const float FlySlack = 8f;
+
+    /// <summary>A hover that keeps apart: not an HK (state 9), not a mine (it goes for the soldier).</summary>
+    private bool Spreads => IsFlying && State != 9 && !IsKamikaze;
+
+    /// <summary>Two hovers closer than their reaches push this one out sideways, up to its
+    /// speed, sliding along the level. DOS lets them pass through each other (robots carry 0x20, the
+    /// hover's slide masks it, 0x13b35e): a group on the soldier's trail stacked into one.</summary>
+    private void FlyApart(float dt, SphereBody hull)
+    {
+        if (!Spreads)
+        {
+            return;
+        }
+
+        var push = Vector3.Zero;
+        var all = _ctx.All;
+        for (var i = 0; i < all.Count; i++)
+        {
+            var o = all[i];
+            if (o == this || !o.Alive || !o.Spreads)
+            {
+                continue;
+            }
+
+            var room = FlyRoom + o.FlyRoom + FlySlack;
+            if (Vector3.DistanceSquared(Centre, o.Centre) >= room * room)
+            {
+                continue;
+            }
+
+            // On one spot: a heading fixed by the pair's places in the list, opposite for each (no dice).
+            var d = Flat(Centre - o.Centre);
+            var len = d.Length();
+            if (len < 1e-3f)
+            {
+                var me = 0;
+                while (all[me] != this)
+                {
+                    me++;
+                }
+
+                var (lo, hi) = me < i ? (me, i) : (i, me);
+                d = Heading(lo * 2.4f + hi * 1.1f) * (me < i ? 1f : -1f);
+                len = 0f;
+            }
+            else
+            {
+                d /= len;
+            }
+
+            push += d * (room - len) * 0.5f;
+        }
+
+        var size = push.Length();
+        if (size < 1e-3f)
+        {
+            return;
+        }
+
+        Slide(hull, push / size * MathF.Min(size, MathF.Max(MoveSpeed, 30f) * dt));
     }
 
     /// <summary>A clear way round what lies ahead: a turn toward the goal's side first, the climb

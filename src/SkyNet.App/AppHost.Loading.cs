@@ -86,7 +86,7 @@ internal sealed partial class AppHost
         menuPainter.FillWindow(MenuPainter.Black);
         // Future Shock shows its own art; SkyNET (or FS data without it) the SkyNET title.
         var shockArt = data.Game == GameKind.FutureShock
-            && menuPainter.OwnImage(MenuLayout.ShockLoadingImage, MenuLayout.ShockLoadingPalette, 0, 0);
+            && menuPainter.OwnImage(MenuLayout.ShockLoadingImage, MenuLayout.ShockLoadingPalette, 0, 0, MenuLayout.ShockLoadingPatches);
         if (!shockArt)
         {
             menuPainter.Image(MenuLayout.TitleImage, MenuLayout.TitlePalette, 0, 0);

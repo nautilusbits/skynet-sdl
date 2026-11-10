@@ -68,7 +68,7 @@
 210 07fcb EF use:eye/3d/r60+26/always/nolatch chain[07fcb* 07fa7:DB 07f83:F0] first[snd40 exit214/0] second[-] 4f971edd
 210 0808b A9 chain chain[0808b 07d0f:E3 093a2:E0] first[-] second[-] 1f4a68e9
 210 08824 00 - chain[08824] first[-] second[-] bc124674
-210 0886b EF use:eye/3d/r600/always/nolatch chain[0886b* 088e2:E1 08947:32 07f53:DD] first[snd46 snd42 move@08947:jumpY-512] second[snd46 snd42 move@08947:jumpY+512] 4b78b00e
+210 0886b EF use:eye/3d/r600/always/nolatch chain[0886b* 088e2:E1 08947:32 07f53:DD] first[snd46 snd42 move@08947:jumpY+512] second[snd46 snd42 move@08947:jumpY-512] 4b78b00e
 210 088e2 E1 chain chain[088e2 08947:32 07f53:DD] first[-] second[-] bdeeba6d
 210 08947 32 chain chain[08947 07f53:DD] first[-] second[-] cd6eb0ad
 210 08981 00 - chain[08981] first[-] second[-] f4864475

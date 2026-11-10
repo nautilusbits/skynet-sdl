@@ -1,5 +1,6 @@
 using System.Numerics;
 using SkyNet.Formats;
+using SkyNet.Game.Weapons;
 
 namespace SkyNet.Game.Enemies;
 
@@ -9,8 +10,10 @@ namespace SkyNet.Game.Enemies;
 /// axis; a machine segment (state 10: the grabber and welding arms) runs its own AIS script.
 /// <see cref="Local"/> is DOS's FUN_0014e100 placement in Y-up axes (as Level places segments):
 /// Ry(yaw)·Rx(pitch)·Rz(−roll) then the offset (x, −y, −z), for row vectors.
+/// <para>Each segment is its own map record (v1.01 0x129a9d → 0x13996e) and so its own target:
+/// its own hit points (its type's), struck by its own triangles and blasted by its own distance.</para>
 /// </summary>
-public sealed class EnemyPart
+public sealed partial class EnemyPart : IDamageable
 {
     public EnemyPart(int typeIndex, EnemyType? type, EnemyModelInfo? model, EnemyPart? parent, Vector3 offset, float yaw, float pitch, float roll)
     {
@@ -22,6 +25,7 @@ public sealed class EnemyPart
         RestYaw = Yaw = yaw;
         RestPitch = Pitch = pitch;
         Roll = roll;
+        Hp = FullHp;
     }
 
     public int TypeIndex { get; }
@@ -40,8 +44,8 @@ public sealed class EnemyPart
     public int Frame { get; set; }
     /// <summary>A machine segment's own script (state 10).</summary>
     public AisBrain? Brain { get; set; }
-    /// <summary>Seconds until this shooter may fire again.</summary>
-    public float Cooldown { get; set; }
+    /// <summary>A twin gun's muzzle X stands swapped (a negative bolt speed swaps it each shot, 0x137d66).</summary>
+    public bool MuzzleSwapped { get; set; }
     /// <summary>Where the segment is in the world (after <see cref="Enemy.UpdateTransforms"/>).</summary>
     public Matrix4x4 World { get; set; } = Matrix4x4.Identity;
 

@@ -25,7 +25,7 @@ namespace SkyNet.Game.Baking;
 public static class MapBaker
 {
     /// <summary>The baker's own version: bump it when what a bake produces changes (a stale block is rebaked).</summary>
-    public const string ToolVersion = "8";
+    public const string ToolVersion = "13";
 
     /// <summary>The side of the map cells the static batch is split by, world units.</summary>
     public const float CellSize = 1024f;
@@ -198,6 +198,8 @@ public static class MapBaker
         // The items on roofs and beams stand on the meshes' tops.
         var (sprites, spriteCount, pickups) = BakeSprites(map, textures, wld, Meshes(colliders));
         var created = textures.Created;
+        // The shipped light rows are baked into the lamps: a changed row bakes the map again.
+        inputs.Read(BakeInputs.LightsOf(number));
         var lamps = EmissiveLamps.ForMap(data, map, number, LevelLights.ArtLampMaxFraction);
 
         // Everything else read: the texture banks (the ground's tiles, the models', the sprites').
@@ -318,7 +320,11 @@ public static class MapBaker
                 groups[(e.SpriteIndex, phase)] = list = [];
             }
 
-            list.Add((new Vector3(e.X, baseY + size.Y / 2f, -e.Z), size, e.FileOffset));
+            // DOS centres the picture on the record (0x136f3f mode 1 → 0x14f0dc), outdoors too:
+            // lamps hang (#45, #52). Outdoors scenery never under the ground (records under the
+            // port's terrain stay on it); items keep their floor (#21; the pickups' feet).
+            var centreY = !map.IsOutdoor ? -e.Y : item ? baseY + size.Y / 2f : MathF.Max(-e.Y, baseY + size.Y / 2f);
+            list.Add((new Vector3(e.X, centreY, -e.Z), size, e.FileOffset));
             count++;
             if (item)
             {
@@ -468,7 +474,14 @@ public static class MapBaker
                     cells[(cell.Z, cell.X)] = part = ([], []);
                 }
 
+                var at = part.V.Count;
                 StaticBatch.Place(s, world, shade, part.V, part.I);
+
+                // Whole units: neighbours that miss by a fraction (FS sewers: 59.12 against 59) meet (#55).
+                for (var i = at; i < part.V.Count; i++)
+                {
+                    part.V[i] = part.V[i] with { Position = Vector3.Round(part.V[i].Position) };
+                }
             }
         }
 
@@ -541,6 +554,9 @@ public sealed class BakeInputs(GameData data, BakeTables? tables = null) : IDisp
     public const string TablePrefix = "TABLE:";
     /// <summary>A map layer with edits (<see cref="Mods.MapLayer"/>): <c>LAYER:MAP.210</c>.</summary>
     public const string LayerPrefix = "LAYER:";
+    /// <summary>A map's shipped light rows (data/lights): <c>LIGHTS:MAP.583</c>.</summary>
+    public const string LightsPrefix = "LIGHTS:" + MapTag;
+    private const string MapTag = "MAP.";
 
     /// <summary>The enemy type table's geometry (each type's model and child segments: what the robots'
     /// rest pose is built from; its AI fields do not change a block).</summary>
@@ -550,6 +566,9 @@ public sealed class BakeInputs(GameData data, BakeTables? tables = null) : IDisp
     private ImmutableArray<EnemyType>? _enemyTypes;
 
     public BakeTables Tables => _tables;
+
+    /// <summary>The input of MAP.<paramref name="map"/>'s shipped light rows.</summary>
+    public static string LightsOf(int map) => $"{LightsPrefix}{map:D3}";
 
     /// <summary>The enemy types from <see cref="Tables"/>, remembered as the input <see cref="EnemyTypesInput"/>.</summary>
     public ImmutableArray<EnemyType> EnemyTypes()
@@ -679,6 +698,11 @@ public sealed class BakeInputs(GameData data, BakeTables? tables = null) : IDisp
         if (name.StartsWith(LayerPrefix, StringComparison.Ordinal))
         {
             return Mods.MapLayers.EditBytes(_tables.Layers, name[LayerPrefix.Length..]);
+        }
+
+        if (name.StartsWith(LightsPrefix, StringComparison.Ordinal))
+        {
+            return LampSpots.ShippedRowsOf(data.Game, int.Parse(name.AsSpan(LightsPrefix.Length), CultureInfo.InvariantCulture));
         }
 
         if (name == EnemyTypesInput)

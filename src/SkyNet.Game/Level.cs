@@ -145,6 +145,8 @@ public sealed partial class Level
     private Material _duskSkyMaterial;
     private int _duskSkyIndices;
     private readonly List<SpriteGroup> _sprites = [];
+    /// <summary>The billboards a jump act moves (Bishop's live and dead pictures, #59).</summary>
+    private readonly List<int> _jumpSprites = [];
     private IndoorShading? _shading;
     private MeshHandle _moon;
     private TextureHandle _waterTable;
@@ -447,6 +449,15 @@ public sealed partial class Level
             frame.Hidden.UnionWith(HiddenSprites);
         }
 
+        frame.Shifts.Clear();
+        foreach (var off in _jumpSprites)
+        {
+            if (Poses != null && Poses.TryGetPose(off, alpha, out var p))
+            {
+                frame.Shifts[off] = p.Delta.Translation;
+            }
+        }
+
         frame.Drops.Clear();
         if (Drops != null)
         {
@@ -554,7 +565,7 @@ public sealed partial class Level
         var hidden = frame.Hidden;
         foreach (var g in _sprites)
         {
-            if (DrawSpriteModels(g, hidden, now))
+            if (DrawSpriteModels(g, frame, now))
             {
                 continue;
             }
@@ -574,6 +585,7 @@ public sealed partial class Level
                 }
 
                 var (centre, size) = g.Sprites[i];
+                centre += frame.Shifts.GetValueOrDefault(g.Offsets[i]);
                 // Turned about Y to face the eye (the Godot port's fixed-Y billboard).
                 var angle = MathF.Atan2(eye.X - centre.X, eye.Z - centre.Z);
                 g.Scratch[n++] = new Instance(Matrix4x4.CreateScale(size.X, size.Y, 1f) * Matrix4x4.CreateRotationY(angle) * Matrix4x4.CreateTranslation(centre));
@@ -814,6 +826,12 @@ public sealed partial class Level
                 [.. g.Sprites.Select(s => s.Offset)], new Instance[g.Sprites.Length], material, EmissiveLamps.IsFire(g.Index), g.Index));
             foreach (var s in g.Sprites)
             {
+                if (Map.TryGetEntityAt(s.Offset, out var e) && ActRules.IsMover(e.ActType)
+                    && ActRules.Mover(e.ActType).Family == MoverFamily.Jump)
+                {
+                    _jumpSprites.Add(s.Offset);
+                }
+
                 if (FireFlames.Of(g.Index, s.Centre - new Vector3(0f, s.Size.Y / 2f, 0f), s.Size.X, s.Size.Y, s.Offset) is { } flame)
                 {
                     _fireSprites.Add((s.Offset, flame));
@@ -1006,6 +1024,8 @@ public sealed class LevelFrame
     internal EntityPose[] Poses = [];
     /// <summary>The sprites not drawn, by MAP file offset.</summary>
     internal readonly HashSet<int> Hidden = [];
+    /// <summary>The jumped billboards' moves from their records, by MAP file offset.</summary>
+    internal readonly Dictionary<int, Vector3> Shifts = [];
     internal readonly List<Campaign.DroppedSprite> Drops = [];
     internal float? WaterSurface;
     internal bool WaterPass;

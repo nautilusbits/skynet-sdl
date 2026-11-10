@@ -83,7 +83,7 @@ public class WeaponTests
     }
 
     [Fact]
-    public void UziFiresFiveTimesASecond()
+    public void UziFiresEveryEightDosFrames()
     {
         var inv = new Inventory(WeaponTable.Shipped);
         Assert.Equal(1, inv.Primary);
@@ -97,7 +97,7 @@ public class WeaponTests
             }
         }
 
-        Assert.Equal([0, 12, 24, 36, 48], shots);
+        Assert.Equal([0, 14, 28, 42, 55], shots); // 8/35 s apart (FireRateTests)
         Assert.Equal(495, inv.Pool(0));
     }
 
@@ -117,9 +117,9 @@ public class WeaponTests
         Assert.Equal(19, inv.Pool(6));
         Assert.Equal(FireResult.Cooling, inv.TryThrow());
         Assert.True(inv.SelectThrown(16));                // grenade: pool 2 starts empty
-        inv.Tick(1f);
+        inv.Tick(inv.Table.Weapons[15].Cooldown);         // rate 1: 36 DOS frames
         Assert.Equal(FireResult.Empty, inv.TryThrow());
-        Assert.Equal(1f, inv.ThrowCooldown, 4);
+        Assert.Equal(36f / 35f, inv.ThrowCooldown, 4);
         Assert.False(inv.Select(3));                      // the machine gun is not in the start kit
         Assert.True(inv.Cycle(1));                        // shotgun → laser rifle (5, 6 not owned)
         Assert.Equal(7, inv.Primary);
@@ -152,14 +152,14 @@ public class WeaponTests
         var weapons = new WeaponSystem(WeaponTable.Shipped, world);
         var reports = new List<ShotReport>();
         weapons.Reported += reports.Add;
-        // Looking +X (yaw −90°): thrown at 500 ahead and 392 up.
+        // Looking +X (yaw −90°): thrown at 500 along the view tipped half up, falling at 392.
         var shooter = new Shooter(Vector3.Zero, -MathF.PI / 2f, 0f);
         weapons.Tick(new WeaponInput(Fire: false, Throw: true, Run: false, SelectThrown: 14), shooter, Dt);
         var p = Assert.Single(weapons.Projectiles);
         Vector3 before = default;
         for (var i = 0; i < 120 && p.Bounces == 0; i++)
         {
-            before = p.Velocity - new Vector3(0, Projectile.Gravity * Dt, 0);
+            before = p.Velocity - new Vector3(0, p.Fall * Dt, 0);
             weapons.Tick(default, shooter, Dt);
         }
 

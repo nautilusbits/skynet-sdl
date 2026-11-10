@@ -3,6 +3,66 @@
 Version in `Directory.Build.props`. Each batch of changes raises it: a fix
 the patch number, a feature the minor. Releases on GitHub start at 1.0.0.
 
+## 1.6.2 (2026-11-11)
+
+Fixes from GitHub issues #39-#61, most of them to match DOS. RetroEng
+0.66.1.
+
+Robots
+- Each part of a robot has its own hit points, as in DOS: shoot a gun
+  off a turret, a tank or a T-Rex and it stops firing; only the body
+  kills the robot. Shots hit the parts' triangles, not a sphere, so the
+  laser drone is no longer too easy to hit (#58, #47). Shot-off parts
+  stay off when you come back to a map and are kept in saves.
+- Teleport-in robots stay hidden and out of reach until you come near,
+  then appear with their effect and sound (#54, #45, #56).
+- Flencers and other hovers fly at you and follow your trail (#50); in
+  IMPROVED they keep apart instead of stacking.
+- Robots fire by DOS's roll (assumed 35 fps): more often, with slower
+  bolts (800 u/s); twin guns alternate barrels. Each turret and gun
+  looks out on its own.
+- Bishop (Future Shock MAP.151) can be shot (#59).
+
+Weapons
+- Keys 1-7 pick weapon groups and cycle within them, as in DOS; 8 and
+  9 are gone. Picking up a weapon you have does not switch to it (#44).
+- Grenades and the grenade launcher fly DOS's arc, about twice as far.
+  Rockets lock on to what is under the crosshair (LOCK) and home (#44).
+- Fire rates and gun animation follow DOS; the laser rifle's scope no
+  longer jumps while firing.
+- ORIGINAL: hit and blast effects at DOS's size; a breaking crate's
+  blast sits on its near side (#44).
+- Wide screens: the rocket launcher's and plasma cannon's art reaches
+  the screen edge (#44).
+- ENHANCED: the painted muzzle flash is gone from the gun art, only the
+  new flash shows (#60); the flash shadows every shot of a burst
+  without popping the lamps' shadows (#61).
+
+Maps and missions
+- Radiation works in both games (#49).
+- No more stray "don't leave the area" hints where fence boxes overlap
+  (#56, #45); a shotgun lowers Future Shock's shot-switch platform
+  (#56); the mission ends after its last message (#45).
+- Sprites sit where DOS draws them: pickups and bodies on the floor,
+  lamps and chains hanging (#45, #52, #55, #56). Future Shock's sewer
+  seams are closed (#55).
+- A new game starts in full armour; health and armour carry into the
+  next mission (#40). Mission numbers in saves and briefings (#39).
+- Pickups are taken within reach of the eye (#48).
+- Jeep: DOS gravity, laser; HK: plasma; no speed shake (#46).
+- More known SkyNET and Future Shock data versions (#41, #42).
+
+Look and sound
+- ENHANCED: dark Future Shock interiors get light where a fixture
+  hangs; the hanging bulb lights in both games (#53). No grain on
+  robots far from the map's origin.
+- ENHANCED weather on RetroEng's weather system; rain and wind no
+  longer crackle.
+- Future Shock's loading screen without the demo's buttons.
+- Mouse look is read at draw time: about 1 ms from mouse to screen
+  (#51).
+- A crash on some GPUs entering the first container is fixed (#43).
+
 ## 1.6.1 (2026-11-06)
 
 A fix. RetroEng 0.63.0.

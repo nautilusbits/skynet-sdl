@@ -29,9 +29,11 @@ public class RobotBlastTests
         robots.Populate(map);
         var raptor = robots.All.First(r => r.Name == "raptor");
 
-        // 150 units off, level with its centre, aimed at it.
-        var eye = raptor.Centre + new Vector3(150f, 0f, 0f);
-        var to = raptor.Centre - eye;
+        // 150 units off, level with its body, aimed at it (its bounds' centre is air between the
+        // legs: shots strike the triangles, issue #58).
+        var body = Vector3.Transform(new Vector3(0f, 0f, 30f), raptor.Root.World);
+        var eye = body + new Vector3(150f, 0f, 0f);
+        var to = body - eye;
         var shooter = new Shooter(eye, MathF.Atan2(-to.X, -to.Z), 0f);
         soldier.Feet = eye + new Vector3(0f, -38f, 0f);
         weapons.Inventory.Grant(Shotgun);

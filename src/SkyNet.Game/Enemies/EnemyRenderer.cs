@@ -229,6 +229,12 @@ public sealed class EnemyRenderer(Renderer renderer, TextureStore textures, Text
         for (var s = 0; s < shot.Segments.Count && s < Skipped.Max; s++)
         {
             var segment = shot.Segments[s];
+            if (segment.Gone)
+            {
+                skipped = skipped.With(s);                // shot off (issue #58)
+                continue;
+            }
+
             if (segment.Model is { } model && Replaced(model, segment.Frame) is { } replaced)
             {
                 levels[s] = replaced.Pick(levels[s], LodView, segment.World);

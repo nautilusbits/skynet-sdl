@@ -34,8 +34,10 @@ for all five; record 17 is never owned.
 - The throw key (FUN_001263cc) throws only the selected item and **fails
   silently** when empty (dry sound −1). Rate 1/s on its own cooldown,
   separate from the gun's.
-- **Launch**: 500 u/s ahead plus 392 u/s up (weapon +0x1c); the satchel is
-  dropped at 50 u/s ahead.
+- **Launch** (0x1263cc): +0x18 (500; satchel 50) along the view's forward
+  minus half the view's down (0x38d88), normalised: 26.6° over the
+  crosshair at any pitch. +0x1c (392) is the shot's fall acceleration, not
+  a speed. No charge: holding THROW repeats at the rate.
 - **No fuse**: they go off on the first thing they touch.
 - **Bounce** (ammo flag +0x28 bit 0, routine 0x1233ea): velocity mirrored
   in the surface and scaled by 0xAAAB/0x10000 = 2/3 (FUN_0011c19a →
@@ -67,5 +69,4 @@ flies, bounces (`BOUNCE_KEEP`, `BOUNCE_DEAD_SPEED`, `BOUNCE_REST_SPEED`,
 
 ## Open questions
 
-- Exact gravity the gravity-family callback (0x000f3414) applies.
 - Record 17: whether any data path ever grants it.

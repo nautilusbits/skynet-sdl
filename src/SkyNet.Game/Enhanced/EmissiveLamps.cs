@@ -150,6 +150,7 @@ public static class EmissiveLamps
     /// <summary>The pendants of bank 204 drawn lit (204/15 broken and 204/17 switched off give none).</summary>
     private static readonly IReadOnlyDictionary<int, Bulb> LitBulbs = new Dictionary<int, Bulb>
     {
+        [26121] = new(new Vector3(1f, 0.94f, 0.84f), 0.15f, 700f, 0.4f),   // 204/009 hanging bulb, white
         [26123] = new(new Vector3(1f, 0.94f, 0.84f), 0.15f, 700f, 0.2f),   // 204/011 short, white
         [26130] = new(new Vector3(1f, 0.94f, 0.84f), 0.15f, 700f, 0.06f),  // 204/018 long, white
         [26131] = new(new Vector3(1f, 0.25f, 0.2f), 0.15f, 700f, 0.06f),   // 204/019 long, red
@@ -683,8 +684,8 @@ public static class EmissiveLamps
         * Matrix4x4.CreateRotationZ(-(float)MapFile.AngleRadians(e.Roll))
         * Matrix4x4.CreateTranslation(e.X, -e.Y, -e.Z);
 
-    /// <summary>The map's fire sprites (or those <paramref name="wanted"/> names) placed as <see cref="Level"/> places its billboards: the foot
-    /// on the ground outdoors, <see cref="Level.IndoorSpriteLift"/> under the record's Y indoors,
+    /// <summary>The map's fire sprites (or those <paramref name="wanted"/> names) placed as <see cref="Level"/> places its billboards:
+    /// centred on the record (outdoors never under the ground),
     /// the height of the record's largest frame at <see cref="Level.SpriteScale"/>.</summary>
     private static IEnumerable<FireSprite> FireSprites(GameData data, MapFile map, int number, Func<int, TextureBank?> bank, Func<int, bool> wanted)
     {
@@ -715,7 +716,9 @@ public static class EmissiveLamps
                 wldLoaded = true;
             }
 
-            var baseY = map.IsOutdoor && wld != null ? (float)wld.HeightAt(e.X, e.Z) : -e.Y - Level.IndoorSpriteLift;
+            // Centred on the record (DOS 0x136f3f), outdoors never under the ground: a lamp hangs (#45, #52).
+            var baseY = -e.Y - height / 2f;
+            baseY = map.IsOutdoor && wld != null ? MathF.Max(baseY, (float)wld.HeightAt(e.X, e.Z)) : baseY;
             yield return new FireSprite(e.SpriteIndex, new Vector3(e.X, baseY, -e.Z), height, e.FileOffset);
         }
     }

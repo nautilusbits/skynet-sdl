@@ -312,7 +312,7 @@ public sealed partial class Level
     /// <summary>Draws a sprite group as the model a mod maps its sprite to
     /// (<see cref="SpriteModels"/>), standing on each sprite's foot, in the enhanced look; false: none
     /// (the billboards are drawn).</summary>
-    private bool DrawSpriteModels(SpriteGroup g, HashSet<int> hidden, long now)
+    private bool DrawSpriteModels(SpriteGroup g, LevelFrame frame, long now)
     {
         if (SpriteModels.Drawn(g.Index, _enhanced ? Menu.Look.Enhanced : Menu.Look.Original) is not { } model)
         {
@@ -322,29 +322,35 @@ public sealed partial class Level
         _spriteModels ??= new SpriteModelView(_renderer, Palette, _kept);
         for (var i = 0; i < g.Sprites.Length; i++)
         {
-            if (hidden.Contains(g.Offsets[i]))
+            if (frame.Hidden.Contains(g.Offsets[i]))
             {
                 continue;
             }
 
             var (centre, size) = g.Sprites[i];
-            var foot = centre - new Vector3(0f, size.Y / 2f, 0f);
+            float? floorY = null;
             if (!Outdoor && _floors != null)
             {
                 if (!_spriteFeet.TryGetValue(g.Offsets[i], out var y))
                 {
-                    var record = foot + new Vector3(0f, IndoorSpriteLift, 0f);
-                    _spriteFeet[g.Offsets[i]] = y = SpriteFloor.Below(_floors, record) ?? foot.Y;
+                    var record = centre;
+                    _spriteFeet[g.Offsets[i]] = y = SpriteFloor.Below(_floors, record) ?? centre.Y - size.Y / 2f;
                 }
 
-                foot.Y = y;
+                floorY = y;
             }
 
+            var foot = ModelFoot(centre, size, frame.Shifts.GetValueOrDefault(g.Offsets[i]), floorY);
             _spriteModels.Draw(model, foot, size.Y, now / 1000f, g.Offsets[i], _lodView);
         }
 
         return true;
     }
+
+    /// <summary>Where a sprite's model stands: on <paramref name="floorY"/> (the floor under its
+    /// record) else its picture's foot, moved by its record's jump (<paramref name="shift"/>, #59).</summary>
+    internal static Vector3 ModelFoot(Vector3 centre, Vector2 size, Vector3 shift, float? floorY) =>
+        new Vector3(centre.X, floorY ?? centre.Y - size.Y / 2f, centre.Z) + shift;
 
     private void DrawReplacements()
     {

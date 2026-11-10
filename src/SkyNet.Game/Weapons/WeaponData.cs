@@ -19,11 +19,14 @@ public sealed record AmmoRecord(int Index, AmmoFamily Family, string Model, int 
     int EffectSize, int LifeTicks, int FireSound, int ImpactSound, int Reach, int Flags, int Pieces, int PieceType)
 {
     public const int FlagBounce = 0x01, FlagFollowCamera = 0x08, FlagHoming = 0x10;
+    /// <summary>+0x28 bit 2: the shot takes the lock and steers to it (0x126656, 0x12311f → 0x123fdc).</summary>
+    public const int FlagSteered = 0x04;
     /// <summary>The ammo lifetimes count about 35 ticks a second (120 = 3.4 s rockets).</summary>
     public const float TicksPerSecond = 35f;
 
     public bool Bounces => (Flags & FlagBounce) != 0;
     public bool FollowCamera => (Flags & FlagFollowCamera) != 0;
+    public bool Steered => (Flags & FlagSteered) != 0;
     public bool IsMelee => Reach > 0;
     public float Life => LifeTicks / TicksPerSecond;
     /// <summary>|damage|: the direct hit and, when <see cref="Blasts"/>, the blast strength.</summary>
@@ -45,8 +48,14 @@ public sealed record WeaponRecord(int Index, string Name, int AmmoType, int Spee
     public const int FlagAimed = 0x02;
 
     public bool Aimed => (Flags & FlagAimed) != 0;
-    /// <summary>Seconds between shots: DOS's cooldown is 0x10000 / rate in 16.16 seconds.</summary>
-    public float Cooldown => Rate > 0 ? 1f / Rate : 1f;
+    // The port's DOS frame rate (owner, 2026-11-09, as the robots' fire) and its frame time
+    // [0x43200] in 16.16 s: 0x1000000 / (35 << 8).
+    private const int DosFps = 35, DosFrameTime = 0x1000000 / (DosFps << 8);
+
+    /// <summary>Seconds between shots: DOS arms 0x10000 / rate (16.16 s, 0x1261b1), takes each
+    /// frame's time off (0x125b76) and fires on the first frame below 1: whole frames at 35 fps
+    /// (UZI 5 → 8 frames, 4.4/s; laser 6 → 6, 5.8/s).</summary>
+    public float Cooldown => Rate > 0 ? (0x10000 / Rate + DosFrameTime - 1) / DosFrameTime / (float)DosFps : 1f;
 }
 
 /// <summary>An ammo pool <c>{current, initial, max}</c> (0x440ec, 13 × 12 bytes).</summary>
@@ -70,7 +79,7 @@ public sealed class WeaponTable
         "PIPE", "UZI", "ASSAULT RIFLE", "MACHINE GUN", "SHOTGUN", "GRENADE LAUNCHER", "ROCKET LAUNCHER",
         "LASER RIFLE", "LASER CANNON", "PLASMA PISTOL", "PLASMA RIFLE", "PLASMA CANNON", "SUPER UZI",
         "MOTION DETECTOR", "PIPE BOMB", "MOLOTOV", "GRENADE", "THROWN 17", "CANISTER BOMB", "SATCHEL",
-        "JEEP PLASMA", "JEEP PLASMA", "JEEP ROCKETS", "JEEP ROCKETS", "HK LASER", "HK ROCKETS",
+        "HK PLASMA", "HK PLASMA", "HK ROCKETS", "HK ROCKETS", "JEEP LASER", "JEEP ROCKETS",
     ];
 
     public ImmutableArray<WeaponRecord> Weapons { get; }

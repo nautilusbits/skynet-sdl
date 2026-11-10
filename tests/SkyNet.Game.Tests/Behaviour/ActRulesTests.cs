@@ -15,6 +15,7 @@ public class ActRulesTests
     [InlineData(0x37, MoverFamily.Rot, 1, 1024f, 1f, 0f)]        // wall monitor: an instant half turn
     [InlineData(0x3b, MoverFamily.Rot, 1, 2048f, 1f, 153f)]      // continuous rotator
     [InlineData(0x31, MoverFamily.Jump, 0, 512f, -1f, 0f)]       // signed p6: 65024 = −512 … two flips
+    [InlineData(0x34, MoverFamily.Jump, 2, 512f, 1f, 0f)]        // +p6 whatever the parity (0x13832f)
     [InlineData(0xbd, MoverFamily.Slide, 0, 0f, 1f, 70f)]        // zero slide
     public void MoverParamsFollowTheTable(int act, MoverFamily family, int axis, float span, float sign, float speed)
     {

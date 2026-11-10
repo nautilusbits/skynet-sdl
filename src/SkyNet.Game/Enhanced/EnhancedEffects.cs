@@ -30,30 +30,34 @@ public sealed class EnhancedEffects
     private LevelBehaviour? _statesOf;
     private long _stormClock;
 
-    /// <summary>A mod's storm over the outdoor maps (<see cref="Weather"/>): the game ticks and
-    /// draws it itself, <see cref="Gather"/> does for the editor.</summary>
+    /// <summary>A mod's storm's thunder over the outdoor maps (<see cref="Weather"/>): the game ticks
+    /// it itself, <see cref="Gather"/> does for the editor.</summary>
     public Storm Storm { get; } = new();
 
     /// <summary>A mod's clouds, haze, dust and wind over the outdoor maps (<see cref="Weather"/>), as
     /// <see cref="Storm"/>; its cover is the rain's too.</summary>
     public Air Air { get; } = new();
 
-    /// <summary>A mod's rain over the outdoor maps (<see cref="Weather"/>), as <see cref="Storm"/>.</summary>
+    /// <summary>A mod's rain's hiss over the outdoor maps (<see cref="Weather"/>), as <see cref="Storm"/>.</summary>
     public Rain Rain { get; }
 
     /// <summary>A mod's dust, drawn from the air's view.</summary>
     public Dust Dust { get; } = new();
 
-    /// <summary>The storm's flash, the clouds and the haze on the renderer's light and depth cue (the frame build's).</summary>
+    /// <summary>The engine's weather (rain, lightning), the clouds and the haze on the renderer's light
+    /// and depth cue (the frame build's); its strikes' thunder goes to <see cref="Storm"/>.</summary>
     public WeatherSky Sky { get; } = new();
 
     /// <summary>The lamps' glow through the haze and dust (the frame build's).</summary>
     public LampGlow Glow { get; } = new();
 
-    private readonly RainView _rainView = new();
     private readonly AirView _airView = new();
 
-    public EnhancedEffects() => Rain = new Rain(Air.Cover);
+    public EnhancedEffects()
+    {
+        Rain = new Rain(Air.Cover);
+        Sky.Struck += Storm.Post;
+    }
 
     /// <summary>The shown level's lights (null until the first <see cref="Gather"/> in the enhanced look).</summary>
     public LevelLights? Lights => _lights;
@@ -77,8 +81,8 @@ public sealed class EnhancedEffects
     /// <paramref name="seconds"/>: none in the original look (no <see cref="Renderer.Lighting"/>) or with
     /// no level. <paramref name="behaviour"/> switches the map's lights (null: as placed),
     /// <paramref name="weapons"/> adds its lights, <paramref name="lampPosts"/> off leaves out the lamp
-    /// posts' pools (<see cref="MastLamps"/>). A mod's weather shows too, no sound; its rain and dust settle
-    /// on <paramref name="world"/>'s cover (null: none drawn).</summary>
+    /// posts' pools (<see cref="MastLamps"/>). A mod's weather shows too, no sound; its dust settles on
+    /// <paramref name="world"/>'s cover (null: none drawn).</summary>
     public void Gather(Renderer renderer, Level? level, GameData data, Vector3 eye, float seconds,
         LevelBehaviour? behaviour = null, WeaponSystem? weapons = null, bool lampPosts = true, CollisionWorld? world = null)
     {
@@ -87,7 +91,6 @@ public sealed class EnhancedEffects
             renderer.Lights = default;
             Storm.Tick(0f, null, level, StormSky.Indoor, eye);
             Air.Tick(0f, Weather.None, level, StormSky.Indoor, eye, null);
-            Rain.Tick(0f, null, level, StormSky.Indoor, eye, null);
             return;
         }
 
@@ -101,16 +104,13 @@ public sealed class EnhancedEffects
         _stormClock = now;
         var sky = level.Outdoor ? StormSky.Outdoor : StormSky.Indoor;
         var weather = Weather.Current;
-        var frame = Storm.Tick(dt, weather.Storm, level, sky, eye);
-        var air = Air.Tick(dt, weather, level, sky, eye, world);
-        Rain.Tick(dt, weather.Rain, level, sky, eye, world, air.Wind);
+        Storm.Tick(dt, weather.Storm, level, sky, eye);
+        Air.Tick(dt, weather, level, sky, eye, world);
         Air.Capture(_airView);
-        Rain.Capture(_rainView);
-        Sky.Apply(renderer, frame, _airView, level, level.Particles);
+        var shown = sky == StormSky.Outdoor ? weather : Weather.None;
+        Sky.Apply(renderer, new SkyFrame(shown, dt, eye, Storm.TakeStrike()), _airView, level, level.Particles);
         level.Wind = _airView.Wind;
-        Storm.Draw(renderer, frame, eye, level.Far);
         Dust.Draw(renderer, _airView, eye, level.Particles);
-        Rain.Draw(renderer, _rainView, eye, level.Particles);
         Glow.Draw(renderer, _airView, _gather.All, eye, level.Far);
     }
 

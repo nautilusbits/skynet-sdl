@@ -6,16 +6,14 @@ using SkyNet.Game.Audio;
 namespace SkyNet.Game.Enhanced;
 
 /// <summary>What the frame build needs of the air (<see cref="Air.Capture"/>, on the simulation's
-/// thread): the clouds, haze and dust, the wind, the deck's drift, the air's clock and the cover.</summary>
+/// thread): the clouds, haze and dust, the wind, the air's clock and the cover.</summary>
 public sealed class AirView : CoverView
 {
     public CloudTable? Clouds;
     public HazeAirTable? Haze;
     public DustTable? Dust;
-    /// <summary>The mod's wind (null: none; the clouds drift calmly or with the rain's).</summary>
+    /// <summary>The mod's wind (null: none).</summary>
     public WindState? Wind;
-    /// <summary>How far the cloud deck has drifted (world units).</summary>
-    public Vector3 CloudDrift;
     /// <summary>The air's own clock (seconds).</summary>
     public float Clock;
     /// <summary>The dust clouds alive (the first <see cref="DustCount"/>).</summary>
@@ -36,20 +34,17 @@ public readonly record struct AirFrame(WindState? Wind, float Howl, float Pitch,
 
 /// <summary>
 /// The weather's air over an outdoor map in the enhanced look: the cover round the eye (shared with
-/// the rain), the wind (<see cref="Enhanced.Wind"/>), the cloud deck's drift and the wind's howl.
+/// the rain), the wind (<see cref="Enhanced.Wind"/>) and its howl.
 /// Presentation only: its own clock, the collision world only read.
 /// <code>
 ///   Tick (sim)  ── the cover (SkyCover), the wind (with the dust clouds' squall), the dust clouds
-///                  (DustClouds) and how thick they are at the eye, the deck's drift (the wind × the
-///                  deck's drift, or the rain's wind, or a calm air), the howl: louder in a gust,
+///                  (DustClouds) and how thick they are at the eye, the howl: louder in a gust,
 ///                  quieter under cover
-///   Capture     ── the tables, the wind, the drift, the clouds and the cover into an AirView for the frame build
+///   Capture     ── the tables, the wind, the dust clouds and the cover into an AirView for the frame build
 /// </code>
 /// </summary>
 public sealed class Air
 {
-    /// <summary>The deck's drift without a wind (metres a second).</summary>
-    public const float CalmMetres = 1.5f;
     /// <summary>The wind the howl's volume is set for (metres a second).</summary>
     public const float HowlMetres = 12f;
     /// <summary>The howl under cover (a roof over the ears, no open cell near) as a share of the open's.</summary>
@@ -66,7 +61,6 @@ public sealed class Air
     private object? _scene;
     private Weather _weather = Weather.None;
     private WindState? _state;
-    private Vector3 _cloudDrift;
     private float _clock;
     private float _howl;
     private float _dustNear, _dustFog;
@@ -90,19 +84,14 @@ public sealed class Air
 
         if (!ReferenceEquals(scene, _scene))
         {
-            (_scene, _clock, _cloudDrift, _howl, _dustFog) = (scene, 0f, Vector3.Zero, 0f, 0f);
+            (_scene, _clock, _howl, _dustFog) = (scene, 0f, 0f, 0f);
         }
 
         _weather = weather;
         _clock += dt;
         Cover.Tick(scene, world, eye);
-        _state = _wind.Tick(dt, weather.Wind, scene, _dust.Squall * DustClouds.SquallGust);
+        _state = _wind.Tick(dt, weather.Wind, scene, eye, _dust.Squall * DustClouds.SquallGust);
         TickDust(dt, weather, scene, eye);
-        if (weather.Clouds is { } clouds)
-        {
-            var wind = _state?.Velocity ?? (weather.Rain is { } r ? Rain.OwnWind(r) : new Vector3(0.6f, 0f, 0.8f) * (CalmMetres * Storm.UnitsPerMetre));
-            _cloudDrift += wind * (clouds.Drift * dt);
-        }
 
         if (weather.Wind is not { } table || _state is not { } state)
         {
@@ -112,7 +101,7 @@ public sealed class Air
 
         var target = HowlGain(table, state.Gust, Cover.Openness(eye));
         _howl += (target - _howl) * Math.Clamp(dt / HowlEase, 0f, 1f);
-        var pitch = LowPitch + (HighPitch - LowPitch) * Math.Clamp((state.Gust - Wind.MinGust) / (Wind.MaxGust - Wind.MinGust), 0f, 1f);
+        var pitch = LowPitch + (HighPitch - LowPitch) * Math.Clamp(state.Gust / Wind.MaxGust, 0f, 1f);
         return new AirFrame(_state, _howl, pitch, table.Recorded ?? WindHowl.Sound);
     }
 
@@ -148,7 +137,7 @@ public sealed class Air
     {
         var w = _on ? _weather : Weather.None;
         (view.Clouds, view.Haze, view.Dust) = (w.Clouds, w.Haze, w.Dust);
-        (view.Wind, view.CloudDrift, view.Clock) = (_on ? _state : null, _cloudDrift, _clock);
+        (view.Wind, view.Clock) = (_on ? _state : null, _clock);
         var clouds = _on ? _dust.Clouds : [];
         clouds.CopyTo(view.DustClouds);
         (view.DustCount, view.DustNear, view.DustFog, view.Squall) = (clouds.Length, _on ? _dustNear : 0f, _on ? _dustFog : 0f, _on ? _dust.Squall : 0f);

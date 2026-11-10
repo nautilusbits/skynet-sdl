@@ -67,6 +67,33 @@ public sealed class RobotTemplateTests : IDisposable
     }
 
     [MapDataFact]
+    public void A_shot_off_segment_and_its_children_vanish_from_the_template()
+    {
+        // Issue #58: the T-REX's head (segment 1) carries its two guns (2, 3); shot off, all three
+        // joints collapse, so nothing skinned to them is drawn; the legs stay.
+        var (robots, looks, robot) = Mounted("T-REXLEG");
+        var head = robot.Root.Children[0];
+        head.TakeDamage(new SkyNet.Game.Weapons.Damage(head.Hp, SkyNet.Game.Weapons.DamageKind.Direct, head.Centre, true));
+        var pose = looks.Pose(robot, Look.Enhanced, robots.Ais);
+        var shot = new RobotShot();
+        shot.Catch(robot, null);
+
+        pose.Apply(shot, 0);
+
+        Assert.Equal(RigSource.Mod, pose.Rig.Source);
+        var model = pose.Rig.Model;
+        var segments = robot.Root.Walk().ToArray();
+        for (var i = 0; i < segments.Length; i++)
+        {
+            var node = Enumerable.Range(0, model.Nodes.Count).Single(n => model.Nodes[n].Name.StartsWith(RobotRig.JointPrefix(i), StringComparison.Ordinal));
+            var scale = MathF.Abs(pose.Instance.Nodes[node].GetDeterminant());
+            Assert.True(segments[i].Gone ? scale < 1e-6f : scale > 1e-3f, $"segment {i}: gone {segments[i].Gone}, scale {scale}");
+        }
+
+        Assert.Equal(3, segments.Count(s => s.Gone));
+    }
+
+    [MapDataFact]
     public void The_block_playing_picks_the_clip_of_its_name()
     {
         var (robots, looks, robot) = Mounted("T-REXLEG");

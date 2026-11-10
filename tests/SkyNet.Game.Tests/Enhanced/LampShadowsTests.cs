@@ -5,7 +5,7 @@ using SkyNet.Game.Enhanced;
 namespace SkyNet.Game.Tests.Enhanced;
 
 /// <summary>The map lamps that get the engine's shadowed slots: the ones that matter most to the
-/// eye, kept until a rival clearly beats them, a slot left to the soldier's flash while firing.</summary>
+/// eye, kept until a rival clearly beats them, a slot left to a shadowed blast.</summary>
 public class LampShadowsTests
 {
     private const float Range = 600f;
@@ -19,13 +19,14 @@ public class LampShadowsTests
     private static float[] Shadowed(List<PointLight> lights) => [.. lights.Where(l => l.CastsShadow).Select(l => l.Position.X)];
 
     private static List<PointLight> Mark(LampShadows shadows, List<PointLight> lamps, Vector3 eye, float seconds = 0f,
-        ShadowQuality quality = ShadowQuality.High, int weaponCasters = 0)
+        ShadowQuality quality = ShadowQuality.High, int weaponCasters = 0, int flashes = 0)
     {
         var lights = new List<PointLight>(lamps);
         var weapons = new List<PointLight>();
-        for (var i = 0; i < weaponCasters; i++)
+        for (var i = 0; i < weaponCasters + flashes; i++)
         {
-            weapons.Add(new PointLight(eye, Vector3.One, Range, 1f) { CastsShadow = true });
+            var role = i < weaponCasters ? ShadowRole.Lamp : ShadowRole.Flash;
+            weapons.Add(new PointLight(eye, Vector3.One, Range, 1f) { CastsShadow = true, ShadowRole = role });
         }
 
         lights.AddRange(weapons);
@@ -86,10 +87,10 @@ public class LampShadowsTests
         Assert.Equal([100f, 900f], Shadowed(lit[..3]));
     }
 
-    /// <summary>The soldier's flash keeps its slot between shots: one lamp shadows while firing and
-    /// for <see cref="LampShadows.WeaponHoldSeconds"/> after.</summary>
+    /// <summary>A shadowed blast keeps its slot: one lamp shadows while it shines and for
+    /// <see cref="LampShadows.WeaponHoldSeconds"/> after.</summary>
     [Fact]
-    public void Firing_keeps_a_slot_for_the_flash()
+    public void A_blast_keeps_its_slot_a_while()
     {
         var shadows = new LampShadows(TwoSlots);
         var lamps = Lamps(100, 200, 300);
@@ -99,11 +100,22 @@ public class LampShadowsTests
     }
 
     [Fact]
-    public void A_flash_and_a_blast_leave_no_lamp_a_slot()
+    public void Two_blasts_leave_no_lamp_a_slot()
     {
         var lit = Mark(new LampShadows(TwoSlots), Lamps(100, 200), Vector3.Zero, weaponCasters: 2);
         Assert.Empty(Shadowed(lit[..2]));
         Assert.Equal(2, lit.Count(l => l.CastsShadow));
+    }
+
+    /// <summary>GitHub #61: the soldier's flash shadows in the engine's flash slot
+    /// (<see cref="Lighting.FlashShadowSlots"/>), so the lamps keep all theirs while firing.</summary>
+    [Fact]
+    public void The_flash_takes_no_lamp_slot()
+    {
+        var shadows = new LampShadows(TwoSlots);
+        var lamps = Lamps(100, 200, 300);
+        Assert.Equal([100f, 200f], Shadowed(Mark(shadows, lamps, Vector3.Zero, 1f, flashes: 1)[..3]));
+        Assert.Equal([100f, 200f], Shadowed(Mark(shadows, lamps, Vector3.Zero, 1.1f)[..3]));
     }
 
     /// <summary>A new map's clock starts again: the hold of the last one's firing doesn't carry.</summary>
@@ -140,5 +152,20 @@ public class LampShadowsTests
         var lighting = LookLighting.For(LightPreset.Interior, null, 9000f, 1f, ShadowQuality.Low);
         Assert.Equal(LampShadows.SlotsFor(ShadowQuality.Low), lighting.PointShadowCount);
         Assert.True(lighting.PointShadowFade > 0f);
+    }
+
+    /// <summary>GitHub #61: High keeps one slot past the lamps' for the soldier's flash (it shadows at
+    /// High only), held between a burst's shots; Low and Off keep none.</summary>
+    [Theory]
+    [InlineData(ShadowQuality.High, 1)]
+    [InlineData(ShadowQuality.Low, 0)]
+    [InlineData(ShadowQuality.Off, 0)]
+    public void The_lighting_keeps_a_slot_for_the_flash(ShadowQuality quality, int flashSlots)
+    {
+        var lighting = LookLighting.For(LightPreset.Interior, null, 9000f, 1f, quality);
+        Assert.Equal(flashSlots, lighting.FlashShadowSlots);
+        Assert.Equal(LampShadows.SlotsFor(quality) + flashSlots, lighting.PointShadowCount);
+        Assert.Equal(flashSlots > 0, lighting.PointShadowHold > 0f);
+        Assert.InRange(lighting.PointShadowCount, 0, Lighting.MostPointShadows);
     }
 }

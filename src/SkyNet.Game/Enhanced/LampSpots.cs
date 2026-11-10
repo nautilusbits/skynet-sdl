@@ -1,4 +1,6 @@
+using System.Globalization;
 using System.Numerics;
+using System.Text;
 using RetroEng.Content;
 using RetroEng.Json;
 using RetroEng.Render;
@@ -220,6 +222,28 @@ public static class LampSpots
 
     /// <summary>The game's shipped hand lights (data/lights, embedded), read when a map is baked.</summary>
     internal static IReadOnlyList<HandLight> ShippedLights(GameKind game) => ShippedBytes(game) is { } bytes ? Lights(bytes) : [];
+
+    /// <summary>What a map's bake reads of the shipped rows, as text: its hand lights and the texture
+    /// cuts that reach it (a map block's input: a changed row bakes only the maps it touches).
+    /// e.g. <c>light 1824,105,-2304 - - -</c>, <c>cut 49035 0.55</c>.</summary>
+    internal static byte[] ShippedRowsOf(GameKind game, int map)
+    {
+        var c = CultureInfo.InvariantCulture;
+        var text = new StringBuilder();
+        foreach (var l in ShippedLights(game).Where(l => l.Map == map))
+        {
+            text.Append(c, $"light {l.Position.X},{l.Position.Y},{l.Position.Z} {Opt(l.Srgb)} {Opt(l.Intensity)} {Opt(l.Range)}\n");
+        }
+
+        foreach (var row in Shipped(game).Where(r => r is { Texture: not null, Cut: not null } && (r.Map is not { } m || m == map)))
+        {
+            text.Append(c, $"cut {row.Texture} {row.Cut}\n");
+        }
+
+        return Encoding.UTF8.GetBytes(text.ToString());
+
+        string Opt<T>(T? v) where T : struct, IFormattable => v is { } x ? x.ToString(null, c) : "-";
+    }
 
     private static byte[]? ShippedBytes(GameKind game)
     {

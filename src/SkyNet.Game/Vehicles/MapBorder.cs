@@ -11,7 +11,7 @@ namespace SkyNet.Game.Vehicles;
 /// foot, in the jeep or in the HK — has to end inside one of them, or it is UNDONE and the speed
 /// zeroed. That is MAP.260's invisible wall, which keeps the jeep in the town and on the inner
 /// highway lane. A map without such markers has no fence.
-/// <para>Within <see cref="HintMargin"/> of an edge the engine prints hint slot 8 ([G9]; on MAP.260
+/// <para>Within <see cref="HintMargin"/> of an edge or of the map's extent, standing in one box only (or on an unfenced map), the engine prints hint slot 8 ([G9]; on MAP.260
 /// "The highway is the other way.") once, re-armed when the player leaves the band.</para>
 /// <para>The Godot port's refuge rule: when the position before the move is outside every box too
 /// (a spawn, a loaded save, a stuck reset put the player there), the move stands — restoring it
@@ -25,10 +25,19 @@ public sealed class MapBorder
     public const int HintSlot = 8;
     public const int FirstType = 30, LastType = 39;
 
+    /// <summary>The map's extent inside its grid (FUN_001369d5): DOS x and z from this far in.</summary>
+    public const int ExtentInset = 0x100;
+
     private readonly (Vector2 Min, Vector2 Max)[] _boxes;
+    // World x/z; null: no extent (a test's fence).
+    private readonly (Vector2 Min, Vector2 Max)? _extent;
     private bool _hinted;
 
-    public MapBorder(IEnumerable<(Vector2 Min, Vector2 Max)> boxes) => _boxes = [.. boxes];
+    public MapBorder(IEnumerable<(Vector2 Min, Vector2 Max)> boxes, (Vector2 Min, Vector2 Max)? extent = null)
+    {
+        _boxes = [.. boxes];
+        _extent = extent;
+    }
 
     public static MapBorder None { get; } = new([]);
 
@@ -53,7 +62,10 @@ public sealed class MapBorder
             }
         }
 
-        return new MapBorder(boxes);
+        // DOS 0x100 .. grid × 0x400 − 0x101 on x and z; world z is −DOS z.
+        var far = new Vector2(map.GridWidth * 0x400 - ExtentInset - 1, map.GridHeight * 0x400 - ExtentInset - 1);
+        var extent = (new Vector2(ExtentInset, -far.Y), new Vector2(far.X, -ExtentInset));
+        return new MapBorder(boxes, extent);
     }
 
     /// <summary>Is the x/z point inside one of the boxes (min inclusive, max exclusive, as Godot's Rect2)?</summary>
@@ -73,18 +85,78 @@ public sealed class MapBorder
         return -1;
     }
 
+    /// <summary>FUN_00122789's band: inside one box at most (none on an unfenced map) and within
+    /// <see cref="HintMargin"/> of an edge, the hint prints once; elsewhere it re-arms. True: print.</summary>
+    private bool Band(float edge, int boxes)
+    {
+        if (edge > HintMargin || boxes > 1)
+        {
+            _hinted = false;
+            return false;
+        }
+
+        if (_hinted)
+        {
+            return false;
+        }
+
+        _hinted = true;
+        return true;
+    }
+
+    /// <summary>How far in from the map's extent <paramref name="p"/> stands; null outside it.</summary>
+    private float? ExtentEdge(Vector3 p)
+    {
+        if (_extent is not var (min, max))
+        {
+            return float.PositiveInfinity;
+        }
+
+        if (p.X < min.X || p.X > max.X || p.Z < min.Y || p.Z > max.Y)
+        {
+            return null;
+        }
+
+        return MathF.Min(MathF.Min(p.X - min.X, max.X - p.X), MathF.Min(p.Z - min.Y, max.Y - p.Z));
+    }
+
+    private int BoxCount(Vector3 p)
+    {
+        var count = 0;
+        foreach (var (min, max) in _boxes)
+        {
+            if (p.X >= min.X && p.X < max.X && p.Z >= min.Y && p.Z < max.Y)
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
     /// <summary>After a move from <paramref name="before"/>: puts the body back and stops it when the
     /// move left the fence (true; the caller zeroes a vehicle's own speed too).
     /// <paramref name="hint"/>: the edge band was just entered, print the hint.</summary>
     public bool Clamp(PlayerController body, Vector3 before, out bool hint)
     {
         hint = false;
-        if (_boxes.Length == 0 || body.Noclip)
+        if (body.Noclip)
         {
             return false;
         }
 
         var p = body.Position;
+        if (ExtentEdge(p) is not { } toExtent)
+        {
+            return false;                          // FUN_00122789 outside the extent: no hint either way
+        }
+
+        if (_boxes.Length == 0)
+        {
+            hint = Band(toExtent, 1);
+            return false;
+        }
+
         var i = BoxAt(p);
         if (i < 0)
         {
@@ -100,16 +172,7 @@ public sealed class MapBorder
 
         var (min, max) = _boxes[i];
         var edge = MathF.Min(MathF.Min(p.X - min.X, max.X - p.X), MathF.Min(p.Z - min.Y, max.Y - p.Z));
-        if (edge > HintMargin)
-        {
-            _hinted = false;
-        }
-        else if (!_hinted)
-        {
-            _hinted = true;
-            hint = true;
-        }
-
+        hint = Band(MathF.Min(edge, toExtent), BoxCount(p));
         return false;
     }
 }

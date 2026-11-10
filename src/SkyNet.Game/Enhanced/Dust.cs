@@ -35,6 +35,8 @@ public sealed class Dust
     public const float GritHeight = 60f, GritSpeed = 1.6f;
     /// <summary>A grit streak's length in seconds of its flight, and its width (units).</summary>
     public const float GritSeconds = 0.035f, GritWidth = 0.35f;
+    /// <summary>No grit nearer the eye than this (units): it would sweep across the view.</summary>
+    public const float NearCut = 40f;
     /// <summary>The air without a wind (units a second).</summary>
     public static readonly Vector3 CalmWind = new(16f, 0f, 7f);
 
@@ -204,7 +206,7 @@ public sealed class Dust
 
             at.Y += 4f + g.Z * GritHeight + lift.Y;
             var velocity = wind * speed + Vector3.UnitY * (lift.Y * 0.5f);
-            if (Vector3.DistanceSquared(at, eye) < Rain.NearCut * Rain.NearCut || velocity.LengthSquared() < 1f)
+            if (Vector3.DistanceSquared(at, eye) < NearCut * NearCut || velocity.LengthSquared() < 1f)
             {
                 continue;
             }

@@ -20,7 +20,13 @@ public sealed record SavedMap(int Map, BehaviourSnapshot Behaviour, int[] Taken,
     public DroppedSprite[] Drops { get; init; } = [];
     public int NextDrop { get; init; } = -1;
     public string? Instance { get; init; }
+    /// <summary>(format 10) the robots here with segments shot off: id (as <see cref="Dead"/>) and
+    /// the shot-off bits (issue #58).</summary>
+    public SavedShotOff[] ShotOff { get; init; } = [];
 }
+
+/// <summary>A robot's shot-off segments on a map: its id and a bit per segment, depth first.</summary>
+public readonly record struct SavedShotOff(int Robot, ulong Gone);
 
 /// <summary>The player's ride in a save (format 2): the mode, the hull's points, the jeep's speed,
 /// heading and turret, the vehicle energy pool and whether the gun is overheated, and the body's
@@ -91,9 +97,21 @@ public sealed record SaveGame(
     /// offsets; empty in an older save (nothing seen yet).</summary>
     internal int[] Seen { get; init; } = [];
 
+    /// <summary>The soldier's trail the hovers follow and the robots' clock (format 11); null in an
+    /// older save (filled again where he stands).</summary>
+    public SavedTrail? Trail { get; init; }
+
     /// <summary>The LOAD/SAVE bar's text, DOS-style: the mission and map, then the date and time.</summary>
     public string Label => string.Create(CultureInfo.InvariantCulture,
-        $"{(Mission > 0 ? $"MISSION {Mission} " : "")}MAP {Map:D3}  {Saved:yyyy-MM-dd HH:mm}");
+        $"{(Mission > 0 ? $"MISSION {Ordinal()} " : "")}MAP {Map:D3}  {Saved:yyyy-MM-dd HH:mm}");
+
+    /// <summary>The mission's place in the campaign (Future Shock's table skips 4 and 8: mission 7
+    /// is the 6th); its number when the table has none.</summary>
+    private int Ordinal()
+    {
+        var table = MissionTable.Playable(Game);
+        return table.ByNumber(Mission) is { } m ? table.IndexOf(m) + 1 : Mission;
+    }
 }
 
 /// <summary>A save file that cannot be read: not a save, damaged, or from another format version.</summary>
@@ -119,7 +137,13 @@ public sealed class SaveFormatException(string message, Exception? inner = null)
 /// previous instance ids (each a flag byte and a string); format 7 appends the simulation
 /// generator's state (a flag byte, then a u64); format 8 appends each robot's perception state (a
 /// list, in the robots' order, of {u8 counter 0..3, flag byte last answer}); format 9 appends the
-/// automap's seen set (a list of i32 map-record offsets).
+/// automap's seen set (a list of i32 map-record offsets); format 10 adds each map's robots with
+/// segments shot off after its instance id (a list of {i32 id, u64 bits}) and appends each robot's segments
+/// with their looks
+/// (a list, in the robots' order, of {a list of f32 hit points, empty while all are whole; u64 the
+/// shot-off bits; a list of u8 looks: counter, bit 2 the last answer, bit 3 a pending alert});
+/// format 11 appends the soldier's trail (a flag byte, then f64 clock, i32 head, the stamps as
+/// i32s and the points as vectors) and each robot's trail point {i32 index, i32 stamp}.
 /// </summary>
 public static class SaveFile
 {
@@ -128,8 +152,8 @@ public static class SaveFile
     /// drops and the statistics (2026-10-10); 4: the pilot's name and call sign (2026-10-10); 5: the
     /// wall switches turned to their ON face (2026-10-10); 6: maps kept per mission-file instance (2026-10-11);
     /// 7: the simulation generator's state (2026-10-11); 8: the robots' perception counter and last
-    /// answer (2026-10-11); 9: the automap's seen set (2026-10-21).</summary>
-    public const ushort Version = 9;
+    /// answer (2026-10-11); 9: the automap's seen set (2026-10-21); 10: the robots' segments (issue #58).</summary>
+    public const ushort Version = 11;
     /// <summary>The oldest format still read.</summary>
     public const ushort OldestVersion = 1;
     /// <summary>A sanity cap on any length read from a file.</summary>
@@ -349,6 +373,36 @@ public static class SaveFile
         }
 
         Ints(w, s.Seen);
+        if (version < 10)
+        {
+            return;
+        }
+
+        Array(w, s.Robots, (w2, x) =>
+        {
+            Array(w2, x.Parts ?? [], (w3, hp) => w3.Write(hp));
+            w2.Write(x.Gone);
+            Array(w2, x.Senses ?? [], (w3, b) => w3.Write(b));
+        });
+        if (version < 11)
+        {
+            return;
+        }
+
+        w.Write(s.Trail != null);
+        if (s.Trail is { } t)
+        {
+            w.Write(t.Clock);
+            w.Write(t.Head);
+            Ints(w, t.Stamps);
+            Array(w, t.Points, Vec);
+        }
+
+        Array(w, s.Robots, (w2, x) =>
+        {
+            w2.Write(x.Node);
+            w2.Write(x.NodeStamp);
+        });
     }
 
     private static void OptString(BinaryWriter w, string? text)
@@ -466,6 +520,40 @@ public static class SaveFile
         }
 
         var seen = version >= 9 ? Ints(r) : [];
+        if (version >= 10)
+        {
+            var parts = Array(r, x => (Hp: Array(x, y => y.ReadSingle()), Gone: x.ReadUInt64(), Senses: Array(x, y => y.ReadByte())));
+            if (parts.Length != robots.Length)
+            {
+                throw new SaveFormatException("the robots' segment list does not match the robots");
+            }
+
+            for (var i = 0; i < robots.Length; i++)
+            {
+                robots[i] = robots[i] with
+                {
+                    Parts = parts[i].Hp.Length > 0 ? parts[i].Hp : null, Gone = parts[i].Gone,
+                    Senses = parts[i].Senses.Length > 0 ? parts[i].Senses : null,
+                };
+            }
+        }
+
+        SavedTrail? trail = null;
+        if (version >= 11)
+        {
+            trail = r.ReadBoolean() ? new SavedTrail(r.ReadDouble(), r.ReadInt32(), Ints(r), Array(r, Vec)) : null;
+            var nodes = Array(r, x => (Node: x.ReadInt32(), Stamp: x.ReadInt32()));
+            if (nodes.Length != robots.Length)
+            {
+                throw new SaveFormatException("the robots' trail list does not match the robots");
+            }
+
+            for (var i = 0; i < robots.Length; i++)
+            {
+                robots[i] = robots[i] with { Node = nodes[i].Node, NodeStamp = nodes[i].Stamp };
+            }
+        }
+
         if (!Enum.IsDefined(game) || game == GameKind.None)
         {
             throw new SaveFormatException($"unknown game {(int)game}");
@@ -480,6 +568,7 @@ public static class SaveFile
             PreviousInstance = previousInstance,
             RandomState = randomState,
             Seen = seen,
+            Trail = trail,
         };
     }
 
@@ -516,6 +605,15 @@ public static class SaveFile
         {
             OptString(w, m.Instance);
         }
+
+        if (version >= 10)
+        {
+            Array(w, m.ShotOff, (w2, x) =>
+            {
+                w2.Write(x.Robot);
+                w2.Write(x.Gone);
+            });
+        }
     }
 
     private static SavedMap MapState(BinaryReader r, ushort version)
@@ -539,7 +637,13 @@ public static class SaveFile
         }
 
         map = map with { Behaviour = map.Behaviour with { Turned = Ints(r) } };
-        return version < 6 ? map : map with { Instance = OptString(r) };
+        if (version < 6)
+        {
+            return map;
+        }
+
+        map = map with { Instance = OptString(r) };
+        return version < 10 ? map : map with { ShotOff = Array(r, x => new SavedShotOff(x.ReadInt32(), x.ReadUInt64())) };
     }
 
     private static void Behaviour(BinaryWriter w, BehaviourSnapshot b)

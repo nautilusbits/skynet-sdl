@@ -168,6 +168,30 @@ public class LampSpotsTests(ITestOutputHelper output)
         Assert.NotEmpty(EmissiveLamps.Hand(LampSpots.ShippedLights(GameKind.SkyNet), 286));
     }
 
+    /// <summary>Future Shock MAP.583's garage (the gas station by mission 1's start, #53) has no lit
+    /// art: its ceiling fittings (204/29) carry hand lights over the car hiding the armour.</summary>
+    [Fact]
+    public void GasStationGarageIsLit()
+    {
+        var car = new Vector3(1801, 43, -2228);
+        var lamps = EmissiveLamps.Hand(LampSpots.ShippedLights(GameKind.FutureShock), 583);
+        Assert.Contains(lamps, l => l.Position.Y > car.Y && Vector3.Distance(l.Position, car) < l.Range / 3f);
+    }
+
+    /// <summary>The hanging bulb 204/9 is drawn lit in both games (owner, 2026-11-10): SkyNET's
+    /// MAP.341 lights at its bulbs as Future Shock's does.</summary>
+    [BehaviourDataFact]
+    public void HangingBulbLightsInSkyNet()
+    {
+        const int bulb = 204 << 7 | 9;
+        var map = BehaviourData.Data.LoadMap(341);
+        Assert.NotNull(map);
+
+        var lamps = EmissiveLamps.ForMap(BehaviourData.Data, map!, 341);
+
+        Assert.Contains(lamps, l => l.Texture == bulb && !l.Flicker);
+    }
+
     /// <summary>How many lamps go spot on the campaign's maps, a deathmatch arena and Future Shock's
     /// first maps with lamps (the counts are reported, a few bounds checked).</summary>
     [BehaviourDataFact]

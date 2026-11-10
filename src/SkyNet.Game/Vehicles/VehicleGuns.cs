@@ -6,8 +6,9 @@ namespace SkyNet.Game.Vehicles;
 /// A vehicle's two guns on the <see cref="WeaponSystem"/> (the Godot port's VEHICLE_WEAPONS,
 /// _throw_secondary and _regen_vehicle_energy):
 /// <list type="bullet">
-/// <item>FIRE: the jeep's plasma (record 20; 21 is the other barrel), the HK's laser (24);
-/// THROW: the rocket pod (22/23 jeep, 25 HK; DOS's secondary default 0x4449a = {15, 25, 22}).</item>
+/// <item>FIRE: the jeep's laser (record 24), the HK's plasma (21; 20 is the other barrel);
+/// THROW: the rocket pod (25 jeep, 22/23 HK). DOS 0x1257a4 picks both by mode (4 jeep, 8 HK):
+/// FIRE 0x44476 = {0, 24, 21}, THROW 0x4449a = {15, 25, 22}.</item>
 /// <item>The barrels take turns: DOS negates the record's muzzle x after every shot in a vehicle
 /// (0x125e5e).</item>
 /// <item>Pool 10 (vehicle energy, 1000 of 2000, 100 a bolt) never runs dry for good: it recharges
@@ -27,20 +28,20 @@ public sealed class VehicleGuns(VehicleMode mode) : IWeaponMount
     private float _regenCarry;
 
     public VehicleMode Mode { get; } = mode;
-    /// <summary>The record on FIRE: jeep plasma 20, HK laser 24.</summary>
+    /// <summary>The record on FIRE: jeep laser 24, HK plasma 21.</summary>
     public int Gun => GunOf(Mode);
-    /// <summary>The record on THROW: jeep rockets 22, HK rockets 25.</summary>
+    /// <summary>The record on THROW: jeep rockets 25, HK rockets 22.</summary>
     public int Pod => PodOf(Mode);
     /// <summary>The gun is cooling down to <see cref="CoolLevel"/> (a load sets it back).</summary>
     public bool Overheated { get; internal set; }
     /// <summary>Seconds since the gun last drew on the energy pool.</summary>
     public float SinceShot { get; private set; } = 10f;
 
-    public static int GunOf(VehicleMode mode) => mode switch { VehicleMode.Jeep => 20, VehicleMode.Hk => 24, _ => -1 };
+    public static int GunOf(VehicleMode mode) => mode switch { VehicleMode.Jeep => 24, VehicleMode.Hk => 21, _ => -1 };
 
-    public static int PodOf(VehicleMode mode) => mode switch { VehicleMode.Jeep => 22, VehicleMode.Hk => 25, _ => -1 };
+    public static int PodOf(VehicleMode mode) => mode switch { VehicleMode.Jeep => 25, VehicleMode.Hk => 22, _ => -1 };
 
-    /// <summary>The records a vehicle mounts (the even barrel of each jeep pair).</summary>
+    /// <summary>The records a vehicle mounts.</summary>
     public static int[] Records(VehicleMode mode) => mode == VehicleMode.Foot ? [] : [GunOf(mode), PodOf(mode)];
 
     public void Tick(Inventory inventory, float dt)

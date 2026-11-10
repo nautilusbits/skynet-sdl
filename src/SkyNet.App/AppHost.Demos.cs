@@ -143,7 +143,7 @@ internal sealed partial class AppHost
         if (timedemo && loop != null)
         {
             loop.OneTickPerFrame = true;
-            renderer.VSync = VSync.Off;
+            SetVSync(VSync.Off);
             timedemoStart = Stopwatch.GetTimestamp();
             timedemoFrames = 0;
         }
@@ -271,7 +271,7 @@ internal sealed partial class AppHost
                 loop.OneTickPerFrame = false;
             }
 
-            renderer.VSync = options.NoVsync ? VSync.Off : settings.VSync;
+            SetVSync(options.NoVsync ? VSync.Off : settings.VSync);
             session.Difficulty = Difficulty.Of(settings.Difficulty);
             session.RobotAi = settings.RobotAi;
             ApplyDemoClock();

@@ -249,9 +249,12 @@ public static class LookLighting
             shadows, ShadowDistance, glow ? Glow : 0f, Vector4.Zero, 0f)
         {
             SunShadows = preset == LightPreset.Interior ? Shadows.Off : Shadows.On,
-            // The lamps' shadowed slots (LampShadows picks the lamps), fading as they change hands.
-            PointShadowCount = LampShadows.SlotsFor(shadows),
+            // The lamps' shadowed slots (LampShadows picks the lamps), fading as they change hands;
+            // past them the flash's, held between a burst's shots (GitHub #61).
+            PointShadowCount = LampShadows.SlotsFor(shadows) + LampShadows.FlashSlotsFor(shadows),
+            FlashShadowSlots = LampShadows.FlashSlotsFor(shadows),
             PointShadowFade = LampShadows.FadeSeconds,
+            PointShadowHold = LampShadows.FlashSlotsFor(shadows) > 0 ? LampShadows.FlashHoldSeconds : 0f,
             Up = Vector3.UnitY,
             Exposure = exposure * ExposureMood,
             // The modern film look: AgX, the exposure adapting to the scene, the preset's grade.

@@ -242,4 +242,43 @@ public class RamAndBorderTests
         Assert.Equal(Vector3.Zero, body.Velocity);
         Assert.Empty(MapBorder.None.Boxes);
     }
+
+    /// <summary>A map with no fence still has its extent (FUN_001369d5: DOS x and z from 0x100 to
+    /// grid × 0x400 − 0x101): FUN_00122789 prints the edge hint within 64 units of it, once.</summary>
+    [BehaviourDataFact]
+    public void UnfencedMapHintsAtItsExtent()
+    {
+        var map = BehaviourData.Data.LoadMap(215)!;
+        var border = MapBorder.From(map);
+        Assert.False(border.Fenced);
+        var body = new PlayerController(new CollisionWorld());
+        var midZ = -map.GridHeight * 1024f / 2f;
+        body.Spawn(new Vector3(map.GridWidth * 512f, 0f, midZ), 0f);
+        Assert.False(border.Clamp(body, body.Position, out var hint));
+        Assert.False(hint);
+
+        body.Position = new Vector3(0x100 + 40f, 0f, midZ);
+        Assert.False(border.Clamp(body, body.Position, out hint));
+        Assert.True(hint);
+        Assert.False(border.Clamp(body, body.Position, out hint));
+        Assert.False(hint);
+    }
+
+    /// <summary>FUN_00122789 counts the boxes the camera stands in and prints the edge hint only
+    /// inside one: where two boxes overlap, an inner edge is no fence (Future Shock MAP.070's
+    /// highway is nine overlapping boxes, MAP.010's path three).</summary>
+    [Fact]
+    public void AnEdgeInsideAnotherBoxPrintsNoHint()
+    {
+        var border = new MapBorder([(new Vector2(0f, 0f), new Vector2(1000f, 1000f)), (new Vector2(900f, 0f), new Vector2(2000f, 1000f))]);
+        var body = new PlayerController(new CollisionWorld());
+        body.Spawn(new Vector3(500f, 0f, 500f), 0f);
+        body.Position = new Vector3(990f, 0f, 500f);
+        Assert.False(border.Clamp(body, new Vector3(980f, 0f, 500f), out var hint));
+        Assert.False(hint);
+
+        body.Position = new Vector3(1990f, 0f, 500f);
+        Assert.False(border.Clamp(body, new Vector3(1980f, 0f, 500f), out hint));
+        Assert.True(hint);
+    }
 }

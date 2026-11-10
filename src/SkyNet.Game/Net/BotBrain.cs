@@ -1129,8 +1129,8 @@ public sealed class BotBrain
         if (ammo.Family != AmmoFamily.Hitscan)
         {
             // A bolt or a shell: it flies (WeaponSystem.FireRecord's launch: the record's speed along
-            // the shot plus its lift straight up) and strikes when it gets there.
-            _inFlight.Add(new Shot(weapon, ammo, from, dir * record.Speed + Vector3.UnitY * record.Lift));
+            // the shot, falling at its +0x1c) and strikes when it gets there.
+            _inFlight.Add(new Shot(weapon, ammo, from, dir * record.Speed));
             return;
         }
 
@@ -1172,7 +1172,7 @@ public sealed class BotBrain
 
             if (lobbed)
             {
-                s.Velocity -= new Vector3(0f, Projectile.Gravity * dt, 0f);
+                s.Velocity -= new Vector3(0f, _table.Weapons[s.Weapon].Lift * dt, 0f);
             }
 
             var motion = s.Velocity * dt;

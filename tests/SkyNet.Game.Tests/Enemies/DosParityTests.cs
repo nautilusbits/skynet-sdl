@@ -16,8 +16,8 @@ public class DosParityTests
     private const int Ticks = 2400;
 
     // Taken on 0b27460 (v0.11.0), before the smart-AI mod.
-    internal const uint RobotGolden = 299528374u;
-    internal const ulong Demo210Golden = 9277784492670304617ul, Demo220Golden = 14649162901041924547ul; // #21: items on roofs keep their height; #23: mines in sight fly straight at the soldier; items on beams stand on the mesh top; robots block the soldier and his jeep; #35/#36: blasts pad by the model radius and hit their target; blasts step 50 back along the shot (#36)
+    internal const uint RobotGolden = 3914194551u;   // #58: every segment looks on its own counter and alert; DOS fire roll, 800 u/s bolts; hovers on the trail
+    internal const ulong Demo210Golden = 709336652475224496ul, Demo220Golden = 6002843202404602230ul; // #21: items on roofs keep their height; #23: mines in sight fly straight at the soldier; items on beams stand on the mesh top; robots block the soldier and his jeep; #35/#36: blasts pad by the model radius and hit their target; blasts step 50 back along the shot (#36); the jeep fires the laser (#46); FORWARD throttles while backing (#46); jeep gravity 392 (#46); slope pull clamped (#46); no speed shake (#46); a new game in full armour; #58: shots strike each robot segment by its triangles; each segment looks on its own counter and alert; #44: DOS throw arc (half up the view, fall 392); #50: hovers in sight fly at the soldier in 3D; DOS fire: a roll a DOS frame, |speed| u/s bolts, no spread, twin muzzles swap; hovers follow the trail, no wander; the soldier's guns fire DOS's whole 35 fps frames apart
 
     /// <summary>MAP.210's robots against a soldier who circles the first walker, every robot field
     /// the session hash keeps, hashed every tick. <paramref name="prepare"/> fits the robots out once

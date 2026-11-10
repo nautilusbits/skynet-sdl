@@ -90,14 +90,18 @@ public sealed class HudArt : IDisposable
     }
 
     /// <summary>A .CFA's frames (either layout); empty when absent.</summary>
-    public HudImage[] Cel(string name)
+    public HudImage[] Cel(string name) => Cel(name, name, (cfa, f) => [.. cfa.Frames[f]]);
+
+    /// <summary>A .CFA's frames made from <paramref name="pixels"/> (the CFA, a frame → its pixels),
+    /// kept under <paramref name="key"/>; empty when absent.</summary>
+    public HudImage[] Cel(string name, string key, Func<CfaFile, int, byte[]> pixels)
     {
-        if (!_cels.TryGetValue(name, out var frames) || frames.Length > 0 && !_renderer.Exists(frames[0].Handle))
+        if (!_cels.TryGetValue(key, out var frames) || frames.Length > 0 && !_renderer.Exists(frames[0].Handle))
         {
             frames = Read(name) is { } src && CfaFile.Parse(src.Bytes) is { } cfa
-                ? [.. cfa.Frames.Select(f => Make(cfa.Width, cfa.Height, [.. f], src.Hires))]
+                ? [.. Enumerable.Range(0, cfa.Frames.Length).Select(f => Make(cfa.Width, cfa.Height, pixels(cfa, f), src.Hires))]
                 : [];
-            _cels[name] = frames;
+            _cels[key] = frames;
         }
 
         return frames;

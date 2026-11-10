@@ -52,6 +52,8 @@ public class ShotLightsTests
 
         var high = Lit(weapons);
         Assert.True(high.Single(l => l.Colour != BlastColour).CastsShadow);
+        // GitHub #61: a flash's shadow, full each shot, in its own slot.
+        Assert.Equal(ShadowRole.Flash, high.Single(l => l.Colour != BlastColour).ShadowRole);
         Assert.False(high.Single(l => l.Colour == BlastColour).CastsShadow);
         Assert.DoesNotContain(Lit(weapons, ShadowQuality.Low), l => l.CastsShadow);
         Assert.DoesNotContain(Lit(weapons, play: PlayKind.Network), l => l.CastsShadow);
@@ -109,6 +111,8 @@ public class ShotLightsTests
         var shadowed = Lit(weapons).Where(l => l.CastsShadow).Select(l => l.Position.X).ToList();
         var newest = Enumerable.Range(Blasts - GameLights.ShadowedBlasts, GameLights.ShadowedBlasts).Select(i => i * 100f);
         Assert.Equal(newest, shadowed);
+        // A blast lives its frames: a lamp's slot and fade (GitHub #61).
+        Assert.All(Lit(weapons), l => Assert.Equal(ShadowRole.Lamp, l.ShadowRole));
         Assert.DoesNotContain(Lit(weapons, play: PlayKind.Network), l => l.CastsShadow);
     }
 

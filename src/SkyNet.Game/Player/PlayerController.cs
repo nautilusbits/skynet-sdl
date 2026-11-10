@@ -84,6 +84,8 @@ public sealed partial class PlayerController
     private readonly CollisionWorld _world;
     private Vector3 _previous;
     private float _previousEye, _previousYaw, _previousPitch;
+    // The last tick's mouse turn (drawn whole, not interpolated: #51); presentation only.
+    private float _mouseYaw, _mousePitch;
     private float _turnRamp;
     private float _stuckTime, _goodTime;
     private Vector3? _lastGood;
@@ -168,6 +170,7 @@ public sealed partial class PlayerController
 
         Yaw -= tick.LookX * MouseRadians * LookScale;
         Pitch = Math.Clamp(Pitch - tick.LookY * MouseRadians * LookScale, -PitchMax, PitchMax);
+        (_mouseYaw, _mousePitch) = (Yaw - _previousYaw, Pitch - _previousPitch);
 
         var fwd = 0f;
         var str = 0f;
@@ -214,12 +217,14 @@ public sealed partial class PlayerController
         FloorNormal = floorNormal ?? Vector3.UnitY;
     }
 
-    /// <summary>The eye and the view between the last two ticks.</summary>
-    public (Vector3 Eye, float Yaw, float Pitch, Matrix4x4 View) View(float alpha)
+    /// <summary>The eye and the view between the last two ticks; the mouse late-latched (#51): the
+    /// last tick's turn whole and <paramref name="look"/>, the motion the next tick takes, on top.</summary>
+    public (Vector3 Eye, float Yaw, float Pitch, Matrix4x4 View) View(float alpha, Vector2 look = default)
     {
         var eye = Vector3.Lerp(_previous + new Vector3(0f, _previousEye, 0f), EyePosition, alpha);
-        var yaw = float.Lerp(_previousYaw, Yaw, alpha);
-        var pitch = float.Lerp(_previousPitch, Pitch, alpha);
+        look = Mover != null && !Noclip ? default : look * MouseRadians * LookScale;
+        var yaw = float.Lerp(_previousYaw, Yaw, alpha) + _mouseYaw * (1f - alpha) - look.X;
+        var pitch = Math.Clamp(float.Lerp(_previousPitch, Pitch, alpha) + _mousePitch * (1f - alpha) - look.Y, -PitchMax, PitchMax);
         return (eye, yaw, pitch, Matrix4x4.CreateLookAt(eye, eye + Direction(yaw, pitch), Vector3.UnitY));
     }
 
@@ -227,7 +232,8 @@ public sealed partial class PlayerController
     public static Vector3 Direction(float yaw, float pitch) =>
         new(-MathF.Sin(yaw) * MathF.Cos(pitch), MathF.Sin(pitch), -MathF.Cos(yaw) * MathF.Cos(pitch));
 
-    private void Snapshot() => (_previous, _previousEye, _previousYaw, _previousPitch) = (Position, Eye, Yaw, Pitch);
+    private void Snapshot() =>
+        (_previous, _previousEye, _previousYaw, _previousPitch, _mouseYaw, _mousePitch) = (Position, Eye, Yaw, Pitch, 0f, 0f);
 
     private static bool Held(in TickInput tick, int action) => action >= 0 && tick.IsDown(action);
 

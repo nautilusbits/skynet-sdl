@@ -27,7 +27,7 @@ public partial class TriggerLockTests
         { "aim", "215 02e54 EF use:eye/3d/r600/always/nolatch chain[02e54* 02f55:6E 02fc9:DC] first[snd41 move@02f55:slideY-378] second[snd41 move@02f55:slideY+378]" },
         { "aim", "215 0303d EF use:eye/3d/r600/always/nolatch chain[0303d* 036f2:E0 03003:5B 02fc9:DC] first[snd45 snd41 move@03003:slideY+128] second[snd45 snd41 move@03003:slideY-128]" },
         { "aim", "215 02f8f EF use:eye/3d/r600/always/nolatch chain[02f8f* 047f0:70 04719:70 031c9:E3 03515:5C 041a7:27 048e3:ED] first[snd77 obj1 voice21039 move@047f0:slideY-1024 move@04719:slideY-1024 move@03515:slideY-128] second[snd77 voice21039 move@047f0:slideY+1024 move@04719:slideY+1024 move@03515:slideY+128]" },
-        { "aim", "216 0886b EF use:eye/3d/r600/always/nolatch chain[0886b* 088e2:E1 08947:32 07f53:DD] first[snd46 snd42 move@08947:jumpY-512] second[snd46 snd42 move@08947:jumpY+512]" },
+        { "aim", "216 0886b EF use:eye/3d/r600/always/nolatch chain[0886b* 088e2:E1 08947:32 07f53:DD] first[snd46 snd42 move@08947:jumpY+512] second[snd46 snd42 move@08947:jumpY-512]" },
         { "aim", "216 094a8 EF use:eye/3d/r600/always/nolatch chain[094a8* 07d49:AA 0808b:A9 07d0f:E3 093a2:E0] first[snd77 snd45 move@07d49:swingY-512 move@0808b:swingY+512] second[snd77 snd45 move@07d49:swingY+512 move@0808b:swingY-512]" },
         { "aim", "232 0325c EF use:eye/3d/r600/always/nolatch chain[0325c* 031fe:E1 031c4:37 04bb7:26] first[snd46 obj0 move@031c4:rotY+1024] second[snd46 move@031c4:rotY-1024]" },
         // Walk-on pad (MAP.215's floor plate: the four walls slide, objective [M1]).

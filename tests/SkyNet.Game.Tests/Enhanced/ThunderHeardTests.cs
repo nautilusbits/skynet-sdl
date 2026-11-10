@@ -2,6 +2,7 @@ using System.Numerics;
 using RetroEng.Audio;
 using SkyNet.Game.Audio;
 using SkyNet.Game.Enhanced;
+using Strike = RetroEng.Render.Strike;
 
 namespace SkyNet.Game.Tests.Enhanced;
 
@@ -24,12 +25,14 @@ public class ThunderHeardTests
         var eye = new Vector3(1000f, 75f, 2000f);
         mixer.SetListener(eye, -Vector3.UnitZ, Vector3.UnitY);
         var sound = new WeatherSound(mixer);
-        var storm = new Storm(seed) { Thunder = sound.Thunder };
+        var storm = new Storm { Thunder = sound.Thunder };
         var table = StormTable.Defaults with { Interval = 1000f, NearMetres = metres, FarMetres = metres };
         // To the right: the far ear hears it too.
-        storm.Strike(Vector3.UnitX);
+        var units = metres * Storm.UnitsPerMetre;
+        var strike = new Strike(0f, eye + Vector3.UnitX * units, units, 1f, seed);
+        storm.Post(strike);
 
-        var seconds = Storm.ThunderDelay(metres * Storm.UnitsPerMetre) + 8f;
+        var seconds = strike.ThunderDelay(1f / Storm.UnitsPerMetre) + 8f;
         var block = new float[Rate / TicksPerSecond * 2];
         List<float> left = [], right = [];
         for (var t = 0; t < seconds * TicksPerSecond; t++)

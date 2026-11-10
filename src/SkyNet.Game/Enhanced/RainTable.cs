@@ -4,8 +4,8 @@ using RetroEng.Json;
 namespace SkyNet.Game.Enhanced;
 
 /// <summary>
-/// A mod's rain (a <see cref="Weather"/> file of kind <c>rain</c>, docs/modding.md): streaks falling
-/// round the eye and a hiss over the outdoor maps in the enhanced look (<see cref="Rain"/>).
+/// A mod's rain (a <see cref="Weather"/> file of kind <c>rain</c>, docs/modding.md): the engine's drops
+/// round the eye (<see cref="WeatherMap"/>) and a hiss (<see cref="Rain"/>) over the outdoor maps in the enhanced look.
 /// <code>
 ///   { "kind": "rain", "on": true, "intensity": 0.6, "windDirection": 30, "windSpeed": 4, "volume": 0.6 }
 /// </code>

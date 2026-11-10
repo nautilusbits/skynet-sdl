@@ -95,7 +95,7 @@ public class SunsetSkyTests
         var deck = SunsetSky.CloudsOf(Look, Sun)!;
         var lit = new Lighting(-Sun, Vector3.One, Vector3.One, Vector3.One, ShadowQuality.Off, 0f, 0f, Vector4.Zero, 0f) { Clouds = deck };
         var air = new AirView { Haze = HazeAirTable.Defaults };
-        var hazed = WeatherSky.Clouded(lit, lit, air, null, 0f, Vector3.Zero, 0f, ParticleLevel.Low);
+        var hazed = WeatherSky.Clouded(lit, lit, air, null, 0f, ParticleLevel.Low, Vector3.Zero);
         Assert.Equal(deck.Coverage, hazed.Clouds!.Coverage);
         Assert.True(hazed.Clouds.Horizon.W > 0f);
     }

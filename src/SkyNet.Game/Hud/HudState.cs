@@ -43,6 +43,8 @@ public struct HudState
     public Vector2? AimPoint;
     /// <summary>Seconds a planted satchel has left (<see cref="HudFormat.Countdown"/>); negative: none.</summary>
     public float Countdown;
+    /// <summary>The rocket's lock text (STRINGS.PRS TargetLock) under the crosshair; null: no lock.</summary>
+    public string? Lock;
 
     public static HudState Empty => new()
     {
@@ -61,8 +63,8 @@ public static class HudRecords
     /// <summary>Thrown item's ammo pool → its record (weapon table +0x4c): 14 pipe bomb, 15 molotov,
     /// 16 grenade, 18 canister, 19 satchel (record 17 is never handed out).</summary>
     public static readonly IReadOnlyDictionary<int, int> PoolRecord = new Dictionary<int, int> { [5] = 14, [6] = 15, [2] = 16, [8] = 18, [9] = 19 };
-    /// <summary>The vehicle's secondary, its rockets (pool 11): jeep 22, HK 25.</summary>
-    public static int VehicleSecondRecord(HudVehicle v) => v switch { HudVehicle.Jeep => 22, HudVehicle.Hk => 25, _ => -1 };
+    /// <summary>The vehicle's secondary, its rockets (pool 11): jeep 25, HK 22.</summary>
+    public static int VehicleSecondRecord(HudVehicle v) => v switch { HudVehicle.Jeep => 25, HudVehicle.Hk => 22, _ => -1 };
     public const int VehicleSecondPool = 11;
 }
 

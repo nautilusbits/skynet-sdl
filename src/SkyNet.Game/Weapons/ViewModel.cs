@@ -27,8 +27,14 @@ public sealed class ViewModel : IDisposable
     /// <summary>A mod's surfaces kept across maps (the guns' textures made once).</summary>
     private readonly KeptSurfaces? _kept;
     private readonly Dictionary<ViewModelModel, ModelMesh?> _meshes = new(ReferenceEqualityComparer.Instance);
+    /// <summary>The game palette's colours, for the enhanced frames' flash; null for Future Shock
+    /// (its guns' frames are not mapped).</summary>
+    private readonly Palette? _colours;
     private HudArt _low;
     private HudArt? _high;
+
+    /// <summary>The key suffix of the enhanced look's frames in the art's cache.</summary>
+    private const string NoFlash = "#noflash";
 
     public ViewModelAnimation Animation { get; } = new();
 
@@ -41,6 +47,7 @@ public sealed class ViewModel : IDisposable
         _table = table;
         _palette = palette;
         _kept = kept;
+        _colours = data.Game == GameKind.SkyNet ? data.LoadPalette() : null;
         _low = new HudArt(renderer, data, HudArtSet.LowRes);
         _high = set == HudArtSet.HiRes ? new HudArt(renderer, data, HudArtSet.HiRes) : null;
     }
@@ -87,6 +94,18 @@ public sealed class ViewModel : IDisposable
     public HudImage[] Frames(int record) =>
         ViewModelLayout.CfaName(record) is { } name ? (_high ?? _low).Cel(name) : [];
 
+    /// <summary>Frames of a record for <paramref name="look"/>: the enhanced look's without DOS's
+    /// painted muzzle flash, as it draws its own (issue #60).</summary>
+    private HudImage[] Frames(int record, Menu.Look look)
+    {
+        if (look == Menu.Look.Original || _colours is not { } colours || ViewModelLayout.CfaName(record) is not { } name)
+        {
+            return Frames(record);
+        }
+
+        return (_high ?? _low).Cel(name, name + NoFlash, (cfa, f) => FlashErase.Pixels(record, cfa, f, colours, look));
+    }
+
     /// <summary>The view X of a record: the table's, or the Godot port's when the table has none.</summary>
     public int ViewX(int record)
     {
@@ -111,15 +130,17 @@ public sealed class ViewModel : IDisposable
     /// <summary>The animation's state now, for a draw on another thread.</summary>
     public ViewModelPose Pose() => new(Animation.Record, Animation.Frame, Animation.ThrowDip, Animation.FireProgress, Animation.Clock);
 
-    /// <summary>Queues the gun at <paramref name="pose"/> (<see cref="Pose"/>, caught by the simulation).</summary>
-    public void Draw(in ViewModelState state, in ViewModelPose pose, int width, int height, HudStyle style = HudStyle.Classic)
+    /// <summary>Queues the gun at <paramref name="pose"/> (<see cref="Pose"/>, caught by the simulation)
+    /// in <paramref name="look"/>'s frames.</summary>
+    public void Draw(in ViewModelState state, in ViewModelPose pose, int width, int height, HudStyle style = HudStyle.Classic,
+        Menu.Look look = Menu.Look.Original)
     {
         if (!state.Visible || width <= 0 || height <= 0)
         {
             return;
         }
 
-        var frames = Frames(state.Record);
+        var frames = Frames(state.Record, look);
         if (frames.Length == 0)
         {
             return;
@@ -131,6 +152,15 @@ public sealed class ViewModel : IDisposable
         var target = new RectangleF(rect.X * unit, rect.Y * unit, rect.Width * unit, rect.Height * unit);
         var palette = (_high ?? _low).Palette;
         _renderer.DrawImage(image.Handle, palette, image.Size, new RectangleF(0, 0, image.Width, image.Height), target, Vector4.One);
+
+        // A hard cut DOS's screen edge hid: its last column out to the wider screen's edge.
+        if (!ViewModelLayout.HardCut(image.Pixels, image.Width, image.Height) || ViewModelLayout.EdgeFill(rect, width) is not { } fill)
+        {
+            return;
+        }
+
+        var edge = new RectangleF(fill.X * unit, fill.Y * unit, fill.Width * unit, fill.Height * unit);
+        _renderer.DrawImage(image.Handle, palette, image.Size, new RectangleF(image.Width - 1, 0, 1, image.Height), edge, Vector4.One);
     }
 
     /// <summary>Queues the held gun's 3D model (<see cref="ViewModelModels.Drawn"/>) at <paramref name="pose"/>

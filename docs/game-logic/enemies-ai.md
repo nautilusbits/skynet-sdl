@@ -5,9 +5,12 @@
 - Enemies are **variant-3 markers of type 2** (not variant-1 actors). The
   enemy type is the byte at sub+10; **bit 7 is the convoy flag** (mask
   `& 0x7F`, see path vehicles).
-- Marker sub+2 ≠ 0 makes a **dormant trap** (state 12): no AI; explodes
-  when the player comes within that distance (effect bank TEXTURE.367,
-  sound 0x26).
+- Marker sub+2 ≠ 0 makes a **dormant** robot (0x143000, v1.01: record
+  +0x14 bit 3, actor flag 0x800): not drawn (0x136dee), not struck
+  (0x13aa1e), runs state 12 in place of its own (0x129db9). State 12
+  (0x14305e) wakes it when the player is within that distance: effect
+  TEXTURE.367 half its radius toward him, sound 0x26; it then fights as
+  its type. It never explodes.
 - Marker sub+4 (act) and sub+5 (state) are copied to the actor
   (EnemiesStartMarked 0x12a439, v1.01). State 0x04 = act on death.
 - Enemy constructor FUN_0012959d (v1.00). Act 0xF3 sprites reveal robots
@@ -44,13 +47,13 @@ EnemyGroupDoAI FUN_00129871 (v1.00).
 | 0 | static base (gun tower base, grabber base) | |
 | 1 | ballistic wreck part (types 100-170) | |
 | 2 | turret / gun segment | FUN_00137965 (v1.01) |
-| 6 | hover / ground chaser (globe, drone, scout, hover tank) | 0x136d45 (v1.00) |
+| 6 | hover / ground chaser (globe, drone, scout, hover tank, flencer) | 0x137545 (v1.01) |
 | 7 | walker (T-800 family, raptor, spider bot, T-rex legs) | 0x13be00 (v1.00) |
 | 8 | head segment with a script (T-rex head) | |
 | 9 | flyer (HK) | 0x13c300 (v1.00) |
 | 10 | machine, script only (torture, grabber, welder arm) | |
 | 11 | path vehicle | 0x127400 (v1.01) |
-| 12 | dormant trap | 0x14285e (v1.00) |
+| 12 | dormant (teleport-in) | 0x14305e (v1.01) |
 | 13 | tank | 0x13c900 (v1.00) |
 
 ## Activity window
@@ -108,6 +111,22 @@ Base = instance for state 7, instance + 0xc for 2/6/8.
 | Flyer (state 9) | p4 max turn, p5 turn accel, p6 min altitude + 100, p7 vertical accel, p8 obstacle radius, p9 forward speed (400/500), p11 = var 56 target speed (50..800, −250 = back off), p12 vertical speed; script var 56; dw17-25 fire, dw26-27 engine |
 | Tank (state 13) | dw12 script (var 48 speed, var 44 heading), dw22-23 engine |
 
+## Hovers (state 6)
+
+0x137545 (v1.01). Perceived, the hover takes the newest point of the
+player's trail (150-entry ring at [0x90d3], a point per 5 units moved,
+0x122a32) and flies straight at it in 3D, dw4 u/s (0x13bf96, 0x138868),
+sliding along walls (0x13b35e); within 15 of a point it takes the next
+(0x13b817). Within dw6 of the player (3D, 0x137576) it stops. Unseen, it
+keeps following the trail it has, else stands. The ring's first slot
+reads as "none" (0x13b7b6), so a hover waits until the player has moved.
+Blocked, it backs 3 points (0x13b7d8). Outdoors dw10 > 0 caps its height
+over the ground (0x137683, 0x14575d). Its target is the point lifted by
+its shape height (dw5 → {x, y, z, r}, |y|). The yaw only faces the
+player (dw7). No ground test: the flencer flies. Ported in CLASSIC
+(`PlayerTrail`); not ported: the wall slide and its contact codes, and
+DOS's stale target when no next point exists.
+
 ## Turrets (state 2)
 
 FUN_00137965, once per frame. Target = the player when within dw8 and
@@ -126,11 +145,18 @@ p6 − 100 over the ground.
 
 ## Fire
 
-Fire routine 0x137510 (v1.00): in range, aim within the cone (0x8c of
-2048 = 24.6°, or the per-type cosine, e.g. 46340 = 45°, relaxed to 45°
-inside 140 units), then a random roll `rand & 1023 < (rate × difficulty
-[0x5c500]) >> 16`. The shot is the ammo type's projectile
-([weapons-ammo.md](weapons-ammo.md)).
+Fire routine 0x137d10 (v1.01), block B = the family's fire fields:
+target (the eye; a walker 18 under it) within B+0x38 range of the actor's
+origin, `dot(dir, forward) >= B+0x2c` (relaxed to cos 45° inside 140
+units), then once a frame `rand & 1023 < (B+0x34 rate × [0x2c500]) >> 16`
+(0x13c17a; [0x2c500] = the difficulty's fire factor). B+0x28 is the bolt
+speed and its sign the twin flag: negative swaps the muzzle X each shot
+(0x137d66). The bolt flies at |speed| u/s (0x13c055 → 0x1388fe; moved by
+dt at 0x123161), straight at the target from muzzle + dir × r·17/16 (r =
+the model radius). Walkers and hovers fire only while they perceive the
+player and their frame flags hold 0x100. DOS rolls once per rendered
+frame (5..50 fps, 0x124c38); the port counts 35 a second. The shot is
+the ammo type's projectile ([weapons-ammo.md](weapons-ammo.md)).
 
 ## Death
 
@@ -234,8 +260,8 @@ pickup (path authored on), MAP.260 convoy, MAP.280/281 boss loop.
 - Scripts evaluate at a fixed 12 Hz (`enemy_ai.gd` `SCRIPT_HZ`) rather
   than once per rendered frame, so random rolls (e.g. the T-800's 10 %
   gesture check) happen at a different rate than in DOS.
-- Enemy fire rate uses `FIRE_RATE_DIV` 128 and bolt speed
-  `BOLT_SPEED_SCALE` 5 — calibration, not the DOS roll above.
+- Enemy fire rate used `FIRE_RATE_DIV` 128 and bolt speed
+  `BOLT_SPEED_SCALE` 5 — calibration; the C# port fires by the DOS roll.
 - The turret rest pose and the alert bit are modelled (`enemy.gd`
   `_alert`); an earlier version froze out-of-range turrets instead.
 - Ground actors refuse to drive into water and have per-family slope and
@@ -275,7 +301,10 @@ movement and when robots fire (`Enemies/Enemy.Improved.cs`):
 - Flyers: a hull of spheres (the body's bounds, turned with the yaw) is pushed
   out of the level and moved by a sweep with sliding, so it never enters
   geometry; a look-ahead sweep (0.8 s of flight) turns or climbs round what is
-  ahead.
+  ahead. Hovers (not HKs, not mines) closer than half their largest sides
+  plus 8 push apart sideways through the same slide; DOS lets them pass
+  through each other (robots carry 0x20, the hover's slide masks it,
+  0x13b35e), so a group on the trail stacked into one.
 - Walkers and ground robots: probes ahead (middle, both shoulders, knee
   height), then follow the obstacle on one side until the goal's way is clear
   ("bug" walk); 1 s trying with no progress (3 s while turning) → back off;
