@@ -29,7 +29,7 @@ public sealed class CampaignControls
         TurnRight = a.Add("Turn right", "Right");
         LookUp = a.Add("Look up", "PageUp");
         LookDown = a.Add("Look down", "PageDown");
-        Slide = a.Add("Slide", "Left Alt");
+        Slide = a.Add("Slide", AltKey);
         Use = a.Add("Use", "E");
         Fire = a.Add("Fire", "Left mouse", "Left Ctrl");
         Throw = a.Add("Throw", "Right mouse");
@@ -81,6 +81,17 @@ public sealed class CampaignControls
     /// <paramref name="touch"/>'s places (null: the defaults).</summary>
     public static CampaignControls Create(Hud.TouchLayout? touch = null) =>
         new(new ActionSet(), touch ?? new Hud.TouchLayout(new Dictionary<string, string>()));
+
+    /// <summary>
+    /// The Alt key's name. The engine resolves control names against a key table: its own one before SDL
+    /// is up, SDL's afterwards. SDL names the key as the platform does, so macOS wants "Left Option"
+    /// once the window exists; the built-in table and Windows and Linux want "Left Alt". Naming the
+    /// other one throws in <see cref="Input.ResetBindings"/>, hence the split.
+    /// </summary>
+    private static string AltKey => AltKeyFor(SDL.SDL3.SDL_WasInit((SDL.SDL_InitFlags)0) != 0);
+
+    internal static string AltKeyFor(bool sdlInitialized) =>
+        OperatingSystem.IsMacOS() && sdlInitialized ? "Left Option" : "Left Alt";
 
     public ActionSet Actions { get; }
     public int Forward { get; }

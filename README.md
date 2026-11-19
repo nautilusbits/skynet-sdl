@@ -128,6 +128,13 @@ Unpack the `.tar.gz` the same way, beside the data folder, and run `./skynet-sdl
 Linux needs glibc 2.35+ and a Vulkan driver. macOS builds are unsigned: run
 `xattr -dr com.apple.quarantine <folder>` once.
 
+On macOS the engine's Metal backend cannot load its own shaders (RetroEng 0.66.1), so the
+renderer has to be pointed at Vulkan through MoltenVK: put `libMoltenVK.dylib`,
+`libvulkan.1.dylib` and `MoltenVK_icd.json` beside the binary and start with
+`SDL_GPU_DRIVER=vulkan VK_ICD_FILENAMES=$PWD/MoltenVK_icd.json DYLD_LIBRARY_PATH=$PWD ./skynet-sdl`.
+MoltenVK translates to Metal, so the GPU work still runs on the GPU. `release/run.sh` in a
+local build does all of this; `--gpu metal` is the default and fails.
+
 **Android**
 
 1. Copy the game's data folder (the one holding `MDMDMAP2.BSA`) to the phone.
