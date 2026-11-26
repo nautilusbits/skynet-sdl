@@ -3,6 +3,14 @@
 Version in `Directory.Build.props`. Each batch of changes raises it: a fix
 the patch number, a feature the minor. Releases on GitHub start at 1.0.0.
 
+## 1.7.1 (2026-11-26)
+
+macOS fixes, RetroEng 0.67.1.
+- The game starts on macOS again: the Slide key's name (Left Alt, Left
+  Option on a Mac) no longer stops the controls from loading (#74).
+- The Metal backend loads the built-in shaders: no two resources share
+  a buffer slot any more (#75).
+
 ## 1.7.0 (2026-11-26)
 
 Music
