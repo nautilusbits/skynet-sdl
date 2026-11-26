@@ -35,6 +35,37 @@ public sealed class Hull(VehicleController vehicle, Soldier? soldier) : IDamagea
         ? vehicle.Body.Position + new Vector3(0f, JeepCentreHeight, 0f)
         : vehicle.Body.EyePosition;
     public float Radius => vehicle.Mode == VehicleMode.Hk ? VehicleController.HkRadius : VehicleController.JeepRadius;
+
+    /// <summary>DOS's jeep body (table 0x38e2d, DOS y down / z ahead): four spheres of 50, 20 right
+    /// of the driver, 55 up, along the car; 0x145232 tests them in the car's frame (its position
+    /// 0x23a70 and angles, set at 0x1362d3).</summary>
+    private static readonly Vector3[] JeepSpheres = [new(20f, 55f, 90f), new(20f, 55f, 24f), new(20f, 55f, -23f), new(20f, 55f, -85f)];
+    private const float JeepSphereRadius = 50f;
+    /// <summary>DOS's HK body (table 0x38e71): one sphere of 80 at the eye.</summary>
+    private const float HkSphereRadius = 80f;
+
+    /// <summary>Where a ray first meets DOS's hull spheres within <paramref name="max"/>.</summary>
+    public bool Ray(Vector3 origin, Vector3 direction, float max, out float distance)
+    {
+        if (vehicle.Mode == VehicleMode.Hk)
+        {
+            return DamageTargets.RaySphere(origin, direction, vehicle.Body.EyePosition, HkSphereRadius, out distance) && distance <= max;
+        }
+
+        // The car's frame: tilted, turned by its heading, at its position.
+        var frame = Matrix4x4.CreateFromYawPitchRoll(0f, vehicle.TiltPitch, vehicle.TiltRoll)
+            * Matrix4x4.CreateRotationY(vehicle.CarYaw) * Matrix4x4.CreateTranslation(vehicle.Body.Position);
+        distance = float.MaxValue;
+        foreach (var local in JeepSpheres)
+        {
+            if (DamageTargets.RaySphere(origin, direction, Vector3.Transform(local, frame), JeepSphereRadius, out var d) && d < distance)
+            {
+                distance = d;
+            }
+        }
+
+        return distance <= max;
+    }
     public bool Alive => Points > 0f && (soldier?.Alive ?? true);
 
     /// <summary>Raised on every hit that lands (the app plays HIT2, shakes the view).</summary>

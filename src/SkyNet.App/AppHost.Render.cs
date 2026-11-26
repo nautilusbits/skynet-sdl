@@ -319,6 +319,7 @@ internal sealed partial class AppHost
 
         // The ride's view has neither the weapon nor the panel.
         s.Riding = riding;
+        (s.Scanner, s.ScannerAt) = (null, null);
         if (!riding)
         {
             var inventory = weapons.Inventory;
@@ -357,6 +358,12 @@ internal sealed partial class AppHost
                 Lock = weapons.Lock != null && weapons.Table.Weapons[inventory.Primary].Aimed ? session.Text("TargetLock", "LOCK") : null,
             });
             hud.Capture(s.HudText);
+
+            // The campaign's motion detector plots on its own art (FUN_0011ff00).
+            if (dm == null && session.DetectorActive)
+            {
+                (s.Scanner, s.ScannerAt) = (session.Scanner(), viewModel.Placed(s.ViewModel, s.ViewModelPose, width, height, s.HudStyle));
+            }
         }
 
         // DOS swaps the whole VGA palette to SKYNTWTR.COL while the head is under.
@@ -602,7 +609,7 @@ internal sealed partial class AppHost
             {
                 // A mod's 3D gun draws its own muzzle flash (its sidecar's flashSize): not the DOS one too.
                 var gun3D = s.Views.Count == 1 && s.ViewModel.Visible && SkyNet.Game.Mods.ViewModelModels.Drawn(s.ViewModel.Record, map.Enhanced) != null;
-                weaponView.Draw(s.Weapons, s.Eye, gun3D ? OwnFlashes.Hidden : OwnFlashes.Shown);
+                weaponView.Draw(s.Weapons, s.Eye, s.AnimationMs, gun3D ? OwnFlashes.Hidden : OwnFlashes.Shown);
                 weaponView.DrawDrops(s.Drops, s.Eye, s.AnimationMs);
                 if (s.Deathmatch)
                 {
@@ -614,6 +621,11 @@ internal sealed partial class AppHost
                         width, height, s.HudStyle, drawFlash ??= (at, size, eye) => weaponView.DrawFlash(at, size, eye)))
                 {
                     viewModel.Draw(s.ViewModel, s.ViewModelPose, width, height, s.HudStyle, map.Enhanced ? Look.Enhanced : Look.Original);
+                    if (s.Scanner is { } plot && s.ScannerAt is { } gun)
+                    {
+                        ScannerView.Draw(renderer, plot, gun, hud, width, height);
+                    }
+
                     DrawScope(s, width, height);
                 }
             }

@@ -18,6 +18,12 @@ namespace SkyNet.Game.Enemies;
 /// </summary>
 public sealed class RobotColliders : ITriangleSource
 {
+    /// <summary>The contact word every robot segment gets (link record +3, 0x129b5a): points a DOS
+    /// frame to a soldier whose move meets the robot (0x12b7f1 → 0x122d2f).</summary>
+    public const int ContactPoints = 4;
+    /// <summary>The collision owner of every robot face: no map record (those are offsets ≥ 0).</summary>
+    public const int Owner = -2;
+
     private const float Skin = 0.25f;
     /// <summary>A push shorter than this is a body resting against a robot, not one driven into.</summary>
     private const float MinPush = 0.5f;
@@ -111,10 +117,13 @@ public sealed class RobotColliders : ITriangleSource
             }
         }
 
+        Touched = false;
         if (Current() is not { } robots || !_alone.Overlaps(body, feet))
         {
             return feet;
         }
+
+        Touched = true;
 
         var push = _alone.Depenetrate(body, feet, Skin);
         if (push.Length() < MinPush)
@@ -140,6 +149,9 @@ public sealed class RobotColliders : ITriangleSource
 
         return feet;
     }
+
+    /// <summary>The last <see cref="Free"/> found the body in a robot that drove into it.</summary>
+    public bool Touched { get; private set; }
 
     /// <summary>The session's robots; a new set (another map) drops the old placements.</summary>
     private Robots? Current()
@@ -210,7 +222,7 @@ public sealed class RobotColliders : ITriangleSource
         for (var i = 0; i < shape.Length; i++)
         {
             var f = shape[i];
-            var t = new Triangle(Vector3.Transform(f[0], p.World), Vector3.Transform(f[1], p.World), Vector3.Transform(f[2], p.World));
+            var t = new Triangle(Vector3.Transform(f[0], p.World), Vector3.Transform(f[1], p.World), Vector3.Transform(f[2], p.World), Owner);
             placed.Triangles[i] = t;
             bounds = bounds.Include(t.A).Include(t.B).Include(t.C);
         }

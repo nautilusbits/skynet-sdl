@@ -53,10 +53,10 @@ tanker 600, crates 0).
 
 | Source | Rule |
 |---|---|
-| Enemy contact (machines, claws) | 4 points per collision probe per frame (0x122854); per-type contact word at enemy record +3 |
+| Enemy contact | The soldier's move (0x12b7f1, on foot only) charges the contact word (link record +3) of the first variant-1 record its probe meets (0x13ac3e → 0x122d2f), once per probe that meets one, each frame, through the armour, unscaled. The robot constructor (0x129b5a) sets it to 4 on every robot segment; map records take theirs from the map. Port: robots only (`GameSession.RobotContact`), 4 a DOS frame (35/s) |
 | Drowning | 85 points/s (0x5500 >> 8) after the air runs out ([water.md](water.md)) |
 | Fall | see [player-movement.md](player-movement.md#fall-damage) |
-| Radiation | v1.01 FUN_0013b9e0, at the eye lowered by half the eye height: per source skip when `0.75 × rough distance (0x14d794) > strength`; `r = strength − exact 3D distance (0x14d775)`; skip when `r ≤ 0`; `dose = (Σ min(r × 50, 12800) + 128) >> 8` (≤ 50 per source); at or above the marker-8 floor add its sub+2. Dose is per second; FUN_0013ba9a charges at least 1 HP **per frame**, through the armour, no grunt; sound 19 (20 from dose 35). Port: `Radiation` |
+| Radiation | v1.01 FUN_0013b9e0, at the eye lowered by half the eye height: per source skip when `0.75 × rough distance (0x14d794) > strength`; `r = strength − exact 3D distance (0x14d775)`; skip when `r ≤ 0`; `dose = (Σ min(r × 50, 12800) + 128) >> 8` (≤ 50 per source); at or above the marker-8 floor add its sub+2. Dose is per second; FUN_0013ba9a charges at least 1 HP **per frame**, through the armour, no grunt; sound 19 (20 from dose 35). Port: `Radiation`, charged per DOS frame at 35 a second |
 
 Radiation sources are marker type 4, strength at sub+2 (80..1024; Future Shock up to 2500).
 
@@ -150,8 +150,10 @@ and HK. F6 hides the panel; F7/F8 brightness; F9 auto-aim; F10 HMD.
 - Armour regeneration: the difficulty table has a regen column, but the
   regen routine (0x1227f0) has no caller in v1.01, so armour never
   recharges in play. The port follows that (it recharged until a later
-  audit). Its own addition: vehicle energy (pool 10) recharges at
-  450/s after 0.35 s without firing (`VEH_REGEN_*`, no DOS basis found).
+  audit). Vehicle energy (pool 10) recharges in DOS too: v1.01 0x13202b,
+  run by the jeep and HK movers (0x1356ec, 0x131be0), adds 300/s (at
+  least 1 a frame) up to 2000, firing or not; `VehicleGuns` does the
+  same.
 - Per-enemy-type contact damage (enemy record +3) is not ported; machines
   use a flat 4 points per physics step.
 - The F6 panel-off mode is not ported.

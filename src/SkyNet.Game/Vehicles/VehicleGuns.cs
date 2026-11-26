@@ -11,18 +11,15 @@ namespace SkyNet.Game.Vehicles;
 /// FIRE 0x44476 = {0, 24, 21}, THROW 0x4449a = {15, 25, 22}.</item>
 /// <item>The barrels take turns: DOS negates the record's muzzle x after every shot in a vehicle
 /// (0x125e5e).</item>
-/// <item>Pool 10 (vehicle energy, 1000 of 2000, 100 a bolt) never runs dry for good: it recharges
-/// 450 a second once the trigger has rested 0.35 s, and a gun emptied overheats until the pool is
-/// back to 400 (a port addition, docs/game-logic/damage-hud.md). Pool 11 holds the rockets.</item>
+/// <item>Pool 10 (vehicle energy, 1000 of 2000, 100 a bolt) recharges 300 a second, firing or not
+/// (DOS 0x13202b); short of a bolt's cost the gun clicks dry. Pool 11 holds the rockets.</item>
 /// </list>
 /// </summary>
 public sealed class VehicleGuns(VehicleMode mode) : IWeaponMount
 {
     public const int EnergyPool = 10;
     public const int RocketPool = 11;
-    public const float RegenPerSecond = 450f;
-    public const float RegenDelay = 0.35f;
-    public const int CoolLevel = 400;
+    public const float RegenPerSecond = 300f;
 
     private bool _gunMirror, _podMirror;
     private float _regenCarry;
@@ -32,10 +29,6 @@ public sealed class VehicleGuns(VehicleMode mode) : IWeaponMount
     public int Gun => GunOf(Mode);
     /// <summary>The record on THROW: jeep rockets 25, HK rockets 22.</summary>
     public int Pod => PodOf(Mode);
-    /// <summary>The gun is cooling down to <see cref="CoolLevel"/> (a load sets it back).</summary>
-    public bool Overheated { get; internal set; }
-    /// <summary>Seconds since the gun last drew on the energy pool.</summary>
-    public float SinceShot { get; private set; } = 10f;
 
     public static int GunOf(VehicleMode mode) => mode switch { VehicleMode.Jeep => 24, VehicleMode.Hk => 21, _ => -1 };
 
@@ -46,12 +39,6 @@ public sealed class VehicleGuns(VehicleMode mode) : IWeaponMount
 
     public void Tick(Inventory inventory, float dt)
     {
-        SinceShot += dt;
-        if (SinceShot < RegenDelay)
-        {
-            return;
-        }
-
         var max = inventory.Table.Pools[EnergyPool].Max;
         if (inventory.Pool(EnergyPool) >= max)
         {
@@ -63,27 +50,12 @@ public sealed class VehicleGuns(VehicleMode mode) : IWeaponMount
         var whole = (int)_regenCarry;
         _regenCarry -= whole;
         inventory.AddAmmo(EnergyPool, whole);
-        if (Overheated && inventory.Pool(EnergyPool) >= CoolLevel)
-        {
-            Overheated = false;
-        }
     }
 
     public (int Record, bool Mirror)? Trigger(bool secondary, Inventory inventory)
     {
         var record = secondary ? Pod : Gun;
         if (record < 0)
-        {
-            return null;
-        }
-
-        var w = inventory.Table.Weapons[record];
-        if (w.Pool == EnergyPool && inventory.FireCooldown <= 0f && inventory.Pool(EnergyPool) < w.Cost)
-        {
-            Overheated = true;               // a cold start needs CoolLevel
-        }
-
-        if (w.Pool == EnergyPool && Overheated)
         {
             return null;
         }
@@ -105,7 +77,6 @@ public sealed class VehicleGuns(VehicleMode mode) : IWeaponMount
         else
         {
             _gunMirror = !_gunMirror;
-            SinceShot = 0f;
         }
     }
 

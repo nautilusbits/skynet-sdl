@@ -16,6 +16,7 @@ HexaGen.Runtime            via Hexa.NET.ImGui       managed runtime helpers     
 LiteNetLib                 RetroEng.Net             managed library                MIT
 DotRecast                  SkyNet.Game (navmesh)    managed library                zlib
 LRO moon map (NASA SVS)    SkyNet.Game (night moon) data/sky/moon_near_side.gray   public domain
+MeltySynth                 SkyNet.Game (SOUNDFONT)  managed library                MIT
 
 RetroEng NC: the RetroEng Non-Commercial Binary Licence, LICENSE-RetroEng.txt
 in each RetroEng.* package and beside the released game. Free, unmodified
@@ -32,6 +33,9 @@ Copyright notices
 - LiteNetLib: Copyright (c) 2026 Ruslan Pyrch.
 - DotRecast: Copyright (c) 2009 Mikko Mononen (Recast), (c) 2015 Piotr
   Piastucki (recast4j), (c) 2023-2026 Choi Ikpil (DotRecast).
+- MeltySynth: Copyright (C) 2021 Nobuaki Tanaka; parts (C) 2014 Alex
+  Veltsistas (C# Synth), (C) 2017, 2018 Bernhard Schelling (TinySoundFont),
+  (C) 2012 Steve Folta (SFZero).
 
 Moon map
 
@@ -70,7 +74,7 @@ freely, subject to the following restrictions:
 
 ==============================================================================
 MIT licence (ppy.SDL3-CS, Dear ImGui, cimgui, Hexa.NET.ImGui, HexaGen.Runtime,
-LiteNetLib)
+LiteNetLib, MeltySynth)
 ==============================================================================
 
 Permission is hereby granted, free of charge, to any person obtaining a copy

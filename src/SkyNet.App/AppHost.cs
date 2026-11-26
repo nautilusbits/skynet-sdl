@@ -35,8 +35,8 @@ internal sealed partial class AppHost : IDisposable
 {
     private const int TicksPerSecond = AppTools.TicksPerSecond;
     private const float FieldOfView = 70f * MathF.PI / 180f;
-    private const float Near = 1f;
-    private const float FarPlane = 100000f;
+    private const float Near = SceneDepth.Near;
+    private const float FarPlane = SceneDepth.FarPlane;
     /// <summary>No shared depth pre-pass: about as fast here, and AMD drivers place vertices differently in the
     /// two passes, which hid robots (--depth-sharing overrides; no setting).</summary>
     private const DepthSharing DefaultDepthSharing = DepthSharing.Off;
@@ -49,6 +49,8 @@ internal sealed partial class AppHost : IDisposable
     private readonly LogRing ring;
     private readonly SkyNet.Game.Net.DmRunOptions? netRun;
     private readonly string modsDir;
+    /// <summary>The .sf2 banks MUSIC = SOUNDFONT plays: soundfonts/ beside the game, as mods/ (not a mod).</summary>
+    private readonly string soundFontsDir = Path.Combine(AppContext.BaseDirectory, SoundFonts.Folder);
     private readonly string[] systemMods;
     private readonly List<string>? modsOverride;
     private string[] modsMounted, tableModsMounted;
@@ -390,6 +392,7 @@ internal sealed partial class AppHost : IDisposable
             MasterAddress = () => SkyNet.Game.Net.MasterAddresses.Pick(options.NetMaster, settings.Net.Master, AppContext.BaseDirectory),
             MasterBrowser = address => RetroEng.Net.Master.MasterBrowser.Start(address, SkyNet.Game.Net.DmProtocol.GameId(homeData.Game), SkyNet.Game.Net.DmProtocol.Version),
             ModList = () => SkyNet.Game.Mods.ModCatalog.Scan(modsDir, SettingsStore.CacheFolder, systemMods),
+            SoundFonts = () => SkyNet.Game.Audio.SoundFonts.Scan(soundFontsDir),
             ModsOverride = modsOverride,
             HiresTextures = () => SkyNet.Game.Mods.ModContent.HasTextures,
             UnknownData = unknownData,
@@ -509,11 +512,15 @@ internal sealed partial class AppHost : IDisposable
         {
             winMovie.Drop();
             CloseKeyboard();
-            if (!menu.InGame && TitleSlot(slot) is { } titleSlot && titleSlot.Game != data.Game && !SwitchGame(titleSlot.Game))
+            if (!menu.InGame && TitleSlot(slot) is { } titleSlot)
             {
-                menu.OpenTitle();
-                menu.ShowToast("LOAD FAILED");
-                return;
+                slot = titleSlot.Slot;
+                if (titleSlot.Game != data.Game && !SwitchGame(titleSlot.Game))
+                {
+                    menu.OpenTitle();
+                    menu.ShowToast("LOAD FAILED");
+                    return;
+                }
             }
 
             ApplyMods(tables: true);
@@ -1155,6 +1162,21 @@ internal sealed partial class AppHost : IDisposable
         return layout;
     }
 
+    /// <summary>MUSIC = SOUNDFONT: the setting's .sf2, else the first in soundfonts/ (read on the
+    /// music thread); ORIGINAL, or no .sf2 at all: the port's synth.</summary>
+    void UseSoundFont(MenuSettings s)
+    {
+        if (s.MusicSynth != MusicSynth.SoundFont)
+        {
+            music.UseSoundFont(null, () => null);
+            return;
+        }
+
+        var id = s.SoundFont;
+        music.UseSoundFont(id, () => SoundFonts.Read(soundFontsDir, id)
+            ?? (SoundFonts.Scan(soundFontsDir).FirstOrDefault() is { } first ? SoundFonts.Read(soundFontsDir, first) : null));
+    }
+
     void ApplySettings(MenuSettings s)
     {
         // The settings change the level, the drawers and the renderer's scene state a frame build reads.
@@ -1193,11 +1215,12 @@ internal sealed partial class AppHost : IDisposable
         hud.ArtSet = s.HudArt;
         hud.Style = s.HudStyle;
         viewModel.ArtSet = s.HudArt;
-        // A demo playing keeps the DIFFICULTY and ROBOT AI it was recorded with (its events change them).
+        // A demo playing keeps the DIFFICULTY, ROBOT AI and FULL PICKUPS it was recorded with (its events change them).
         if (playback == null)
         {
             session.Difficulty = Difficulty.Of(s.Difficulty);
             session.RobotAi = s.RobotAi;
+            session.FullPickups = s.FullPickups;
         }
         // MOUSE and GAMEPAD: the look of every mover (on foot, the turret, the HK) reads Input's counts.
         s.ApplyLook(input);
@@ -1207,6 +1230,7 @@ internal sealed partial class AppHost : IDisposable
             : null;
         audio.Mixer.SetBusGain(Bus.Effects, s.SoundGain);
         music.Volume = MusicPlayer.DefaultVolume * s.MusicGain;
+        UseSoundFont(s);
         if (level != null)
         {
             level.Detail = s.Detail;

@@ -3,6 +3,80 @@
 Version in `Directory.Build.props`. Each batch of changes raises it: a fix
 the patch number, a feature the minor. Releases on GitHub start at 1.0.0.
 
+## 1.7.0 (2026-11-26)
+
+Music
+- MUSIC = SOUNDFONT (OPTIONS > DETAIL > GAMEPLAY) plays the songs
+  through a General MIDI SoundFont (.sf2, MeltySynth) instead of the
+  port's synth; SOUNDFONT picks the file. The .sf2 files go straight
+  into `soundfonts/` beside the game (next to `mods/`); they are not a
+  mod. Without one the row says where to put it. ORIGINAL stays the
+  default (#70).
+
+Weapons
+- The campaign soldier carries the motion detector again, with the
+  pipe on key 1: it plots the robots round you and beeps each sweep,
+  as SKYNET.EXE draws it. SkyNET v1.00 gave it at the start; v1.01
+  dropped it from the list, and the port follows v1.00.
+
+## 1.6.3 (2026-11-25)
+
+Fixes from GitHub issues #23, #25, #46, #62, #63, #64, #67, #69, #71-#73,
+most of them to match DOS. RetroEng 0.67.0.
+
+Robots
+- Touching a robot hurts, as in DOS: 4 points a frame while you walk
+  into one or it drives into you. A flencer's arms hurt when you step
+  into them (#64).
+- Robot shots hit the soldier, the jeep and the HK through DOS's body
+  spheres, so a level shot from a hung turret no longer passes over
+  you (#23).
+
+Vehicles
+- Jeep: climbs a slope at its full ground speed, as in DOS, so it gets
+  across Future Shock mission 2's moat at speed instead of creeping up
+  its far wall (#46).
+- Jeep: flies off edges and lands on its wheels, leaves ramp crests
+  level, and tilts with the ground while it hops (#46).
+- Jeep: the view pitches on the pedals and leans in turns, and the
+  engine revs with the speed, as in DOS (#46).
+- Radiation costs a point per DOS frame, not per tick: 1.7 times less
+  drain than before (#46).
+
+Maps and missions
+- The campaign grants the next mission's ammo after a win, as in DOS:
+  Future Shock mission 11 starts with its two satchel charges; SkyNET
+  missions 3, 4 and 8 get their ammo too (#67).
+- Mission 3's club: shooting the disco ball no longer drops the dance
+  floor's collision, so you can't fall through it (#71).
+- Sliding doors no longer flicker against the wall behind them, and
+  far gate leaves stay behind their wall (#72).
+
+Weapons
+- Enhanced look: laser bolts are thin glowing streaks instead of
+  thick lit shards (#63).
+
+Look
+- Enhanced look: sprites take the sun, its shadow and the baked light
+  where they stand, so debris and items in a dark room or in shade are
+  no longer brighter than the floor (#62).
+
+Items
+- New option GAMEPLAY > FULL PICKUPS: LEAVE keeps ammo, health and
+  armour on the ground when that stat is full; weapons are always
+  taken. TAKE (default) picks everything up, as in DOS (#25).
+- Thrown grenades, pipe bombs and canisters spin in flight and while
+  they bounce, as in DOS (#73).
+
+Menus
+- The title's LOAD screen has a tab per game, so SkyNET and Future
+  Shock saves with the same slot number no longer hide each other
+  (#69).
+
+Editor
+- Switching missions no longer piles up GPU memory on Vulkan until the
+  editor crashes (RetroEng 0.66.2).
+
 ## 1.6.2 (2026-11-11)
 
 Fixes from GitHub issues #39-#61, most of them to match DOS. RetroEng

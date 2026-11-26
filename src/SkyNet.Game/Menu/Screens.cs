@@ -173,24 +173,46 @@ public sealed class NewGameScreen : PanelScreen
     }
 }
 
-/// <summary>LOAD.IMG / SAVE.IMG: ten slots and EXIT. The slot names come from the caller.</summary>
+/// <summary>LOAD.IMG / SAVE.IMG: ten slots and EXIT. The slot names come from the caller.
+/// The title's LOAD, with Future Shock's data found, adds SKYNET | FUTURE SHOCK tabs on the stone
+/// left of EXIT: each game keeps ten slots of its own, Future Shock's numbered after SkyNET's
+/// (its slot 3 is 13).</summary>
 public sealed class SlotsScreen : PanelScreen
 {
+    // The tabs on the stone bottom left of LOAD.IMG; a tab's index is its page.
+    private static readonly (string Id, string Caption, Rectangle Box)[] Tabs =
+    [
+        ("skynet", "SKYNET", new(8, 148, 62, 15)),
+        ("shock", "FUTURE SHOCK", new(72, 148, 114, 15)),
+    ];
+
     private readonly bool _saving;
+    private int _page = -1;
 
     public SlotsScreen(bool saving) : base(saving ? SaveImage : LoadImage, SlotsSize, SlotsScale) => _saving = saving;
 
     public override string Name => _saving ? "save" : "load";
 
+    // Tabs only where both games' saves can load: the title's LOAD with Future Shock's data.
+    private bool Tabbed => !_saving && !Menu.InGame && Menu.Context.FutureShockAvailable;
+
+    private int First => _page * Slots;
+
     public override void Opened()
     {
+        // First opening: SkyNET's page, Future Shock's when SkyNET has no save.
+        if (_page < 0)
+        {
+            _page = Tabbed && !Enumerable.Range(0, Slots).Any(i => Menu.Context.SlotName(i) != null) ? 1 : 0;
+        }
+
         Items.Clear();
         for (var i = 0; i < Slots; i++)
         {
-            var slot = i;
+            var slot = First + i;
             Add(new MenuItem($"slot{i}", At(Slot(i)))
             {
-                Enabled = _saving || Menu.Context.SlotName(i) != null,
+                Enabled = _saving || Menu.Context.SlotName(slot) != null,
                 Activate = () =>
                 {
                     if (_saving)
@@ -212,19 +234,57 @@ public sealed class SlotsScreen : PanelScreen
             });
         }
 
+        AddTabs();
         Add(new MenuItem("exit", At(SlotsExit)) { Lit = Lit(SlotsExitLit, SlotsExit.Location, 0), Activate = Menu.Pop });
         Highlight = Items.FindIndex(i => i.Enabled);
+    }
+
+    // A tab shows its game's ten slots, the highlight kept on it.
+    private void AddTabs()
+    {
+        if (!Tabbed)
+        {
+            return;
+        }
+
+        for (var t = 0; t < Tabs.Length; t++)
+        {
+            var page = t;
+            var id = Tabs[t].Id;
+            Add(new MenuItem(id, At(Tabs[t].Box))
+            {
+                Activate = () =>
+                {
+                    _page = page;
+                    Opened();
+                    Select(id);
+                },
+            });
+        }
     }
 
     protected override void DrawContents(MenuPainter p)
     {
         for (var i = 0; i < Slots; i++)
         {
-            if (Menu.Context.SlotName(i) is { } name)
+            if (Menu.Context.SlotName(First + i) is { } name)
             {
                 var r = Items[i].Rect;
                 p.Text("FONT0004.FNT", name.ToUpperInvariant(), r.X + 4, r.Y + 3, MenuPainter.TextGreen);
             }
+        }
+
+        if (!Tabbed)
+        {
+            return;
+        }
+
+        // The open game's tab pressed in, the other raised and greyed.
+        for (var t = 0; t < Tabs.Length; t++)
+        {
+            var r = At(Tabs[t].Box);
+            DosDialog.Button(p, r, Tabs[t].Caption, enabled: t == _page);
+            DosDialog.Bevel(p, r, raised: t != _page);
         }
     }
 }

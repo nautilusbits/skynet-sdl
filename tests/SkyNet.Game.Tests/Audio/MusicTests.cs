@@ -64,6 +64,39 @@ public class MusicTests
         Assert.All(present, id => Assert.NotNull(bank.Get(id)));
     }
 
+    /// <summary>A .sf2 that throws, does not parse or is not there: the music thread lives on and the
+    /// port's synth plays.</summary>
+    [AudioDataTheory]
+    [InlineData("throws")]
+    [InlineData("corrupt")]
+    [InlineData("missing")]
+    public void BadSoundFontFallsBackToOriginal(string kind)
+    {
+        Func<byte[]?> read = kind switch
+        {
+            "throws" => () => throw new ArgumentException("bad path"),
+            "corrupt" => () => [.. TinySoundFont.Build().Take(100)],
+            _ => () => null,
+        };
+        var mixer = new Mixer(Rate);
+        using var music = new MusicPlayer(mixer, AudioTestData.Open());
+        music.UseSoundFont("a.sf2", read);
+        music.PlayForMapType(0);
+
+        // Pull until sound reaches the mixer (the producer starts the song first).
+        var block = new float[Mixer.BlockFrames * 2];
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        double sum = 0;
+        while (sum == 0 && DateTime.UtcNow < deadline)
+        {
+            Thread.Sleep(5);
+            mixer.Mix(block);
+            sum += block.Sum(v => (double)v * v);
+        }
+
+        Assert.True(sum > 0, "no music after a bad SoundFont");
+    }
+
     [AudioDataFact]
     public void PlayerFeedsTheMusicBusWithoutUnderruns()
     {

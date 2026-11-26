@@ -140,6 +140,11 @@ Linux needs glibc 2.35+ and a Vulkan driver. macOS builds are unsigned: run
 Copy `skynet-hd.zip` (unzipped or not) into `mods\` beside the exe and turn it on under
 OPTIONS → MODS.
 
+**SoundFont music (optional)**
+
+Put `.sf2` files into `soundfonts\` beside the exe (next to `mods\`; not a mod) and pick
+OPTIONS → DETAIL → GAMEPLAY → MUSIC = SOUNDFONT; SOUNDFONT picks the file.
+
 ## Running
 
 ```
@@ -165,6 +170,8 @@ Main options (`skynet-sdl.exe --help` lists all):
 | `--host=MAP.NNN` / `--join=HOST[:PORT]` | network deathmatch ([docs/multiplayer.md](docs/multiplayer.md)) |
 | `--dedicated --config server.json` | dedicated server (`config/server.sample.json`) |
 | `--record NAME` / `--playdemo NAME` | demos ([docs/demos.md](docs/demos.md)) |
+
+The in-game console (`` ` `` key) takes commands such as `far` (view distance): [docs/console.md](docs/console.md).
 
 ## Building
 

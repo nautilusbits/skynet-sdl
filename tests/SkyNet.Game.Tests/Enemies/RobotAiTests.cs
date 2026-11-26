@@ -357,7 +357,7 @@ public class RobotAiTests
     }
 
     /// <summary>CLASSIC set by hand runs as the DOS golden; IMPROVED changes the run.</summary>
-    [BehaviourDataFact]
+    [FloatGoldenFact]
     public void ClassicIsDosAndImprovedIsNot()
     {
         Assert.Equal(DosParityTests.RobotGolden, DosParityTests.RobotRun(RobotAi.Classic).Hash);

@@ -1,4 +1,6 @@
 using System.Numerics;
+using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics.X86;
 using SkyNet.Formats;
 using SkyNet.Game.Behaviour;
 
@@ -44,6 +46,40 @@ sealed class BehaviourDataTheoryAttribute : TheoryAttribute
         {
             Skip = "SKYNET_DATA is not set to a SkyNET data folder";
         }
+    }
+}
+
+/// <summary>
+/// Float hashes of whole runs are taken on Windows x64 with FMA. Another float library (glibc's
+/// sinf) or a CPU without FMA (System.Numerics then rounds each multiply and add apart) changes
+/// the last bits, and a 2400-tick run diverges from there. Those goldens skip elsewhere.
+/// </summary>
+static class FloatGolden
+{
+    private const string NoData = "SKYNET_DATA is not set to a SkyNET data folder";
+    private const string OtherFloats = "the golden needs the float math it was taken on: Windows x64 with FMA";
+
+    private static bool Reference =>
+        OperatingSystem.IsWindows() && RuntimeInformation.ProcessArchitecture == Architecture.X64 && Fma.IsSupported;
+
+    public static string? Skip => BehaviourData.Dir == null ? NoData : Reference ? null : OtherFloats;
+}
+
+/// <summary>A fact on a float golden: needs SKYNET_DATA and the golden's float math.</summary>
+sealed class FloatGoldenFactAttribute : FactAttribute
+{
+    public FloatGoldenFactAttribute()
+    {
+        Skip = FloatGolden.Skip;
+    }
+}
+
+/// <summary>A theory on a float golden: needs SKYNET_DATA and the golden's float math.</summary>
+sealed class FloatGoldenTheoryAttribute : TheoryAttribute
+{
+    public FloatGoldenTheoryAttribute()
+    {
+        Skip = FloatGolden.Skip;
     }
 }
 

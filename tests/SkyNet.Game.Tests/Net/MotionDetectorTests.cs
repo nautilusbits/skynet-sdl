@@ -75,6 +75,7 @@ public class MotionDetectorTests
     public void The_detector_joins_the_cycle_while_owned_and_taking_it_puts_a_gun_back_in_hand()
     {
         var inv = new Inventory(WeaponTable.Shipped);
+        inv.Take(WeaponTable.MotionDetector); // SkyNET's campaign kit owns it
         inv.Grant(WeaponTable.SuperUzi);
         Assert.True(inv.Select(WeaponTable.SuperUzi));
         inv.Tick(1f);

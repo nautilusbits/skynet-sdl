@@ -116,6 +116,10 @@ public sealed partial class PlayerController
     public int FloorOwner { get; private set; } = -1;
     /// <summary>The map record of the last wall the move slid along (file offset), −1 for none or the ground.</summary>
     public int WallOwner { get; private set; } = -1;
+    /// <summary>What the last move ran into, by collision owner: one entry per slide step stopped.</summary>
+    private readonly List<int> _hitOwners = [];
+    /// <summary>How many slide steps of the last move stopped on <paramref name="owner"/>'s faces.</summary>
+    public int Hits(int owner) => _hitOwners.Count(o => o == owner);
     public bool Noclip { get; set; }
     /// <summary>The deathmatch class's pace under the host's CLASSES (<see cref="Net.DmProtocol.SpeedFactor"/>:
     /// BALANCED's TERMINATOR 0.9, else 1); 1 in the campaign.</summary>
@@ -354,6 +358,7 @@ public sealed partial class PlayerController
         var motion = Velocity * dt;
         OnFloor = OnWall = OnCeiling = false;
         _contactNormals = Vector3.Zero;
+        _hitOwners.Clear();
         var firstPlane = Vector3.Zero;
         // A body in the air that is not going up slides down a steep face but never up it: DOS
         // refuses a floor ahead past 40° unless the body is rising (FUN_0012b18c). Sliding up it
@@ -373,6 +378,7 @@ public sealed partial class PlayerController
                 break;
             }
 
+            _hitOwners.Add(hit.Owner);
             var dir = motion / len;
             var travel = MathF.Max(hit.Time * len - Skin, 0f);
             Position += dir * travel;

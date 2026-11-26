@@ -79,7 +79,7 @@ public sealed class ArenaTests : IDisposable
         Assert.True(Vector2.Distance(new Vector2(at.X, at.Z), moved) < 40f, $"spawned at {at}, the marker is at {moved}");
     }
 
-    [MapDataFact]
+    [EditorFact]
     public void An_arena_opens_in_the_editor() =>
         RunEditor("--arena", Map.ToString(System.Globalization.CultureInfo.InvariantCulture), "--frames", "3");
 
@@ -94,7 +94,10 @@ public sealed class ArenaTests : IDisposable
             if (EditDocumentTests.DataDir is not { } dir || GameDataLocator.OtherGameDir(dir) == null)
             {
                 Skip = "no Future Shock data beside SKYNET_DATA's SkyNET folder";
+                return;
             }
+
+            Skip = EditorGpu.Skip;
         }
     }
 

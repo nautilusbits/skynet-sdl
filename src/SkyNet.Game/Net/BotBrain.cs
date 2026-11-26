@@ -1101,7 +1101,7 @@ public sealed class BotBrain
         var record = _table.Weapons[weapon];
         if (_ride.Riding && !_ride.Spend(record))
         {
-            return; // overheated
+            return; // short of energy
         }
 
         _fireCd = record.Cooldown;

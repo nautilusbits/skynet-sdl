@@ -100,8 +100,10 @@ public sealed class SoundBank : IDisposable
     {
         private readonly SoundBank _bank;
         private readonly Tracked _tracked;
+        private readonly float _pitch;
+        private float _rate = 1f;
 
-        internal LoopHandle(SoundBank bank, Tracked tracked) => (_bank, _tracked) = (bank, tracked);
+        internal LoopHandle(SoundBank bank, Tracked tracked) => (_bank, _tracked, _pitch) = (bank, tracked, tracked.Pitch);
 
         public Vector3 Position
         {
@@ -112,6 +114,21 @@ public sealed class SoundBank : IDisposable
                 if (!_tracked.Gated)
                 {
                     _bank._mixer.SetEmitterPosition(_tracked.Voice, value);
+                }
+            }
+        }
+
+        /// <summary>Its rate as a multiple of the sound's own pitch (an engine's revs).</summary>
+        public float Rate
+        {
+            get => _rate;
+            set
+            {
+                _rate = value;
+                _tracked.Pitch = _pitch * value;
+                if (!_tracked.Gated)
+                {
+                    _bank._mixer.SetPitch(_tracked.Voice, _tracked.Pitch);
                 }
             }
         }

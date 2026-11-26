@@ -4,6 +4,7 @@ using RetroEng.Loop;
 using RetroEng.Physics;
 using SkyNet.Formats;
 using SkyNet.Game.DevTools;
+using SkyNet.Game.Enemies;
 using SkyNet.Game.Player;
 
 namespace SkyNet.Game.Vehicles;
@@ -42,7 +43,8 @@ public sealed class VehicleController : IPlayerMover
     /// <summary>The steepest ground the wheels hold (Godot VEH_MAX_SLOPE_DEG; the soldier's is 40°).</summary>
     public const float JeepMaxSlopeDegrees = 75f;
     public static readonly float JeepFloorMinY = MathF.Cos(JeepMaxSlopeDegrees * MathF.PI / 180f);
-    public const float JeepFloorSnap = 40f;
+    /// <summary>How far under an airborne hull the cab still tilts with the ground (DOS 0x135f7f: 0x3c).</summary>
+    private const float JeepWheelReach = 60f;
 
     // --- jeep (0x134eec) ---
     public const float JeepMaxSpeed = 683.6f;
@@ -63,6 +65,23 @@ public sealed class VehicleController : IPlayerMover
     public const float JeepAimPitch = MathF.PI / 4f;
     /// <summary>A wall bounce needs this speed (fly_camera.gd _drive).</summary>
     public const float JeepBounceSpeed = 50f;
+    /// <summary>The pedals' pitch of the view (DOS 0x23aa8 &gt;&gt; 8, in 2048ths of a turn): the
+    /// throttle lifts the nose by the speed it adds, the brake dips it by half the speed it takes,
+    /// at most this much (0x135744, 0x135866).</summary>
+    public const float JeepDipMax = 32f;
+    /// <summary>Under throttle the nose settles by this much a second (0x1297b, 0x13578d).</summary>
+    public const float JeepDipSettle = 297.48f;
+    /// <summary>Off the pedals it settles by this much a DOS frame (0x800, 0x135969).</summary>
+    public const float JeepDipCoast = 8f;
+    /// <summary>The wheel's lean of the view: −wheel × speed × this, in 2048ths (0x135a7e:
+    /// (wheel·0x4600 × speed·256) &gt;&gt; 26).</summary>
+    public const float JeepLean = 0x4600 * 256f / (1 << 26);
+    /// <summary>The engine loop's rate in 128ths of the clip's: idle plus the speed's revs
+    /// (0x126abb: 70 + |v·256|·100 &gt;&gt; 16; the clip's 11025 Hz is 128).</summary>
+    public const float JeepEngineIdle = 70f;
+    public const float JeepEngineRevs = 100f / 256f;
+    /// <summary>With no wheel down the engine revs as at 5/4 of the speed (0x135da7).</summary>
+    public const float JeepEngineFree = 1.25f;
 
     // --- HK (0x131100) ---
     public const float HkSpeed = 800f;
@@ -87,12 +106,18 @@ public sealed class VehicleController : IPlayerMover
 
     private const float Skin = 0.25f;
     private const int SlideIterations = 4;
+    /// <summary>A DOS angle unit (2048 to the turn) in radians.</summary>
+    private const float DosAngle = MathF.PI / 1024f;
+    /// <summary>A DOS sound pitch of the clip's own rate (11025 Hz).</summary>
+    private const float DosPitchUnit = 128f;
 
     private readonly CollisionWorld _world;
     private SphereBody _sphere = new(JeepRadius, new Vector3(0f, JeepRadius, 0f));
     private float _skidCooldown;
+    // The pedals' pitch (DOS 0x23aa8 >> 8; negative: nose up) and the wheel's lean (0x23aa0), in 2048ths.
+    private float _dip, _lean;
     private Vector3 _prevPos;
-    private float _prevCarYaw, _prevViewYaw, _prevViewPitch, _prevRoll, _prevTiltPitch, _prevTiltRoll, _prevEye;
+    private float _prevCarYaw, _prevViewYaw, _prevViewPitch, _prevRoll, _prevTiltPitch, _prevTiltRoll, _prevEye, _prevDip, _prevLean;
     // The last tick's mouse turn of the view (drawn whole, not interpolated: #51); presentation only.
     private float _mouseYaw, _mousePitch;
 
@@ -117,6 +142,8 @@ public sealed class VehicleController : IPlayerMover
     public float TiltRoll { get; private set; }
     /// <summary>The view's roll (the cab's tilt; 0 in the HK).</summary>
     public float Roll { get; private set; }
+    /// <summary>The engine loop's rate, a multiple of the clip's own (1 in the HK).</summary>
+    public float EnginePitch { get; private set; } = 1f;
     public bool OnFloor { get; private set; }
     public bool OnWall { get; private set; }
     /// <summary>The world Y the HK's eye may not rise above; +∞ none.</summary>
@@ -153,6 +180,8 @@ public sealed class VehicleController : IPlayerMover
         Wheel = 0f;
         TiltPitch = TiltRoll = Roll = 0f;
         AimYaw = AimPitch = 0f;
+        _dip = _lean = 0f;
+        EnginePitch = 1f;
         Body.Velocity = Vector3.Zero;
         CarYaw = Body.Yaw;
         if (mode == VehicleMode.Foot)
@@ -261,8 +290,11 @@ public sealed class VehicleController : IPlayerMover
         {
             if (fwdIn > 0.1f)
             {
-                // DOS 0x135744: the throttle whatever the sign (backing is gear 1, 0x135c67).
-                Speed = MathF.Min(Speed + JeepAccel / MathF.Max(1f, MathF.Floor(Speed / JeepGear)) * dt, JeepMaxSpeed);
+                // DOS 0x135744: the throttle whatever the sign (backing is gear 1, 0x135c67); the
+                // nose rises by what it adds, less the settle.
+                var push = JeepAccel / MathF.Max(1f, MathF.Floor(Speed / JeepGear)) * dt;
+                Speed = MathF.Min(Speed + push, JeepMaxSpeed);
+                _dip = Math.Clamp(_dip - (push - JeepDipSettle * dt), -JeepDipMax, 0f);
                 _skidCooldown = 0f;
             }
             else if (fwdIn < -0.1f)
@@ -278,12 +310,17 @@ public sealed class VehicleController : IPlayerMover
                 }
 
                 Speed = MathF.Max(Speed - JeepBrake * dt, -JeepReverseSpeed);
+                _dip = MathF.Min(_dip + JeepBrake * dt / 2f, JeepDipMax);
             }
             else
             {
                 Speed = MoveToward(Speed, 0f, JeepDrag * dt);
+                _dip = MoveToward(_dip, 0f, JeepDipCoast * (float)Robots.DosFps * dt);
                 _skidCooldown = 0f;
             }
+
+            // DOS 0x135a7e: the wheel leans the view into the turn, more with speed.
+            _lean = -Wheel * Speed * JeepLean;
 
             // Downhill pulls, uphill holds back: 1148·sin of the slope along the heading, within
             // the pedals' range (DOS 0x136193).
@@ -295,6 +332,12 @@ public sealed class VehicleController : IPlayerMover
         Body.Position += _world.Depenetrate(_sphere, Body.Position, Skin);
         var before = Body.Position;
         MoveAndSlide(dt, grounded, JeepFloorMinY);
+        if (OnFloor)
+        {
+            // DOS 0x135f9b: landing zeroes the wheel's fall; nothing throws the car up off a ramp.
+            Body.Velocity = Body.Velocity with { Y = 0f };
+        }
+
         var rammed = RamAfterMove(prePos, preYaw, dt);
         if (!rammed && MathF.Abs(Speed) > JeepBounceSpeed && OnWall && Vector3.Distance(Body.Position, before) < MathF.Abs(Speed) * dt * 0.2f)
         {
@@ -305,26 +348,34 @@ public sealed class VehicleController : IPlayerMover
         }
 
         // The cab tilts with the ground: pitch along the heading, roll across it. A positive roll
-        // lifts the right side, so a floor falling to the right (n·right > 0) rolls negative.
-        var wantPitch = 0f;
-        var wantRoll = 0f;
-        if (OnFloor)
+        // lifts the right side, so a floor falling to the right (n·right > 0) rolls negative. DOS
+        // (0x136045) takes it from the wheels' heights touching or not: hopping down a slope the
+        // nose follows the ground below; in a real flight the tilt holds.
+        if ((OnFloor ? Body.FloorNormal : GroundBelow()) is { } n)
         {
-            var n = Body.FloorNormal;
             var right = new Vector3(MathF.Cos(CarYaw), 0f, -MathF.Sin(CarYaw));
-            wantPitch = MathF.Asin(Math.Clamp(Vector3.Dot(n, -ahead), -1f, 1f)) * 0.85f;
-            wantRoll = -MathF.Asin(Math.Clamp(Vector3.Dot(n, right), -1f, 1f)) * 0.7f;
+            var wantPitch = MathF.Asin(Math.Clamp(Vector3.Dot(n, -ahead), -1f, 1f)) * 0.85f;
+            var wantRoll = -MathF.Asin(Math.Clamp(Vector3.Dot(n, right), -1f, 1f)) * 0.7f;
+            var k = Math.Clamp(dt * JeepTiltRate, 0f, 1f);
+            TiltPitch = float.Lerp(TiltPitch, wantPitch, k);
+            TiltRoll = float.Lerp(TiltRoll, wantRoll, k);
         }
 
-        var k = Math.Clamp(dt * JeepTiltRate, 0f, 1f);
-        TiltPitch = float.Lerp(TiltPitch, wantPitch, k);
-        TiltRoll = float.Lerp(TiltRoll, wantRoll, k);
-        // The camera is the turret: the aim turns it, the cab tilts it (DOS 0x1361c2 shakes nothing).
+        // The camera is the turret: the aim turns it, the cab tilts it with the ground, the pedals
+        // pitch it and the wheel leans it (DOS 0x1361c2, 0x1361e1; nothing shakes it).
         Body.Yaw = CarYaw + AimYaw;
-        Body.Pitch = AimPitch + TiltPitch;
-        Roll = TiltRoll;
+        Body.Pitch = AimPitch + TiltPitch - _dip * DosAngle;
+        Roll = TiltRoll + _lean * DosAngle;
         Body.Eye = JeepEye;
+
+        // DOS 0x135d94: the engine follows the speed, freer in the air.
+        var revs = MathF.Abs(Speed) * (OnFloor ? 1f : JeepEngineFree);
+        EnginePitch = (JeepEngineIdle + revs * JeepEngineRevs) / DosPitchUnit;
     }
+
+    // The floor within a wheel's reach under the airborne hull (DOS wheels look 0x3c up, 0x135f7f).
+    private Vector3? GroundBelow() =>
+        _world.GroundProbe(_sphere, Body.Position, JeepWheelReach, out var g) && g.Normal.Y >= JeepFloorMinY ? g.Normal : null;
 
     /// <summary>Runs <see cref="Ram"/> on the move just made and applies its outcome; true when the
     /// move was undone (the wall bounce must not negate the speed a second time).</summary>
@@ -454,7 +505,8 @@ public sealed class VehicleController : IPlayerMover
             var travel = MathF.Max(hit.Time * len - Skin, 0f);
             Body.Position += dir * travel;
             var n = hit.Normal;
-            if (floorMinY is { } minY && n.Y >= minY)
+            var floor = floorMinY is { } minY && n.Y >= minY;
+            if (floor)
             {
                 onFloor = true;
                 floorNormal = n;
@@ -466,7 +518,7 @@ public sealed class VehicleController : IPlayerMover
             }
 
             var remaining = motion - dir * travel;
-            var slid = remaining - n * Vector3.Dot(remaining, n);
+            var slid = floor ? Climb(remaining, n) : remaining - n * Vector3.Dot(remaining, n);
             if (i > 0 && Vector3.Dot(slid, firstPlane) < 0f)
             {
                 var crease = Vector3.Cross(firstPlane, n);
@@ -485,8 +537,11 @@ public sealed class VehicleController : IPlayerMover
             motion = slid;
         }
 
+        // DOS 0x135f71: a wheel never snaps down, it lands when gravity brings it to the ground: the
+        // car keeps the floor only within a DOS frame's fall, so it flies off an edge or a steep drop.
+        var fall = Skin + JeepGravity / (float)(Robots.DosFps * Robots.DosFps);
         if (floorMinY is { } snapMin && !onFloor && onFloorBefore && velocity.Y <= 0f
-            && _world.GroundProbe(_sphere, Body.Position, JeepFloorSnap, out var g) && g.Normal.Y >= snapMin)
+            && _world.GroundProbe(_sphere, Body.Position, fall, out var g) && g.Normal.Y >= snapMin)
         {
             Body.Position -= new Vector3(0f, MathF.Max(g.Time - Skin, 0f), 0f);
             onFloor = true;
@@ -502,6 +557,15 @@ public sealed class VehicleController : IPlayerMover
         OnFloor = onFloor;
         Body.Velocity = velocity;
         Body.SetContact(onFloor, floorOwner, floorNormal);
+    }
+
+    /// <summary>The rest of a move onto a floor: its x/z kept, lifted onto the plane. DOS (0x135dec)
+    /// moves the car by its speed in x/z alone and the wheels land on the ground there (0x135f71),
+    /// so a slope costs no ground speed (a slide along it would lose cos² of it).</summary>
+    private static Vector3 Climb(Vector3 remaining, Vector3 n)
+    {
+        var flat = remaining with { Y = 0f };
+        return flat + Vector3.UnitY * (-Vector3.Dot(flat, n) / n.Y);
     }
 
     // ------------------------------------------------------------------ the view
@@ -531,7 +595,8 @@ public sealed class VehicleController : IPlayerMover
         if (Mode == VehicleMode.Jeep)
         {
             return Matrix4x4.CreateTranslation(CockpitOffset(Mode))
-                * Matrix4x4.CreateFromYawPitchRoll(0f, float.Lerp(_prevTiltPitch, TiltPitch, alpha), float.Lerp(_prevTiltRoll, TiltRoll, alpha))
+                * Matrix4x4.CreateFromYawPitchRoll(0f, float.Lerp(_prevTiltPitch - _prevDip * DosAngle, TiltPitch - _dip * DosAngle, alpha),
+                    float.Lerp(_prevTiltRoll + _prevLean * DosAngle, TiltRoll + _lean * DosAngle, alpha))
                 * Matrix4x4.CreateTranslation(0f, eye, 0f)
                 * Matrix4x4.CreateRotationY(float.Lerp(_prevCarYaw, CarYaw, alpha))
                 * Matrix4x4.CreateTranslation(pos);
@@ -584,6 +649,8 @@ public sealed class VehicleController : IPlayerMover
         _prevRoll = Roll;
         _prevTiltPitch = TiltPitch;
         _prevTiltRoll = TiltRoll;
+        _prevDip = _dip;
+        _prevLean = _lean;
     }
 
     private static bool Held(in TickInput tick, int action) => action >= 0 && tick.IsDown(action);

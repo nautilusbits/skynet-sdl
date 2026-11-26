@@ -1512,11 +1512,11 @@ public sealed partial class LevelBehaviour : IEntityPoses
             return;
         }
 
-        // The last stage stands (MAP.248's wall keeps its hole): spent, but not removed.
+        // The last stage stands and collides (MAP.248's wall keeps its hole, MAP.239's dance floor
+        // holds): 0x120833 only swaps the model, the record stays in its cell. Spent, not removed.
         _spent.Add(off);
         _hp[off] = 0f;
         Destroy(off, removed: false);
-        _noCollide.Add(off);
     }
 
     /// <summary>The hit points ran out (or a chain broke a wreck down): the destruction event, and

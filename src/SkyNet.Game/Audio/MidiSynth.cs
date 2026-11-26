@@ -12,7 +12,7 @@ namespace SkyNet.Game.Audio;
 /// max(90, 48 / release) dB per second until it is 48 dB down. Songs loop.
 /// <para>Single-threaded and deterministic: the same events give the same samples.</para>
 /// </summary>
-public sealed class MidiSynth
+public sealed class MidiSynth : IMusicSynth, IMidiSink
 {
     public const int Voices = 40;
     private const double ReleaseDbPerSecond = 90;
@@ -48,11 +48,7 @@ public sealed class MidiSynth
     private readonly Channel[] _channels = new Channel[16];
     private readonly Instrument?[] _programs = new Instrument?[128];
     private readonly Instrument?[] _drums = new Instrument?[128];
-    private HmiEvent[] _events = [];
-    private int _pos;
-    private double _tick;
-    private double _ticksPerSecond = 120;
-    private int _length;
+    private readonly HmiSequencer _sequencer = new();
     private int _age;
     private int _controlLeft;
 
@@ -73,11 +69,11 @@ public sealed class MidiSynth
     /// <summary>The synth's overall level (the port's gain_db).</summary>
     public double GainDb { get; set; } = -4;
     /// <summary>Whether the song starts again at its end; off, it stops there.</summary>
-    public bool Loop { get; set; } = true;
+    public bool Loop { get => _sequencer.Loop; set => _sequencer.Loop = value; }
     /// <summary>A song is being sequenced (voices may still ring after it stops).</summary>
-    public bool Playing { get; private set; }
+    public bool Playing => _sequencer.Playing;
     /// <summary>The song position in ticks.</summary>
-    public double Tick => _tick;
+    public double Tick => _sequencer.Tick;
     /// <summary>Voices sounding now.</summary>
     public int ActiveVoices => _voices.Count(v => v.Playing);
 
@@ -89,22 +85,18 @@ public sealed class MidiSynth
     public void Play(ReadOnlySpan<HmiEvent> events, int length, int ticksPerSecond)
     {
         Stop();
-        _events = events.ToArray();
-        _length = length;
-        _ticksPerSecond = ticksPerSecond > 0 ? ticksPerSecond : 120;
-        (_pos, _tick, _controlLeft) = (0, 0, 0);
+        _controlLeft = 0;
         ResetChannels();
-        Playing = _events.Length > 0 && _length > 0;
-        if (Playing)
+        if (_sequencer.Play(events, length, ticksPerSecond))
         {
-            WarmUp(_events);
+            WarmUp(events);
         }
     }
 
     /// <summary>Silences everything at once.</summary>
     public void Stop()
     {
-        Playing = false;
+        _sequencer.Stop();
         foreach (var v in _voices)
         {
             (v.Playing, v.On, v.Channel, v.Instrument) = (false, false, -1, null);
@@ -136,34 +128,7 @@ public sealed class MidiSynth
     private void Control(double delta)
     {
         ReleaseVoices(delta);
-        if (!Playing)
-        {
-            return;
-        }
-
-        _tick += delta * _ticksPerSecond;
-        while (_pos < _events.Length && _events[_pos].Tick <= _tick)
-        {
-            Dispatch(_events[_pos]);
-            _pos++;
-        }
-
-        if (_pos >= _events.Length)
-        {
-            AllNotesOff();
-            if (!Loop)
-            {
-                Playing = false;
-                return;
-            }
-
-            _pos = 0;
-            _tick -= _length;
-            if (_tick < 0 || _tick > _ticksPerSecond)
-            {
-                _tick = 0;
-            }
-        }
+        _sequencer.Advance(delta, this);
     }
 
     private void Mix(Span<float> stereo)
@@ -212,7 +177,7 @@ public sealed class MidiSynth
         }
     }
 
-    private void Dispatch(in HmiEvent e)
+    void IMidiSink.Dispatch(in HmiEvent e)
     {
         var ch = e.Channel & 0x0F;
         switch (e.Kind)
@@ -361,7 +326,7 @@ public sealed class MidiSynth
         }
     }
 
-    private void AllNotesOff()
+    void IMidiSink.AllNotesOff()
     {
         foreach (var v in _voices)
         {

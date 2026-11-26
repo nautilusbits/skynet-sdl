@@ -167,7 +167,7 @@ public sealed partial class SplashTests
 
     /// <summary>A hidden run with --splash steps through the stages and closes before the editor's frames;
     /// without it a hidden run shows none.</summary>
-    [MapDataFact]
+    [EditorFact]
     public void A_forced_splash_runs_its_stages_and_closes_when_ready()
     {
         var shot = Path.Combine(Path.GetTempPath(), $"SkyNetEdit-{Guid.NewGuid():N}-splash.bmp");

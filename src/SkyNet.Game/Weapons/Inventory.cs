@@ -15,7 +15,7 @@ public sealed record InventoryState(bool[] Owned, int[] Pools, int Primary, int 
 /// <item>The throw arms its own cooldown (rate 1: 36 DOS frames) before it looks at the pool, and an empty
 /// item fails silently (FUN_001263cc).</item>
 /// <item>Number keys 1-7 pick a group of <see cref="KeyGroups"/>, again to cycle in it; <c>;</c>/<c>'</c> cycle the owned
-/// records 0-12 (and the deathmatch HUMAN's motion detector, record 13, while it is owned), F1-F5
+/// records 0-12 (and the motion detector, record 13, while it is owned), F1-F5
 /// pick the thrown records 15, 14, 16, 18, 19.</item>
 /// </list>
 /// </summary>
@@ -138,6 +138,9 @@ public sealed class Inventory
         return _pools[pool] - before;
     }
 
+    /// <summary>True when <paramref name="pool"/> takes no more (at its max, or no such pool).</summary>
+    public bool PoolFull(int pool) => pool < 0 || pool >= _pools.Length || _pools[pool] >= Table.Pools[pool].Max;
+
     /// <summary>Rounds left for a record: its pool's count; -1 when it has none (the pipe).</summary>
     public int AmmoFor(int record)
     {
@@ -194,7 +197,7 @@ public sealed class Inventory
     }
 
     /// <summary>The next owned record among 0..12 in <paramref name="direction"/> (±1), selected; the
-    /// motion detector (13, owned only by a deathmatch HUMAN) joins the ring after the super UZI, as
+    /// motion detector (13, while owned) joins the ring after the super UZI, as
     /// the Godot port's wheel reaches it.</summary>
     public bool Cycle(int direction)
     {

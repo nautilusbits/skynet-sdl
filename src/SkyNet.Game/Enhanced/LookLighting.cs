@@ -281,6 +281,11 @@ public static class LookLighting
         return new Vector4(Srgb.FromLinearValue(light.X), Srgb.FromLinearValue(light.Y), Srgb.FromLinearValue(light.Z), 1f);
     }
 
+    /// <summary>A billboard's material in <paramref name="look"/>: the enhanced look's lit by the sun,
+    /// its shadow and the baked light at the card (GitHub #62), its colour only a tint; the original's as is.</summary>
+    public static Material SpriteMaterial(Material material, Look look) =>
+        look == Look.Enhanced ? material with { Shading = Shading.Sprite, SpriteLight = SpriteLight.Sun | SpriteLight.Probe } : material;
+
     /// <summary>The way the dusk sunlight goes: from the luminance-weighted direction of the
     /// brightest <see cref="BrightFraction"/> of the dome's texels (sampled on a barycentric grid of
     /// every textured face; the dome is centred on the eye, so a point's position is its direction),

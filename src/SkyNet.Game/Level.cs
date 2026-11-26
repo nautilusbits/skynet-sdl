@@ -383,16 +383,15 @@ public sealed partial class Level
         _enhanced = enhanced;
         _renderer.ShadeTable = _hazeTable;
         _renderer.Fog = CueOf(Outdoor && !_hazeTable.IsNone, CueStart, Far, Outdoor ? null : FarOverride, enhanced ? HazeColour : default);
-        var tint = enhanced ? LookLighting.SpriteTint(_renderer.Lighting!) : Vector4.One;
         for (var i = 0; i < _sprites.Count; i++)
         {
             var g = _sprites[i];
             _sprites[i] = g with
             {
                 Material = !enhanced ? g.Original
-                    : FireLook(g.Index) == FireSpriteLook.Masked ? g.Original with { Shading = Shading.Sprite, Colour = tint, Palette = FireMaskPalette }
+                    : FireLook(g.Index) == FireSpriteLook.Masked ? LookLighting.SpriteMaterial(g.Original, Look.Enhanced) with { Palette = FireMaskPalette }
                     : g.SelfLit ? g.Original with { Shading = Shading.Unlit }
-                    : g.Original with { Shading = Shading.Sprite, Colour = tint },
+                    : LookLighting.SpriteMaterial(g.Original, Look.Enhanced),
             };
         }
 

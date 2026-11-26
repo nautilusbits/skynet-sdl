@@ -70,6 +70,7 @@ message box, rocket eye, Future Shock differences).
 |---|---|---|
 | [missions.md](missions.md) | How a mission is assembled from maps, the baked mission file, verification | done |
 | [pitfalls.md](pitfalls.md) | Traps found so far | done (living list) |
+| [console.md](console.md) | Console commands for players: view distance (`far`), graphics, cheats, demos, deathmatch | done |
 | [demos.md](demos.md) | Demo recording and playback (`.sndemo`), the per-tick state hash, the determinism rules for simulation code | done |
 | [video.md](video.md) | `--capture`: the game and the editor write a video's frames at a fixed step; scripted shots | done |
 

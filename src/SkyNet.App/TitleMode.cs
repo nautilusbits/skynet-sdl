@@ -50,25 +50,17 @@ internal sealed class TitleMode(AppHost host) : IAppMode
 
 internal sealed partial class AppHost
 {
-    // The title's LOAD bar: the newer of the two games' saves in that slot (Future Shock's marked FS),
-    // as both games keep ten slots of their own (saves and saves\shock).
-    (GameKind Game, string Label)? TitleSlot(int slot)
+    // The title's LOAD bar: both games keep ten slots of their own (saves and saves\shock), the
+    // menu's tabs number Future Shock's after SkyNET's (13 = its slot 3).
+    (GameKind Game, string Label, int Slot)? TitleSlot(int slot)
     {
-        (GameKind, string, DateTime)? best = null;
-        foreach (var (kind, folder) in TitleSlotFolders())
+        var (page, bar) = Math.DivRem(slot, SaveSlots.Count);
+        if (slot < 0 || TitleSlotFolders().ElementAtOrDefault(page) is not (var kind, { } folder))
         {
-            var s = new SaveSlots(folder);
-            if (s.Label(slot) is { } label)
-            {
-                var when = File.GetLastWriteTimeUtc(s.PathOf(slot));
-                if (best is not { } b || when > b.Item3)
-                {
-                    best = (kind, kind == GameKind.FutureShock ? $"FS {label}" : label, when);
-                }
-            }
+            return null;
         }
 
-        return best is { } found ? (found.Item1, found.Item2) : null;
+        return new SaveSlots(folder).Label(bar) is { } label ? (kind, label, bar) : null;
     }
 
     IEnumerable<(GameKind, string)> TitleSlotFolders()

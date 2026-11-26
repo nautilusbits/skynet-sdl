@@ -31,10 +31,16 @@ public sealed class SpriteModelView(Renderer renderer, TextureHandle palette, Ke
 
     /// <summary><see cref="Draw(SpriteModel, Vector3, float, float, int)"/> at the level of detail
     /// <paramref name="view"/> sees (none: the model itself).</summary>
-    internal void Draw(SpriteModel model, Vector3 foot, float height, float seconds, int seed, LodView view)
+    internal void Draw(SpriteModel model, Vector3 foot, float height, float seconds, int seed, LodView view) =>
+        Draw(model, model.World(foot, height, seconds, seed), seconds, seed, view);
+
+    /// <summary>Queues <paramref name="model"/> placed by <paramref name="world"/> (a thrown item's
+    /// <see cref="SpriteModel.Tumbled"/>).</summary>
+    public void Draw(SpriteModel model, Matrix4x4 world, float seconds, int seed) => Draw(model, world, seconds, seed, default);
+
+    private void Draw(SpriteModel model, Matrix4x4 world, float seconds, int seed, LodView view)
     {
         var built = Build(model);
-        var world = model.World(foot, height, seconds, seed);
         if (built.Mesh is { } mesh)
         {
             ref var level = ref Level(seed, mesh.Levels);

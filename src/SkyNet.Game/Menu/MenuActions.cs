@@ -24,7 +24,8 @@ public interface IMenuActions
     /// <summary>YES in QUIT TO DOS? on the title menu.</summary>
     void Quit();
 
-    /// <summary>A LOAD slot was picked (the menu has closed): load it and resume play.</summary>
+    /// <summary>A LOAD slot was picked (the menu has closed): load it and resume play. On the
+    /// title, 10..19 are Future Shock's slots 0..9 (<see cref="SlotsScreen"/>).</summary>
     void LoadGame(int slot);
 
     /// <summary>A SAVE slot was picked: true when the game was written to it (the screen then says
@@ -116,7 +117,7 @@ public sealed class MenuContext
     public bool SkyNetAvailable { get; init; } = true;
     public bool FutureShockAvailable { get; init; }
 
-    /// <summary>The label of a save slot (0..9), null when empty. UI only: the save format is the caller's.</summary>
+    /// <summary>The label of a save slot (0..9; on the title 10..19 are Future Shock's), null when empty. UI only: the save format is the caller's.</summary>
     public Func<int, string?> SlotName { get; init; } = _ => null;
 
     /// <summary>The key bindings the CONTROLS screen shows and changes; null hides them.</summary>
@@ -176,6 +177,10 @@ public sealed class MenuContext
     /// <summary>MODS: the mods folder's mods (read when the screen opens, <see cref="SkyNet.Game.Mods.ModCatalog"/>);
     /// null lists none.</summary>
     public Func<IReadOnlyList<SkyNet.Game.Mods.ModEntry>>? ModList { get; init; }
+
+    /// <summary>GAMEPLAY's SOUNDFONT: the .sf2 ids of the soundfonts folder (<see cref="Audio.SoundFonts"/>,
+    /// read when the screen opens); empty: MUSIC = SOUNDFONT is unavailable.</summary>
+    public Func<IReadOnlyList<string>> SoundFonts { get; init; } = () => [];
 
     /// <summary>This run's <c>--mod</c> list, which stands in for the settings' until the game quits;
     /// null: the settings' list is in use.</summary>

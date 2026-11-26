@@ -14,8 +14,11 @@ public sealed class WeaponRenderer
 {
     /// <summary>World units per texel of a thrown item's sprite (the item banks at 1:1).</summary>
     public const float SpriteScale = 1f;
-    /// <summary>A bolt is drawn this many times fatter (projectile.gd BOLT_FATTEN).</summary>
-    public const float BoltFatten = 2f;
+    /// <summary>The enhanced look's laser bolt (across, along its flight) times its model: a thin
+    /// streak, not a shard (issue #63). DOS draws every bolt's model 1:1.</summary>
+    private static readonly Vector2 LaserStreak = new(0.5f, 2f);
+    /// <summary>The enhanced look's laser core: its texels this many times (sRGB), past the glow's threshold.</summary>
+    private const float LaserCore = 2f;
 
     private readonly Renderer _renderer;
     private readonly GameData _data;
@@ -87,22 +90,47 @@ public sealed class WeaponRenderer
     }
 
     /// <summary>The look: with the enhanced <paramref name="lighting"/> the effects (impacts,
-    /// explosions, the muzzle flare) are unlit and the other sprites take the hemisphere's light
-    /// (<see cref="Enhanced.LookLighting.SpriteTint"/>); null: the original look.</summary>
+    /// explosions, the muzzle flare) are unlit and the other sprites take the sun and the baked light
+    /// (<see cref="Enhanced.LookLighting.SpriteMaterial"/>); null: the original look.</summary>
     public void Apply(Lighting? lighting)
     {
         _spriteTint = lighting != null ? Enhanced.LookLighting.SpriteTint(lighting) : null;
         _ambient = lighting != null ? (lighting.Sky + lighting.Ground) * 0.5f : Vector3.Zero;
     }
 
-    /// <summary>A sprite's material as drawn now: an effect's unlit, the rest lit by the tint.</summary>
+    /// <summary>A sprite's material as drawn now: an effect's unlit, the rest lit where it stands.</summary>
     private Material Look(Material material, bool effect) =>
-        _spriteTint is not { } tint ? material
+        _spriteTint == null ? material
         : effect ? material with { Shading = Shading.Unlit }
-        : material with { Shading = Shading.Sprite, Colour = tint };
+        : Enhanced.LookLighting.SpriteMaterial(material, Menu.Look.Enhanced);
 
     /// <summary>Frames of an effect bank's record 0 (for <see cref="WeaponSystem.EffectFrames"/>).</summary>
     public int FramesOf(int bank) => Sprite(bank, 0) is { } s ? s.Texture.Frames : 1;
+
+    /// <summary>The frame a lobbed body's sprite shows at <paramref name="animationMs"/> (issue #73):
+    /// DOS's draw callback 0x123914 queues it with frame −1, which FUN_00149e00 turns into the
+    /// free-running clock / ms % frames, as a map sprite's; in flight and after bounces alike.</summary>
+    public int LobbedFrame(AmmoRecord ammo, long animationMs) =>
+        LobbedSprite(ammo) is { } s ? s.Texture.FrameAt(animationMs) : 0;
+
+    /// <summary>
+    /// The turn (radians) of a thrown item's model at <paramref name="animationMs"/>: one turn a
+    /// cycle of its sprite's frames (TEXTURE.217: 9 × 71 ms, about 1.6 a second). An item sprite
+    /// (the satchel, dropped, not thrown) does not tumble.
+    /// </summary>
+    public float TumbleAngle(AmmoRecord ammo, long animationMs)
+    {
+        if (SpriteRules.IsItem(ammo.Sprite) || LobbedSprite(ammo) is not { Texture: { Animated: true } t })
+        {
+            return 0f;
+        }
+
+        var cycle = (long)t.Frames * (t.MsPerFrame > 0 ? t.MsPerFrame : GpuTexture.FallbackMsPerFrame);
+        return animationMs % cycle / (float)cycle * MathF.Tau;
+    }
+
+    private (GpuTexture Texture, Material Material)? LobbedSprite(AmmoRecord ammo) =>
+        ammo.Sprite > 0 ? Sprite(ammo.Sprite >> 7, ammo.Sprite & 0x7F) : null;
 
     /// <summary>Loads what a weapon table can show, so the first shot does not stall; returns the
     /// materials for <see cref="Renderer.WarmUp"/>.</summary>
@@ -189,11 +217,12 @@ public sealed class WeaponRenderer
     /// <summary>A bolt's part kept out of the sun's shadow map: Lit draws cast shadows (issue #4).</summary>
     private static ModelMesh.Part Shadowless(ModelMesh.Part part) => part with { Material = part.Material with { Shadowless = true } };
 
-    /// <summary>Queues every effect, lobbed body and bolt for a frame seen from <paramref name="eye"/>.</summary>
-    public void Draw(WeaponSystem weapons, Vector3 eye)
+    /// <summary>Queues every effect, lobbed body and bolt for a frame seen from <paramref name="eye"/>,
+    /// the sprites animated at <paramref name="animationMs"/>.</summary>
+    public void Draw(WeaponSystem weapons, Vector3 eye, long animationMs)
     {
         Capture(weapons, _frame);
-        Draw(_frame, eye);
+        Draw(_frame, eye, animationMs);
     }
 
     /// <summary>Copies what <see cref="Draw(WeaponFrame, Vector3)"/> reads of <paramref name="weapons"/>
@@ -249,9 +278,10 @@ public sealed class WeaponRenderer
         }
     }
 
-    /// <summary>Queues the effects, lobbed bodies and bolts as <paramref name="weapons"/> caught them;
-    /// <paramref name="own"/>: whether the own shot's DOS flash shows.</summary>
-    public void Draw(WeaponFrame weapons, Vector3 eye, OwnFlashes own = OwnFlashes.Shown)
+    /// <summary>Queues the effects, lobbed bodies and bolts as <paramref name="weapons"/> caught them,
+    /// the thrown items animated at <paramref name="animationMs"/>; <paramref name="own"/>: whether
+    /// the own shot's DOS flash shows.</summary>
+    public void Draw(WeaponFrame weapons, Vector3 eye, long animationMs, OwnFlashes own = OwnFlashes.Shown)
     {
         // The enhanced look with PARTICLES on draws impacts as dust (DrawPuffs) and explosions as
         // fireballs and smoke (DrawBlasts); their DOS sprites only otherwise.
@@ -301,10 +331,13 @@ public sealed class WeaponRenderer
 
         foreach (var p in weapons.Projectiles)
         {
-            if (p.Lobbed && p.Ammo.Sprite > 0 && Sprite(p.Ammo.Sprite >> 7, p.Ammo.Sprite & 0x7F) is { } s)
+            if (p.Lobbed && LobbedSprite(p.Ammo) is { } s)
             {
                 var scale = (p.Ammo.Sprite >> 7) == 200 ? 1f : SpriteScale;
-                DrawBillboard(s, eye, p.Position, s.Texture.Width * scale, s.Texture.Height * scale, 0);
+                if (!DrawThrownModel(p, s.Texture.Height * scale, animationMs))
+                {
+                    DrawBillboard(s, eye, p.Position, s.Texture.Width * scale, s.Texture.Height * scale, LobbedFrame(p.Ammo, animationMs));
+                }
             }
             else if (!p.Lobbed && p.Ammo.Model.Length > 0 && Model(p.Ammo.Model) is { } m && p.Velocity.LengthSquared() > 1e-6f)
             {
@@ -313,15 +346,15 @@ public sealed class WeaponRenderer
                 var up = MathF.Abs(body.Y) > 0.99f ? Vector3.UnitX : Vector3.UnitY;
                 var x = Vector3.Normalize(Vector3.Cross(up, body));
                 var y = Vector3.Cross(body, x);
-                var fat = p.Ammo.Model.StartsWith("LASER", StringComparison.OrdinalIgnoreCase) ? BoltFatten : 1f;
+                var scale = BoltScale(p.Ammo.Model, LookNow);
                 var world = new Matrix4x4(
-                    x.X * fat, x.Y * fat, x.Z * fat, 0f,
-                    y.X * fat, y.Y * fat, y.Z * fat, 0f,
-                    body.X, body.Y, body.Z, 0f,
+                    x.X * scale.X, x.Y * scale.X, x.Z * scale.X, 0f,
+                    y.X * scale.X, y.Y * scale.X, y.Z * scale.X, 0f,
+                    body.X * scale.Y, body.Y * scale.Y, body.Z * scale.Y, 0f,
                     p.Position.X, p.Position.Y, p.Position.Z, 1f);
                 foreach (var part in m.Mesh.Parts)
                 {
-                    _renderer.Draw(m.Mesh.Mesh, part.First, part.Count, part.Material, 0, world);
+                    _renderer.Draw(m.Mesh.Mesh, part.First, part.Count, BoltMaterial(part.Material, p.Ammo.Model, LookNow), 0, world);
                 }
             }
         }
@@ -342,6 +375,28 @@ public sealed class WeaponRenderer
         DrawPuffs(weapons.Puffs);
         DrawBlasts(weapons.Blasts);
     }
+
+    /// <summary>
+    /// A mod's model for a thrown item's sprite in the enhanced look (<see cref="Mods.SpriteModels"/>),
+    /// the size of the sprite, tumbling (<see cref="TumbleAngle"/>). False: no model (or its textures
+    /// still decoding), or an item sprite (the satchel: its pickup's model would bob and turn as a
+    /// pickup does): the billboard draws.
+    /// </summary>
+    private bool DrawThrownModel(in ProjectilePose p, float height, long animationMs)
+    {
+        if (SpriteRules.IsItem(p.Ammo.Sprite) || Mods.SpriteModels.Drawn(p.Ammo.Sprite, LookNow) is not { } model
+            || !_spriteModels.Ready(model))
+        {
+            return false;
+        }
+
+        var world = model.Tumbled(p.Position, height, p.Velocity, TumbleAngle(p.Ammo, animationMs));
+        _spriteModels.Draw(model, world, animationMs / 1000f, ThrownSeed);
+        return true;
+    }
+
+    /// <summary>The level-of-detail key every thrown model shares (map offsets and drop ids are ≥ 0).</summary>
+    private const int ThrownSeed = -1;
 
     // The enhanced look's explosions, bullet strikes and sparks (ImpactEffects), with PARTICLES on.
     private void DrawBlasts(List<BlastPose> blasts)
@@ -474,6 +529,17 @@ public sealed class WeaponRenderer
 
     internal static float EffectScale(in EffectPose e, int texMax, Menu.Look look) =>
         look == Menu.Look.Original && e.DosScale > 0f ? e.DosScale : e.Size / MathF.Max(texMax, 1f);
+
+    /// <summary>A bolt's model's scale (across, along its flight): DOS's 1:1, or an enhanced laser's streak.</summary>
+    private static Vector2 BoltScale(string model, Menu.Look look) =>
+        IsEnhancedLaser(model, look) ? LaserStreak : Vector2.One;
+
+    /// <summary>A bolt's part as drawn: an enhanced laser shines by itself, bright into the glow; the rest as built.</summary>
+    private static Material BoltMaterial(Material material, string model, Menu.Look look) =>
+        IsEnhancedLaser(model, look) ? material with { Shading = Shading.Unlit, Colour = new Vector4(LaserCore, LaserCore, LaserCore, 1f) } : material;
+
+    private static bool IsEnhancedLaser(string model, Menu.Look look) =>
+        look == Menu.Look.Enhanced && model.StartsWith("LASER", StringComparison.OrdinalIgnoreCase);
 
     private Menu.Look LookNow => _spriteTint != null ? Menu.Look.Enhanced : Menu.Look.Original;
 

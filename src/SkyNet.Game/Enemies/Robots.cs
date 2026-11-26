@@ -80,6 +80,12 @@ public sealed class Robots
     public SimRandom Cosmetic { get; set; } = new(0x5EED);
     public IReadOnlyList<Enemy> All => _all;
     public IEnumerable<Enemy> Active => _all.Where(e => e.Alive);
+
+    /// <summary>The actors DOS's sweep lists round <paramref name="player"/> (0x12984d → [0x4c808]): the
+    /// ones in the activity window (<see cref="TickWindow"/>; IMPROVED's under that AI) whose flags
+    /// have none of 0x2c (killed 4, dormant 8, hidden 0x20). The motion detector plots these.</summary>
+    public IEnumerable<Enemy> Listed(Vector3 player) =>
+        _all.Where(e => e.Alive && (Ai == RobotAi.Improved ? TickWindow.ContainsImproved(e.Position, player) : TickWindow.Contains(e.Position, player)));
     /// <summary>The wreck parts the destroyed robots threw (DOS state-1 actors), flying until they go off.</summary>
     public Wreckage Wreckage { get; } = new();
     /// <summary>Death blasts thrown and not yet gone off (each 0.375 s after its explosion).</summary>

@@ -223,7 +223,7 @@ through `DmHost` exactly as the host's own). Each is a `BotBrain` (bot_brain.gd)
     speed. The nose faces the target (else the way), pitched at it; the stick, the sidestep (RUN) and
     the climb keys share out the speed wanted. It circles a target at 1000.
   - *Guns*: the jeep's plasma (20) / the HK's laser (24) with `VehicleGuns`' energy (1000 of 2000,
-    cost per shot, 450 a second after 0.35 s, overheated until 400), the rockets (22 / 25) every
+    cost per shot, 300 a second, firing or not), the rockets (22 / 25) every
     3-6 s at a target within 2500; aimed and spread as on foot.
   - *Getting out* (weighed every second): under 20 % of the hull, stuck 3 times in 12 s, or the
     target out of sight for 3 s where the vehicle cannot follow (under a roof, or off the jeep's

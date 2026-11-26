@@ -118,8 +118,7 @@ internal sealed class BotRide
     private float _str;
     private bool _touching, _backing;
     private float _backT, _backWait, _backedAt = float.NegativeInfinity;
-    private float _energy = EnergyStart, _sinceShot = 10f;
-    private bool _overheated;
+    private float _energy = EnergyStart;
 
     /// <param name="turretRate">How fast the turret (the HK's nose) swings to the aim (rad/s).</param>
     public BotRide(PlayerController body, CollisionWorld world, WeaponTable table, BotRides rides, float turretRate)
@@ -177,7 +176,6 @@ internal sealed class BotRide
         _backT = _backWait = 0f;
         _checkAt = Controller.Body.Position;
         _energy = EnergyStart;
-        _overheated = false;
         _touching = false;
     }
 
@@ -195,7 +193,7 @@ internal sealed class BotRide
     // ---- guns ----
 
     /// <summary>The vehicle's gun is ready for <paramref name="record"/> (the energy pool has its
-    /// cost, the gun not overheated); spends it when so. Records off pool 10 (rockets) always.</summary>
+    /// cost); spends it when so. Records off pool 10 (rockets) always.</summary>
     public bool Spend(WeaponRecord record)
     {
         if (record.Pool != VehicleGuns.EnergyPool)
@@ -203,31 +201,19 @@ internal sealed class BotRide
             return true;
         }
 
-        if (_overheated || _energy < record.Cost)
+        if (_energy < record.Cost)
         {
-            _overheated = true;
             return false;
         }
 
         _energy -= record.Cost;
-        _sinceShot = 0f;
         return true;
     }
 
-    /// <summary>VehicleGuns.Tick's recharge: 450 a second once the trigger rested 0.35 s.</summary>
+    /// <summary>VehicleGuns.Tick's recharge: 300 a second, firing or not.</summary>
     private void Recharge(float dt)
     {
-        _sinceShot += dt;
-        if (_sinceShot < VehicleGuns.RegenDelay)
-        {
-            return;
-        }
-
         _energy = MathF.Min(_table.Pools[VehicleGuns.EnergyPool].Max, _energy + VehicleGuns.RegenPerSecond * dt);
-        if (_overheated && _energy >= VehicleGuns.CoolLevel)
-        {
-            _overheated = false;
-        }
     }
 
     // ---- one tick ----

@@ -139,7 +139,6 @@ public class SaveGameTests
         Assert.Equal(rig.Controller.AimYaw, rigB.Controller.AimYaw);
         Assert.Equal(rig.Controller.AimPitch, rigB.Controller.AimPitch);
         Assert.Equal(a.Weapons.Inventory.Pool(VehicleGuns.EnergyPool), b.Weapons.Inventory.Pool(VehicleGuns.EnergyPool));
-        Assert.Equal(rig.Guns!.Overheated, rigB.Guns!.Overheated);
         // The HK is not raised a second time by the map's entry.
         Assert.Equal(a.Player.Position, b.Player.Position);
         Assert.Equal(a.Player.Pitch, b.Player.Pitch);
@@ -352,7 +351,7 @@ public class SaveGameTests
             880f, 0.25f, kit, kit with { Primary = 0 }, 1000f, 0f, new ProgressSnapshot(2, false, false, [1, 0, 0, 0, 0]), 0.75f,
             [new SavedMap(214, behaviour, [0x1000], [0x2000], [new SavedLoop(0x3000, 77, new Vector3(4, 5, 6))])],
             [new RobotSnapshot(0x2000, -1, new Vector3(7, 8, 9), 0.3f, 0f, true, false, 0f, 0xFF, true, false, 2, true)],
-            When, new SavedVehicle(PlayerMode.Jeep, 640f, 300f, 1.5f, -0.4f, 0.2f, 700, true, 512f));
+            When, new SavedVehicle(PlayerMode.Jeep, 640f, 300f, 1.5f, -0.4f, 0.2f, 700, 512f));
     }
 
     /// <summary>Walks onto the current map's first item; its offset, null when the map has none.</summary>

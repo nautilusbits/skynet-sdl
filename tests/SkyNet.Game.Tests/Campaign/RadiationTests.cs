@@ -23,14 +23,15 @@ public class RadiationTests
     }
 
     /// <summary>Stands the soldier's dose point (half the eye height up) on the map's first
-    /// marker 4 for one second, without armour; returns the session.</summary>
-    private static GameSession StandOnSource(GameData data, int map)
+    /// marker 4 for one second, without armour, <paramref name="reach"/> inside the source's reach
+    /// straight below it (0: on it); returns the session.</summary>
+    private static GameSession StandOnSource(GameData data, int map, int reach = 0)
     {
         var session = new GameSession(data);
         session.StartAt(map);
         session.Soldier.Armour = 0f;                // armour takes radiation too (FUN_00122b52)
         var source = session.Map!.Entities.First(e => e.Variant == MapEntityVariant.Sprite && e.IsMarker && e.MarkerType == 4 && e.Param16 > 0);
-        var at = new Vector3(source.X, -source.Y, -source.Z);
+        var at = new Vector3(source.X, -source.Y + (reach > 0 ? reach - source.Param16 : 0), -source.Z);
         for (var t = 0f; t < 1f; t += GameSession.Dt)
         {
             session.Player.Position = at - new Vector3(0f, session.Player.Eye / 2f, 0f);
@@ -47,6 +48,17 @@ public class RadiationTests
         var session = StandOnSource(BehaviourData.Data, 235);
         Assert.True(session.Soldier.Health < Soldier.MaxHealth - 30f, $"{session.Soldier.Health}");
         Assert.True(session.HitFlash.Active);
+    }
+
+    /// <summary>DOS charges at least a point a FRAME (0x13ba8c), at 35 frames a second, not one a
+    /// 60 Hz tick (#46: melted crawling out of mission 2's crater).</summary>
+    [ShockDataFact]
+    public void WeakDoseCostsAPointADosFrame()
+    {
+        var data = GameData.Open(GameDataLocator.OtherGameDir(BehaviourData.Dir!)!, BehaviourData.Dir)!;
+        var session = StandOnSource(data, 20, reach: 51);                   // (51 · 50 + 128) >> 8
+        Assert.Equal(10, session.RadiationDose);
+        Assert.Equal(Soldier.MaxHealth - 35f, session.Soldier.Health, 0);
     }
 
     /// <summary>Future Shock MAP.010's bomb craters are the same marker 4.</summary>

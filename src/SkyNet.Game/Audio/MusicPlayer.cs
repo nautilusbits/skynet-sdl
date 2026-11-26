@@ -6,7 +6,8 @@ using SkyNet.Game.DevTools;
 namespace SkyNet.Game.Audio;
 
 /// <summary>
-/// The score: HMI songs rendered by <see cref="MidiSynth"/> on a producer thread into a
+/// The score: HMI songs rendered by <see cref="MidiSynth"/> (or <see cref="SoundFontSynth"/>,
+/// <see cref="UseSoundFont"/>) on a producer thread into a
 /// <see cref="StreamRing"/> that one streamed voice plays on the music bus.
 /// <code>
 ///   Play(name) ──► producer thread: parse, build instruments, fill the ring ──► PlayStream (music bus)
@@ -36,10 +37,19 @@ public sealed class MusicPlayer : IDisposable
     // Requests, under _gate.
     private (string Name, bool Loop)? _request;
     private bool _stopRequest;
+    private (string? Id, Func<byte[]?>? Read)? _fontRequest;
     private volatile bool _quit;
 
+    // Under _gate: the .sf2 last asked for, so asking again is a no-op.
+    private string? _fontAsked;
+
     // Producer thread state.
-    private MidiSynth _synth;
+    private IMusicSynth _synth;
+    private MeltySynth.SoundFont? _font;
+    private string? _fontId;
+    private (string Name, bool Loop)? _started;
+    /// <summary>The song to start again on the port's synth after the SoundFont synth failed.</summary>
+    private (string Name, bool Loop)? _retry;
     private StreamRing? _ring;
     private VoiceHandle _voice = VoiceHandle.None;
     private volatile string? _current;
@@ -119,6 +129,25 @@ public sealed class MusicPlayer : IDisposable
         _wake.Set();
     }
 
+    /// <summary>MUSIC = SOUNDFONT: songs play through the .sf2 <paramref name="id"/> that
+    /// <paramref name="read"/> returns (loaded on the producer thread, the playing song started
+    /// again with it); null <paramref name="id"/>: the port's synth. A .sf2 that does not read
+    /// leaves the port's synth.</summary>
+    public void UseSoundFont(string? id, Func<byte[]?> read)
+    {
+        lock (_gate)
+        {
+            if (id == _fontAsked)
+            {
+                return;
+            }
+
+            (_fontAsked, _fontRequest) = (id, (id, read));
+        }
+
+        _wake.Set();
+    }
+
     /// <summary>A parsed song, cached; null when it is missing or does not parse.</summary>
     public HmiFile? Song(string name)
     {
@@ -139,25 +168,23 @@ public sealed class MusicPlayer : IDisposable
         Prof.ThreadName("Music synth");
         while (!_quit)
         {
-            (string Name, bool Loop)? request;
-            bool stop;
-            lock (_gate)
+            bool busy;
+            try
             {
-                (request, stop) = (_request, _stopRequest);
-                (_request, _stopRequest) = (null, false);
+                busy = Step();
             }
-
-            if (stop)
+            // Nothing a user .sf2 does may end the music thread: the song starts again on the port's synth.
+            catch (Exception e)
             {
+                Log.Error("Music", $"Music synth failed ({e.Message}); the port's synth plays");
+                _retry = _synth is SoundFontSynth && _ring != null ? _started : null;
                 StopVoice();
+                _font = null;
+                _synth = new MidiSynth(_mixer.SampleRate);
+                busy = false;
             }
 
-            if (request is { } r)
-            {
-                Start(r.Name, r.Loop);
-            }
-
-            if (_ring != null && Fill())
+            if (busy)
             {
                 continue;
             }
@@ -166,6 +193,42 @@ public sealed class MusicPlayer : IDisposable
         }
 
         StopVoice();
+    }
+
+    /// <summary>One pass of the producer: requests, then one chunk; true when it rendered one.</summary>
+    private bool Step()
+    {
+        (string Name, bool Loop)? request;
+        bool stop;
+        (string? Id, Func<byte[]?>? Read)? font;
+        lock (_gate)
+        {
+            (request, stop, font) = (_request, _stopRequest, _fontRequest);
+            (_request, _stopRequest, _fontRequest) = (null, false, null);
+        }
+
+        if (stop)
+        {
+            StopVoice();
+        }
+
+        // Another .sf2: the playing song is silenced while the file loads, then starts again through it.
+        if (font is { } f && f.Id != _fontId)
+        {
+            var again = _ring != null ? _started : null;
+            StopVoice();
+            LoadFont(f.Id, f.Read);
+            request ??= again;
+        }
+
+        request ??= _retry;
+        _retry = null;
+        if (request is { } r)
+        {
+            Start(r.Name, r.Loop);
+        }
+
+        return _ring != null && Fill();
     }
 
     private void Start(string name, bool loop)
@@ -180,14 +243,53 @@ public sealed class MusicPlayer : IDisposable
 
         // A fresh synth: the instruments it built are cheap to rebuild, and no voice of the old
         // song rings into the new one.
-        _synth = new MidiSynth(_mixer.SampleRate) { Loop = loop };
+        _synth = _font != null
+            ? new SoundFontSynth(_font, _mixer.SampleRate) { Loop = loop }
+            : new MidiSynth(_mixer.SampleRate) { Loop = loop };
         _synth.Play(song);
+        _started = (name, loop);
         _ring = new StreamRing((int)(RingSeconds * _mixer.SampleRate), _mixer.SampleRate);
         while (Fill())
         {
         }
 
         _voice = _mixer.PlayStream(_ring, 1f, bus: Bus.Music);
+    }
+
+    /// <summary>Producer thread: takes the .sf2 <paramref name="id"/> (null, or one that does not
+    /// read: the port's synth).</summary>
+    private void LoadFont(string? id, Func<byte[]?>? read)
+    {
+        // The old bank goes first (its synth holds it too): two large ones are never held at once.
+        (_font, _fontId) = (null, id);
+        _synth = new MidiSynth(_mixer.SampleRate);
+        if (id == null || read == null)
+        {
+            return;
+        }
+
+        try
+        {
+            var bytes = read();
+            if (_quit)
+            {
+                return;
+            }
+
+            if (bytes == null)
+            {
+                Log.Warn("Music", $"SoundFont {id} not found or too large; music plays the port's synth");
+                return;
+            }
+
+            _font = SoundFontSynth.Parse(bytes);
+            Log.Info("Music", $"SoundFont {id}");
+        }
+        // Any failure of a user file (a bad path, MeltySynth's several kinds) must not end the music thread.
+        catch (Exception e)
+        {
+            Log.Warn("Music", $"SoundFont {id} does not read ({e.Message}); music plays the port's synth");
+        }
     }
 
     private void StopVoice()

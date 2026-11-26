@@ -163,7 +163,7 @@ public sealed class EditorMenuTests
 
     /// <summary>The File menu's switch, twice over (1, 2, 1, 2) in a hidden window: no error logged and
     /// the same textures and meshes live each time a mission comes back.</summary>
-    [MapDataFact]
+    [EditorFact]
     public void SwitchingMissionsLeaksNothing()
     {
         var exe = Path.Combine(AppContext.BaseDirectory, OperatingSystem.IsWindows() ? "SkyNetEdit.exe" : "SkyNetEdit");

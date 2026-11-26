@@ -201,7 +201,7 @@ public sealed class DropOutlinerTests : IDisposable
 
     /// <summary>The editor itself, hidden: a robot dragged from the Place panel and dropped on the view, then the
     /// filter's "Select all matching" (through the editor's commands).</summary>
-    [MapDataFact]
+    [EditorFact]
     public void The_editor_drops_a_dragged_robot_and_selects_all_matching()
     {
         var exe = Path.Combine(AppContext.BaseDirectory, OperatingSystem.IsWindows() ? "SkyNetEdit.exe" : "SkyNetEdit");

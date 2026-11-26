@@ -13,7 +13,7 @@ public sealed class ViewerTargetTests
     /// <summary>The Model Viewer docked at the dock space's left (the Outliner closed, so nothing floats over it):
     /// the dock holds, and the window's frame shows the model over the viewer's backdrop (before view targets the
     /// viewer could not dock, and its inset lay under any panel behind it).</summary>
-    [MapDataFact]
+    [EditorFact]
     public void A_docked_model_viewer_shows_its_model()
     {
         var (log, shot) = RunEditor(OpenModel, "--look", "original", "--dock", "###ModelViewer");
@@ -22,7 +22,7 @@ public sealed class ViewerTargetTests
     }
 
     /// <summary>The Model Viewer floated into a window of its own (another monitor too).</summary>
-    [MapDataFact]
+    [EditorFact]
     public void The_model_viewer_floats_off_the_main_window()
     {
         var (log, _) = RunEditor(OpenModel, "--look", "enhanced", "--float", "###ModelViewer");
@@ -30,7 +30,7 @@ public sealed class ViewerTargetTests
     }
 
     /// <summary>The Effects window floated into a window of its own.</summary>
-    [MapDataFact]
+    [EditorFact]
     public void The_effects_window_floats_off_the_main_window()
     {
         var (log, _) = RunEditor("effect.open fire", "--look", "enhanced", "--float", "###Effects");

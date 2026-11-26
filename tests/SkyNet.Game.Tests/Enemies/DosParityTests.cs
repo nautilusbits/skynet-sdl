@@ -16,8 +16,8 @@ public class DosParityTests
     private const int Ticks = 2400;
 
     // Taken on 0b27460 (v0.11.0), before the smart-AI mod.
-    internal const uint RobotGolden = 3914194551u;   // #58: every segment looks on its own counter and alert; DOS fire roll, 800 u/s bolts; hovers on the trail
-    internal const ulong Demo210Golden = 709336652475224496ul, Demo220Golden = 6002843202404602230ul; // #21: items on roofs keep their height; #23: mines in sight fly straight at the soldier; items on beams stand on the mesh top; robots block the soldier and his jeep; #35/#36: blasts pad by the model radius and hit their target; blasts step 50 back along the shot (#36); the jeep fires the laser (#46); FORWARD throttles while backing (#46); jeep gravity 392 (#46); slope pull clamped (#46); no speed shake (#46); a new game in full armour; #58: shots strike each robot segment by its triangles; each segment looks on its own counter and alert; #44: DOS throw arc (half up the view, fall 392); #50: hovers in sight fly at the soldier in 3D; DOS fire: a roll a DOS frame, |speed| u/s bolts, no spread, twin muzzles swap; hovers follow the trail, no wander; the soldier's guns fire DOS's whole 35 fps frames apart
+    internal const uint RobotGolden = 395301076u;   // #58: every segment looks on its own counter and alert; DOS fire roll, 800 u/s bolts; hovers on the trail; #23: shots strike DOS's three body spheres
+    internal const ulong Demo210Golden = 15665721704237469017ul, Demo220Golden = 14060267223690337114ul; // #21: items on roofs keep their height; #23: mines in sight fly straight at the soldier; items on beams stand on the mesh top; robots block the soldier and his jeep; #35/#36: blasts pad by the model radius and hit their target; blasts step 50 back along the shot (#36); the jeep fires the laser (#46); FORWARD throttles while backing (#46); jeep gravity 392 (#46); slope pull clamped (#46); no speed shake (#46); a new game in full armour; #58: shots strike each robot segment by its triangles; each segment looks on its own counter and alert; #44: DOS throw arc (half up the view, fall 392); #50: hovers in sight fly at the soldier in 3D; DOS fire: a roll a DOS frame, |speed| u/s bolts, no spread, twin muzzles swap; hovers follow the trail, no wander; the soldier's guns fire DOS's whole 35 fps frames apart; #23: robot shots strike DOS's three body spheres under the eye; the jeep view pitches with the pedals and leans into turns (#46); jeep wheels never snap down (#46); no ramp launch (#46); airborne cab tilts with the ground below (#46); vehicle energy recharges 300 a second, firing or not; no gun overheat; 210: the kit owns the motion detector (record 13, v1.00 start list)
 
     /// <summary>MAP.210's robots against a soldier who circles the first walker, every robot field
     /// the session hash keeps, hashed every tick. <paramref name="prepare"/> fits the robots out once
@@ -74,7 +74,7 @@ public class DosParityTests
         return h.Value;
     }
 
-    [BehaviourDataFact]
+    [FloatGoldenFact]
     public void TheRobotsTickAsDos()
     {
         var (hash, shots, taken) = RobotRun();
@@ -82,7 +82,7 @@ public class DosParityTests
         Assert.Equal(RobotGolden, hash);
     }
 
-    [BehaviourDataTheory]
+    [FloatGoldenTheory]
     [InlineData(210)]
     [InlineData(220)]
     public void ADemoRunHashesAsDos(int map) =>

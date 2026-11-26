@@ -32,7 +32,7 @@ public sealed class CaptureTests
     }
 
     /// <summary>Five frames, five files, each the whole window, and the log's count.</summary>
-    [MapDataFact]
+    [EditorFact]
     public void A_hidden_run_captures_each_frame()
     {
         const int Width = 320, Height = 180, Frames = 5;

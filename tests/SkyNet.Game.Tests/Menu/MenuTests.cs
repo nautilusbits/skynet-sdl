@@ -382,6 +382,42 @@ public class MenuNavigationTests
     }
 
     [Fact]
+    public void TitleLoadReachesBothGamesSavesInOneSlot()
+    {
+        // #69: SkyNET and Future Shock both saved in slot 3; the title's LOAD reaches each
+        // (Future Shock's slots follow SkyNET's: 13 = its slot 3).
+        var log = new Recorder();
+        var menu = new MenuSystem(log, new MenuSettings(), new MenuContext
+        {
+            FutureShockAvailable = true,
+            SlotName = i => i is 3 or 13 ? $"SAVE {i}" : null,
+        });
+        menu.OpenTitle();
+        menu.Current!.Select("load");
+        menu.Update(Accept, Frame);
+        Assert.Equal("slot3", menu.Current!.Highlighted!.Id);
+        menu.Update(Accept, Frame);
+        Assert.Equal(["load 3"], log.Calls);
+
+        menu.OpenTitle();
+        menu.Current!.Select("load");
+        menu.Update(Accept, Frame);
+        menu.Current!.Select("shock");
+        menu.Update(Accept, Frame);
+        Assert.True(menu.Current!.Find("slot3")!.Enabled);
+        Assert.False(menu.Current.Find("slot0")!.Enabled);
+        menu.Current.Select("slot3");
+        menu.Update(Accept, Frame);
+        Assert.Equal(["load 3", "load 13"], log.Calls);
+
+        // In game LOAD lists the running game's slots alone: no game tabs.
+        menu.OpenPause();
+        menu.Current!.Select("load");
+        menu.Update(Accept, Frame);
+        Assert.Null(menu.Current!.Find("shock"));
+    }
+
+    [Fact]
     public void ARefusedSaveSaysNothingAndStaysOnTheSlots()
     {
         var (menu, log, _) = Make();

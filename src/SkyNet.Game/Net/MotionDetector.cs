@@ -133,8 +133,6 @@ public static class MotionDetector
     /// (|x| ≤ ahead, smallest |x|, then the nearest, not past the screen's top) is the target.</summary>
     public static ScannerPlot Scan(IEnumerable<DmAvatar> avatars, Vector3 eye, float yaw)
     {
-        var right = new Vector2(MathF.Cos(yaw), -MathF.Sin(yaw));
-        var ahead = new Vector2(-MathF.Sin(yaw), -MathF.Cos(yaw));
         var blips = new List<ScannerBlip>();
         var (target, bestSide, bestAhead) = (-1, float.MaxValue, float.MaxValue);
         string? name = null;
@@ -145,11 +143,7 @@ public static class MotionDetector
                 continue;
             }
 
-            // FUN_00120265: the offset in the holder's frame, ahead scaled, then pixels up the screen.
-            var d = new Vector2(a.Position.X - eye.X, a.Position.Z - eye.Z);
-            var side = Vector2.Dot(d, right);
-            var forward = Vector2.Dot(d, ahead) * AheadScale;
-            var at = new Point(Holder.X + Pixels(side), Holder.Y + Pixels(-forward));
+            var (at, side, forward) = Plot(a.Position, eye, yaw);
 
             // 0x12012c: in front (|x| ≤ ahead) and not above the screen; the most central, then the nearest.
             var front = at.Y >= Screen.Top && MathF.Abs(side) <= forward;
@@ -171,6 +165,37 @@ public static class MotionDetector
         }
 
         return new ScannerPlot(blips, name);
+    }
+
+    /// <summary>The single-player branch of FUN_0011ff00 ([0x30a50] bit 0x40000 clear): a 0xb3 blip
+    /// for each actor DOS's sweep lists (<paramref name="robots"/>, the 0x4c808 list of 0x12984d),
+    /// rotated as <see cref="Scan(IEnumerable{DmAvatar}, Vector3, float)"/> does and clipped to
+    /// <see cref="Screen"/>; no target and no name (that search runs in a network game only).</summary>
+    public static ScannerPlot Scan(IEnumerable<Vector3> robots, Vector3 eye, float yaw)
+    {
+        var blips = new List<ScannerBlip>();
+        foreach (var r in robots)
+        {
+            var at = Plot(r, eye, yaw).At;
+            if (Screen.Contains(at))
+            {
+                blips.Add(new ScannerBlip(at, false));
+            }
+        }
+
+        return new ScannerPlot(blips, null);
+    }
+
+    /// <summary>FUN_00120265: <paramref name="position"/>'s offset in the holder's frame (the player's
+    /// yaw: ahead −sin, −cos), ahead scaled, then pixels up the screen from <see cref="Holder"/>.</summary>
+    private static (Point At, float Side, float Forward) Plot(Vector3 position, Vector3 eye, float yaw)
+    {
+        var right = new Vector2(MathF.Cos(yaw), -MathF.Sin(yaw));
+        var ahead = new Vector2(-MathF.Sin(yaw), -MathF.Cos(yaw));
+        var d = new Vector2(position.X - eye.X, position.Z - eye.Z);
+        var side = Vector2.Dot(d, right);
+        var forward = Vector2.Dot(d, ahead) * AheadScale;
+        return (new Point(Holder.X + Pixels(side), Holder.Y + Pixels(-forward)), side, forward);
     }
 
     /// <summary>0x1200f1: present, and driving (0x20), moving, firing or holding a scanner (0x10) or a

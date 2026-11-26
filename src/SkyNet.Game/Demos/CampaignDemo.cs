@@ -32,7 +32,8 @@ public static class CampaignDemo
     /// <summary>Header keys.</summary>
     public const string KeyGame = "game", KeyBuild = "build", KeyData = "data", KeyStart = "start", KeyMission = "mission",
         KeyMap = "map", KeyDifficulty = "difficulty", KeySeed = "seed", KeyMods = "mods", KeyBlocks = "blocks",
-        KeyTickRate = "tick rate", KeyRecorded = "recorded", KeyRobotAi = "robot ai";
+        KeyTickRate = "tick rate", KeyRecorded = "recorded", KeyRobotAi = "robot ai",
+        KeyFullPickups = "full pickups";
 
     /// <summary>The event that restarts the mission (RESTART MISSION chosen on the box).</summary>
     public const string RestartEvent = "!restart";
@@ -40,6 +41,8 @@ public static class CampaignDemo
     public const string DifficultyEvent = "!difficulty";
     /// <summary>The event that changes ROBOT AI ("!robotai Improved").</summary>
     public const string RobotAiEvent = "!robotai";
+    /// <summary>The event that changes FULL PICKUPS ("!fullpickups Leave").</summary>
+    public const string FullPickupsEvent = "!fullpickups";
 
     /// <summary>The demos folder beside the game.</summary>
     public static string DefaultFolder => Path.Combine(Menu.SettingsStore.UserFolder, FolderName);
@@ -90,6 +93,7 @@ public static class CampaignDemo
         d.SetField(KeyData, DataFingerprint(session.Data));
         d.SetField(KeyDifficulty, difficulty.ToString());
         d.SetField(KeyRobotAi, session.RobotAi.ToString());
+        d.SetField(KeyFullPickups, session.FullPickups.ToString());
         d.SetField(KeyMods, ModsField(modsDirectory, Mods.ModContent.TablesFrom));
         d.SetField(KeyBlocks, baked ? "baked" : "raw");
         d.SetField(KeyTickRate, GameSession.TicksPerSecond.ToString(CultureInfo.InvariantCulture));
@@ -154,6 +158,10 @@ public static class CampaignDemo
     public static RobotAi RobotAiOf(DemoData d) =>
         Enum.TryParse<RobotAi>(d.Field(KeyRobotAi), out var ai) && Enum.IsDefined(ai) ? ai : RobotAi.Classic;
 
+    /// <summary>The FULL PICKUPS the demo was recorded with; a demo from before the setting: TAKE.</summary>
+    public static FullPickups FullPickupsOf(DemoData d) =>
+        Enum.TryParse<FullPickups>(d.Field(KeyFullPickups), out var rule) && Enum.IsDefined(rule) ? rule : FullPickups.Take;
+
     /// <summary>Why <paramref name="d"/> cannot be played on <paramref name="data"/> (null: it can), and
     /// the warnings that may explain a desync (another build, other data, other mods).</summary>
     public static string? Refusal(DemoData d, GameData data, string modsDirectory, bool baked, List<string> warnings)
@@ -206,6 +214,7 @@ public static class CampaignDemo
     {
         session.Difficulty = Difficulty.Of(DifficultyOf(d));
         session.RobotAi = RobotAiOf(d);
+        session.FullPickups = FullPickupsOf(d);
         if (StartKind(d) == DemoStartKind.Save)
         {
             session.Load(SaveFile.Read(d.Start));
@@ -256,6 +265,11 @@ public static class CampaignDemo
                  && Enum.TryParse<RobotAi>(text[(RobotAiEvent.Length + 1)..], out var ai))
         {
             session.RobotAi = ai;
+        }
+        else if (text.StartsWith(FullPickupsEvent + " ", StringComparison.Ordinal)
+                 && Enum.TryParse<FullPickups>(text[(FullPickupsEvent.Length + 1)..], out var rule))
+        {
+            session.FullPickups = rule;
         }
         else
         {
@@ -356,18 +370,26 @@ public sealed class CampaignRecorder
         Path = path;
         _difficulty = CampaignDemo.DifficultyOf(demo);
         _robotAi = CampaignDemo.RobotAiOf(demo);
+        _fullPickups = CampaignDemo.FullPickupsOf(demo);
     }
 
     private RobotAi _robotAi;
+    private FullPickups _fullPickups;
 
-    /// <summary>Before a tick: a ROBOT AI changed since the last one is kept as an event.</summary>
-    public void BeforeTick(DifficultyLevel difficulty, RobotAi robotAi)
+    /// <summary>Before a tick: a ROBOT AI or FULL PICKUPS changed since the last one is kept as an event.</summary>
+    public void BeforeTick(DifficultyLevel difficulty, RobotAi robotAi, FullPickups fullPickups)
     {
         BeforeTick(difficulty);
         if (robotAi != _robotAi)
         {
             _robotAi = robotAi;
             _recorder.Event($"{CampaignDemo.RobotAiEvent} {robotAi}");
+        }
+
+        if (fullPickups != _fullPickups)
+        {
+            _fullPickups = fullPickups;
+            _recorder.Event($"{CampaignDemo.FullPickupsEvent} {fullPickups}");
         }
     }
 

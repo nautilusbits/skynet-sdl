@@ -2,8 +2,10 @@ using System.Numerics;
 using RetroEng.Loop;
 using RetroEng.Physics;
 using SkyNet.Formats;
+using SkyNet.Game.Collision;
 using SkyNet.Game.Campaign;
 using SkyNet.Game.Player;
+using SkyNet.Game.Tests.Behaviour;
 using SkyNet.Game.Vehicles;
 using SkyNet.Game.Weapons;
 
@@ -147,13 +149,145 @@ public class VehicleTests
         yield return new Triangle(P(-half, -half), P(half, half), P(-half, half));
     }
 
-    // DOS v1.01 0x136193: the slope's pull is clamped to the same −140..683.6 as the pedals.
+    // Future Shock MAP.020 west of the moat: the ground falls 600 → 360 eastward over 1500 (9°).
+    // DOS pitches the car by its wheels' heights (0x136045: asin of the front-to-rear vector)
+    // whether or not they touch, so going down at speed (wheels hopping) the nose follows the
+    // slope; the port levelled the cab whenever the hull was off the ground (#46 playtest).
+    [Fact]
+    public void JeepNoseFollowsADownhill()
+    {
+        if (BehaviourData.Dir is not { } dir || GameDataLocator.OtherGameDir(dir) is not { } fs
+            || GameData.Open(fs, dir) is not { } data || LevelCollision.Load(data, 20) is not { } level)
+        {
+            return;
+        }
+
+        var body = new PlayerController(level.World);
+        body.Spawn(new Vector3(31100f, 610f, -44950f), -MathF.PI / 2f);          // facing east (+X)
+        var car = new VehicleController(level.World, body);
+        car.Enter(VehicleMode.Jeep);
+        Run(body, 30, Hold());
+        car.Speed = VehicleController.JeepMaxSpeed;
+        while (body.Position.X < 32200f)
+        {
+            Run(body, 1, Hold(Keys.Forward));
+        }
+
+        var slope = -MathF.Atan(240f / 1500f);
+        Assert.InRange(car.TiltPitch, slope - 0.05f, slope + 0.05f);
+    }
+
+    // DOS v1.01 0x135f71: a wheel on the ground has no vertical speed (landing zeroes it), so a
+    // car climbing a ramp or leaving its top never moves up on its own; the port's slide threw it up.
+    [Fact]
+    public void JeepGetsNoLaunchFromARamp()
+    {
+        Vector3 P(float x, float z) => new(x, -0.3f * z, z);                     // rises ahead (−Z)
+        var ramp = Floor(-2000f).Concat([new Triangle(P(-500f, 100f), P(500f, 100f), P(500f, -400f)),
+            new Triangle(P(-500f, 100f), P(500f, -400f), P(-500f, -400f))]);
+        var (body, car) = Ride(VehicleMode.Jeep, ramp, y: 5f);
+        car.Speed = 600f;
+        var up = 0f;
+        for (var i = 0; i < 300 && body.Position.Z > -700f; i++)
+        {
+            Run(body, 1, Hold(Keys.Forward));
+            up = MathF.Max(up, body.Velocity.Y);
+        }
+
+        Assert.True(body.Position.Z < -700f, $"stopped at {body.Position} v {car.Speed} floor {car.OnFloor} wall {car.OnWall} up {up}");
+        Assert.Equal(0f, up);
+    }
+
+    // Future Shock mission 2, MAP.020 (#46, the reporters' saves 8/9): westward the ground climbs
+    // 640 → 719 to the moat's edge at x 33800, whose east wall falls 70° to the bottom (0); the
+    // far shelf is at 360 from x 33000. DOS wheels never snap down (0x135f71: a wheel lands only
+    // when it falls to the ground), so the car leaves the edge and flies onto the shelf; the port
+    // glued it down the wall into the moat.
+    [Fact]
+    public void JeepJumpsTheMission2Moat()
+    {
+        if (BehaviourData.Dir is not { } dir || GameDataLocator.OtherGameDir(dir) is not { } fs
+            || GameData.Open(fs, dir) is not { } data || LevelCollision.Load(data, 20) is not { } level)
+        {
+            return;
+        }
+
+        var body = new PlayerController(level.World);
+        body.Spawn(new Vector3(35800f, 650f, -44950f), MathF.PI / 2f);           // facing west (−X)
+        var car = new VehicleController(level.World, body);
+        car.Enter(VehicleMode.Jeep);
+        Run(body, 30, Hold());
+        car.Speed = VehicleController.JeepMaxSpeed;
+        while (body.Position.X > 33800f)
+        {
+            Run(body, 1, Hold(Keys.Forward));
+        }
+
+        var bottom = float.MaxValue;
+        for (var i = 0; i < 180 && !(car.OnFloor && body.Position.X < 33700f); i++)
+        {
+            Run(body, 1, Hold(Keys.Forward));
+            bottom = MathF.Min(bottom, body.Position.Y);
+        }
+
+        Assert.True(body.Position.X < 33050f, $"landed at x {body.Position.X:0}, y {body.Position.Y:0}");
+        Assert.True(bottom > 300f, $"fell to {bottom:0}");
+    }
+
+    // DOS v1.01 0x135dec moves the car by its speed along the heading in x/z alone; the wheels then
+    // land on whatever ground is there (0x135f71, up to 60 above). Up a slope the car keeps its
+    // ground speed; the port slid the hull along the plane and lost cos² of it.
+    [Fact]
+    public void JeepKeepsItsGroundSpeedUpASlope()
+    {
+        var (body, car) = Ride(VehicleMode.Jeep, Slope(0f, -1f));                // 45° rising ahead
+        car.Speed = 300f;
+        var z = body.Position.Z;
+        Run(body, 1, Hold(Keys.Forward));
+
+        Assert.Equal(car.Speed * Dt, z - body.Position.Z, 0);
+    }
+
+    // #46 (save 8): flat out from the town, the jeep reaches the moat's edge at ~420 and lands on
+    // its far wall (54°); DOS climbs it at full ground speed onto the shelf (x < 33000, y 360).
+    // The port crept up it at 40 u/s.
+    [Fact]
+    public void JeepClimbsOutOfTheMission2Moat()
+    {
+        if (BehaviourData.Dir is not { } dir || GameDataLocator.OtherGameDir(dir) is not { } fs
+            || GameData.Open(fs, dir) is not { } data || LevelCollision.Load(data, 20) is not { } level)
+        {
+            return;
+        }
+
+        var body = new PlayerController(level.World);
+        body.Spawn(new Vector3(37100f, 520f, -44790f), MathF.PI / 2f);           // facing west (−X)
+        var car = new VehicleController(level.World, body);
+        car.Enter(VehicleMode.Jeep);
+        Run(body, 30, Hold());
+        car.Speed = VehicleController.JeepMaxSpeed;
+        for (var i = 0; i < 600 && body.Position.X > 32900f; i++)
+        {
+            Run(body, 1, Hold(Keys.Forward));
+        }
+
+        Assert.True(body.Position.X <= 32900f, $"stuck at x {body.Position.X:0}, y {body.Position.Y:0}, v {car.Speed:0}");
+    }
+
+    // DOS v1.01 0x136193: the slope's pull is clamped to the same −140..683.6 as the pedals. Rolling
+    // back down this 35° bank the wheels touch only now and then (they never snap down, 0x135f71).
     [Fact]
     public void JeepRollsBackNoFasterThanItReverses()
     {
         var (body, car) = Ride(VehicleMode.Jeep, Slope(0f, -0.7f));               // ground rises ahead
-        Run(body, 120, Hold());
-        Assert.Equal(-VehicleController.JeepReverseSpeed, car.Speed, 2);
+        var fastest = 0f;
+        for (var i = 0; i < 600; i++)
+        {
+            Run(body, 1, Hold());
+            fastest = MathF.Min(fastest, car.Speed);
+        }
+
+        Assert.Equal(-VehicleController.JeepReverseSpeed, fastest, 2);
     }
 
     [Fact]
@@ -173,6 +307,55 @@ public class VehicleTests
         var (_, forward, _, _) = car.View(1f);
         Assert.True(car.OnFloor);
         Assert.True(forward.Y > 0.1f, $"forward {forward}");
+    }
+
+    // DOS v1.01 0x135744 / 0x135866 / 0x135969: the throttle lifts the nose by the speed it adds
+    // (less 297.5 a second), the brake dips it by half the speed it takes, off the pedals it
+    // settles by 8 a DOS frame; at most 32/2048 of a turn either way (#46: no pitch on the pedals).
+    [Fact]
+    public void JeepPitchesWithThePedals()
+    {
+        var most = VehicleController.JeepDipMax * MathF.PI / 1024f;
+        var (body, _) = Ride(VehicleMode.Jeep);
+        Run(body, 5, Hold(Keys.Forward));
+        Assert.Equal(most, body.Pitch, 4);                                       // low gears: nose up
+        Run(body, 600, Hold(Keys.Forward));
+        Assert.Equal(0f, body.Pitch, 4);                                         // top gears: settled
+        Run(body, 20, Hold(Keys.Back));
+        Assert.Equal(-most, body.Pitch, 4);                                      // braking: nose down
+        Run(body, 20, Hold());
+        Assert.Equal(0f, body.Pitch, 4);
+    }
+
+    // DOS v1.01 0x126abb, fed from 0x135d94: the engine loop plays at (70 + |v·256|·100 >> 16) of
+    // 128 of its rate, the speed × 5/4 with no wheel down; idle at a stop (#46: static engine).
+    [Fact]
+    public void JeepEngineRevsWithSpeed()
+    {
+        var (body, car) = Ride(VehicleMode.Jeep);
+        Assert.Equal(70f / 128f, car.EnginePitch, 4);
+        Run(body, 600, Hold(Keys.Forward));
+        Assert.Equal((70f + VehicleController.JeepMaxSpeed * 100f / 256f) / 128f, car.EnginePitch, 4);
+
+        var (high, flying) = Ride(VehicleMode.Jeep, y: 5000f);
+        flying.Speed = 400f;
+        Run(high, 1, Hold());
+        Assert.False(flying.OnFloor);
+        Assert.Equal((70f + 500f * 100f / 256f) / 128f, flying.EnginePitch, 4);
+    }
+
+    // DOS v1.01 0x135a7e: the wheel leans the view by −(wheel·0x4600 × speed·256) >> 26 of 2048,
+    // on top of the ground's roll (#46: no roll when turning).
+    [Fact]
+    public void JeepLeansIntoATurn()
+    {
+        var (body, car) = Ride(VehicleMode.Jeep);
+        car.Speed = 400f;
+        Run(body, 30, Hold(Keys.Right));
+        var want = -car.Wheel * car.Speed * 0x4600 * 256f / (1 << 26) * MathF.PI / 1024f;
+        Assert.Equal(1f, car.Wheel);
+        Assert.True(want < -0.05f, $"lean {want}");
+        Assert.Equal(want, car.Roll, 4);
     }
 
     [Fact]
@@ -361,22 +544,42 @@ public class VehicleTests
     }
 
     [Fact]
-    public void EnergyOverheatsThenRegensToTheCoolLevel()
+    public void EnergyRechargesWhileTheGunFires()
     {
-        var (weapons, guns, shooter) = Armed(VehicleMode.Jeep);
-        for (var i = 0; i < 600 && !guns.Overheated; i++) weapons.Tick(new WeaponInput(true, false, false), shooter, Dt);
-        Assert.True(guns.Overheated);
+        // DOS 0x13202b adds 300 a second every frame, firing or not.
+        var (weapons, guns, _) = Armed(VehicleMode.Jeep);
+        var start = weapons.Inventory.Pool(VehicleGuns.EnergyPool);
+        for (var i = 0; i < 60; i++)
+        {
+            guns.Fired(false, FireResult.Fired);
+            guns.Tick(weapons.Inventory, Dt);
+        }
+
+        Assert.InRange(weapons.Inventory.Pool(VehicleGuns.EnergyPool) - start, 295, 300);
+    }
+
+    [Fact]
+    public void EmptiedGunFiresAgainAtOneBolt()
+    {
+        // DOS has no overheat: the next bolt leaves once the pool holds its 100 (a third of a second).
+        var (weapons, _, shooter) = Armed(VehicleMode.Jeep);
+        var fire = new WeaponInput(true, false, false);
+        for (var i = 0; i < 600 && weapons.Inventory.Pool(VehicleGuns.EnergyPool) >= 100; i++)
+        {
+            weapons.Tick(fire, shooter, Dt);
+        }
+
         Assert.True(weapons.Inventory.Pool(VehicleGuns.EnergyPool) < 100);
         var ticks = 0;
-        while (guns.Overheated && ticks < 600)
+        var before = weapons.Inventory.Pool(VehicleGuns.EnergyPool);
+        while (ticks < 120 && weapons.Inventory.Pool(VehicleGuns.EnergyPool) >= before)
         {
-            weapons.Tick(new WeaponInput(true, false, false), shooter, Dt);
+            before = weapons.Inventory.Pool(VehicleGuns.EnergyPool);
+            weapons.Tick(fire, shooter, Dt);
             ticks++;
         }
 
-        Assert.False(guns.Overheated);
-        Assert.InRange(weapons.Inventory.Pool(VehicleGuns.EnergyPool), VehicleGuns.CoolLevel - 100, VehicleGuns.CoolLevel + 10);
-        Assert.InRange(ticks / 60f, VehicleGuns.RegenDelay + 0.7f, VehicleGuns.RegenDelay + 1.1f); // ~400 at 450/s
+        Assert.InRange(ticks / 60f, 0f, 0.45f);
     }
 
     // ---------------------------------------------------------------- hull
@@ -414,6 +617,44 @@ public class VehicleTests
 
         Assert.Equal(Hull.JeepPoints, hull.Points);
         Assert.True(soldier.Alive);
+    }
+
+    /// <summary>A robot's shot along <paramref name="dir"/> through <paramref name="through"/> (from 600 back):
+    /// does it strike the hull?</summary>
+    private static bool Struck(Hull hull, Vector3 through, Vector3 dir)
+    {
+        var weapons = new WeaponSystem(WeaponTable.Shipped, new CollisionWorld()) { Player = hull };
+        var ammo = WeaponTable.Shipped.Ammo.First(a => a.Family == AmmoFamily.Hitscan && !a.Blasts && a.Damage > 0);
+        var before = hull.Points;
+        weapons.EnemyFire(new SkyNet.Game.Tests.Enemies.Soldier(), ammo, through - dir * 600f, dir, 0f);
+        return hull.Points < before;
+    }
+
+    // DOS strikes the jeep through four spheres of 50 (table 0x38e2d, tested by 0x145232 in the
+    // car's frame): 55 up, 20 right of the driver, along the car; the HK through one of 80 at the eye.
+    [Fact]
+    public void RobotShotsStrikeTheDosJeepSpheres()
+    {
+        var (body, car) = Ride(VehicleMode.Jeep);
+        var hull = new Hull(car, new Soldier(body));
+        var at = body.Position;
+
+        Assert.True(Struck(hull, at + new Vector3(0f, 56f, -120f), Vector3.UnitX));    // the nose
+        Assert.False(Struck(hull, at + new Vector3(-40f, 71f, 0f), -Vector3.UnitZ));   // left of the car
+
+        car.CarYaw = MathF.PI / 2f;                                                    // the nose to -X
+        Assert.False(Struck(hull, at + new Vector3(0f, 56f, -120f), Vector3.UnitX));
+        Assert.True(Struck(hull, at + new Vector3(-120f, 56f, 0f), -Vector3.UnitZ));
+    }
+
+    [Fact]
+    public void RobotShotsStrikeTheDosHkSphere()
+    {
+        var (body, car) = Ride(VehicleMode.Hk, y: 300f);
+        var hull = new Hull(car, new Soldier(body));
+
+        Assert.True(Struck(hull, body.EyePosition + new Vector3(0f, 0f, 75f), Vector3.UnitX));
+        Assert.False(Struck(hull, body.EyePosition + new Vector3(0f, 0f, 95f), Vector3.UnitX));
     }
 
     // #51: the turret's and the HK's view (and the HK's cockpit) take the mouse before the tick,

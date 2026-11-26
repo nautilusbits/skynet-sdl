@@ -61,6 +61,7 @@ internal sealed partial class AppHost
 
         FreshSession();
         session.RobotAi = settings.RobotAi;
+        session.FullPickups = settings.FullPickups;
         var demo = CampaignDemo.Create(session, controls, difficulty, modsDir, blocks != null);
         if (save != null)
         {
@@ -274,6 +275,7 @@ internal sealed partial class AppHost
             SetVSync(options.NoVsync ? VSync.Off : settings.VSync);
             session.Difficulty = Difficulty.Of(settings.Difficulty);
             session.RobotAi = settings.RobotAi;
+            session.FullPickups = settings.FullPickups;
             ApplyDemoClock();
         }
 

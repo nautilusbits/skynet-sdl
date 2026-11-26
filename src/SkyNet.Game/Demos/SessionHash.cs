@@ -42,7 +42,6 @@ public static class SessionHash
             h.Add(ride.AimYaw);
             h.Add(ride.AimPitch);
             h.Add(ride.Energy);
-            h.Add(ride.Overheated);
         }
 
         hashes[0] = h.Value32;

@@ -348,6 +348,8 @@ public sealed class GameSession
     private readonly Dictionary<int, SoundBank.LoopHandle> _loops = [];
     private readonly List<BodySound> _bodySounds = [];
     private readonly List<Pickup> _pickups = [];
+    // Items LEAVE kept while the eye is in reach: their FULL line already shown.
+    private readonly HashSet<int> _leftFull = [];
     private readonly List<int> _targets = [];
     private readonly List<IDamageable> _spriteTargets = [];
     private readonly Dictionary<int, float> _waterSoundsUntil = [];
@@ -362,6 +364,7 @@ public sealed class GameSession
     private WorldInstance? _instance, _previous;
     private ExitRequest? _pendingExit;
     private float _clock;
+    private readonly Net.ScannerSweep _sweep = new();
     private float? _completeAt, _endAt;
     // When the message box has typed its last line (flag 0x80 of [0x30a50] clears), and its font.
     private float _typedAt;
@@ -528,6 +531,12 @@ public sealed class GameSession
 
     private RobotAi _robotAi = RobotAi.Classic;
 
+    /// <summary>FULL PICKUPS: DOS's TAKE (the default) or LEAVE (<see cref="Campaign.FullPickups"/>).</summary>
+    public FullPickups FullPickups { get; set; }
+
+    /// <summary>The status lines of an item LEAVE keeps on the ground.</summary>
+    public const string AmmoFull = "AMMO FULL", HealthFull = "HEALTH FULL", ArmourFull = "ARMOR FULL";
+
     /// <summary>Console <c>navmesh on</c>: the walkers' nav meshes and paths drawn, on this map and the next.</summary>
     internal bool ShowRobotNav
     {
@@ -552,6 +561,16 @@ public sealed class GameSession
     /// <summary>The player's keys and mouse reach the soldier this tick: playing, not riding a
     /// torpedo, alive in a deathmatch.</summary>
     public bool Steering => Phase == SessionPhase.Playing && Torpedo is not { Riding: true } && (!Deathmatch || Soldier.Alive);
+
+    /// <summary>The motion detector reads (FUN_0011ff00 from the weapon draw 0x125d1a: record 13 in
+    /// hand, alive): playing, on foot, out of a torpedo. A deathmatch has its own (<see cref="Net.DmGame.DetectorActive"/>).</summary>
+    public bool DetectorActive => !Deathmatch && Phase == SessionPhase.Playing && Soldier.Alive && Torpedo is not { Riding: true }
+        && Player.Mover is not Vehicles.VehicleController && Weapons.Inventory.Primary == WeaponTable.MotionDetector;
+
+    /// <summary>The motion detector's plot of the robots round the soldier (<see cref="Robots.Listed"/>,
+    /// <see cref="Net.MotionDetector.Scan(IEnumerable{Vector3}, Vector3, float)"/>); read while <see cref="DetectorActive"/>.</summary>
+    public Net.ScannerPlot Scanner() =>
+        Net.MotionDetector.Scan(Robots?.Listed(Player.Position).Select(r => r.Position) ?? [], Player.Position, Player.Yaw);
 
     /// <summary>A deathmatch host's crate drops (an item sprite and where it lies), handed to the
     /// server's item list; null elsewhere (a client drops no item of its own).</summary>
@@ -733,6 +752,15 @@ public sealed class GameSession
             {
                 Soldier.HealPercent(CarryHealPercent);
                 Soldier.AddArmour(CarryArmour);
+            }
+
+            // After a win the next mission's ammo (FUN_00126605), inside the restart snapshot.
+            if (won)
+            {
+                foreach (var (pool, amount) in MissionGrants.Of(Data.Game, row))
+                {
+                    Weapons.Inventory.AddAmmo(pool, amount);
+                }
             }
 
             _startKit = Weapons.Inventory.Save();
@@ -1110,6 +1138,7 @@ public sealed class GameSession
         _targets.Clear();
         DropSpriteTargets();
         _pickups.Clear();
+        _leftFull.Clear();
         Weapons.Clear();
         _pendingExit = null;
     }
@@ -1553,6 +1582,7 @@ public sealed class GameSession
             RadiationTick();
             FreeFromRobots();
             Player.Step(keys ? tick : default, Dt, actions);
+            RobotContact();
             BodySounds();
             Moved?.Invoke(moved);
             if (DeathmatchBlock is { } block)
@@ -1564,6 +1594,7 @@ public sealed class GameSession
         using (Prof.Zone(GameZones.Weapons))
         {
             Weapons.Tick(keys ? weapons : new WeaponInput(false, false, false), new Shooter(Player.EyePosition, Player.Yaw, Player.Pitch, Player.Velocity), Dt);
+            ScannerTick();
         }
 
         Moon.Tick(Dt);
@@ -1642,6 +1673,42 @@ public sealed class GameSession
         }
 
         TimeTheEnd();
+    }
+
+    /// <summary>The scanner in hand beeps once a sweep (MOTLOOP2.RAW, 0x11ffff); put away, the next
+    /// draw starts a sweep. Sound only: nothing the simulation reads.</summary>
+    private void ScannerTick()
+    {
+        if (!DetectorActive)
+        {
+            _sweep.Reset();
+            return;
+        }
+
+        if (_sweep.Tick(Dt))
+        {
+            Sounds?.Play2D(Net.MotionDetector.SweepSound);
+        }
+    }
+
+    /// <summary>DOS's frames (35 a second) that end within this tick: 0 or 1.</summary>
+    private float DosFrames() => MathF.Floor(_clock * (float)Robots.DosFps) - MathF.Floor((_clock - Dt) * (float)Robots.DosFps);
+
+    /// <summary>A robot met on foot hurts (#64): each probe of the move that meets one charges its
+    /// contact word, 4, a DOS frame through the armour, unscaled (0x12b7f1 → 0x122d2f). A robot
+    /// that drove into him counts: his next probe starts inside it.</summary>
+    private void RobotContact()
+    {
+        if (Player.Noclip || Player.Mover != null)
+        {
+            return;
+        }
+
+        var hits = Player.Hits(RobotColliders.Owner) + (_robotBlock.Touched ? 1 : 0);
+        if (hits > 0)
+        {
+            Soldier.Hurt(DosFrames() * hits * RobotColliders.ContactPoints);
+        }
     }
 
     /// <summary>A robot that drove into the soldier (or his vehicle) since his last move lets go of him.</summary>
@@ -1751,7 +1818,13 @@ public sealed class GameSession
             return;
         }
 
-        Soldier.Hurt(Radiation.Points(RadiationDose, Dt), silent: true);
+        // DOS charges each FRAME, at least a point (0x13ba8c): the port counts DOS's frames, not its ticks.
+        var frames = DosFrames();
+        if (frames > 0f)
+        {
+            Soldier.Hurt(frames * Radiation.Points(RadiationDose, 1f / (float)Robots.DosFps), silent: true);
+        }
+
         // Flag 2 of FUN_0012ef06: not again while it plays, the water's test.
         WaterSound(RadiationDose >= Radiation.Danger ? Radiation.SoundHigh : Radiation.SoundLow);
     }
@@ -1818,6 +1891,18 @@ public sealed class GameSession
             var p = _pickups[i];
             if (Vector3.Distance(Player.EyePosition, p.Record) > PickupTable.GrabReach)
             {
+                _leftFull.Remove(p.Offset);
+                continue;
+            }
+
+            // LEAVE: an item that gives nothing stays; its line shows once a visit, not every tick.
+            if (FullLine(p.Item) is { } full)
+            {
+                if (_leftFull.Add(p.Offset))
+                {
+                    Listener?.Status(full);
+                }
+
                 continue;
             }
 
@@ -1833,6 +1918,35 @@ public sealed class GameSession
 
             Apply(p.Item);
         }
+    }
+
+    /// <summary>LEAVE's line for an item that would give nothing (null: take it). A weapon is always
+    /// taken (guns share pools); in deathmatch the server owns the items, so DOS's rule holds.
+    /// E.g. full health: a medkit → HEALTH FULL; a shotgun with full shells → taken.</summary>
+    private string? FullLine(in PickupItem item)
+    {
+        if (FullPickups != FullPickups.Leave || Deathmatch || item.Weapon >= 0)
+        {
+            return null;
+        }
+
+        var ammo = item.Pool >= 0 && item.Amount > 0;
+        if (ammo && !Weapons.Inventory.PoolFull(item.Pool))
+        {
+            return null;
+        }
+
+        if (item.HealPercent > 0 && Soldier.Health < Soldier.MaxHealth)
+        {
+            return null;
+        }
+
+        if (item.Armour > 0 && Soldier.Armour < Soldier.MaxArmour)
+        {
+            return null;
+        }
+
+        return ammo ? AmmoFull : item.HealPercent > 0 ? HealthFull : item.Armour > 0 ? ArmourFull : null;
     }
 
     /// <summary>An item's effect (handler 0x11d670): the pool topped up, health, armour, the weapon

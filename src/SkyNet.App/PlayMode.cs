@@ -91,7 +91,7 @@ internal sealed partial class AppHost
             weaponInput = weaponInput with { Throw = true, SelectThrown = 14 };
         }
 
-        recording?.BeforeTick(HeadlessCampaign.LevelOf(session.Difficulty), session.RobotAi);
+        recording?.BeforeTick(HeadlessCampaign.LevelOf(session.Difficulty), session.RobotAi, session.FullPickups);
         var started = Stopwatch.GetTimestamp();
         using (Prof.Zone(AppZones.Session))
         {
@@ -134,7 +134,8 @@ internal sealed partial class AppHost
         }
     }
 
-    // The engine's loop while riding (careng1 for the jeep, hk2 for the HK), riding with the eye.
+    // The engine's loop while riding (careng1 for the jeep, hk2 for the HK), riding with the eye,
+    // revving with the jeep's speed.
     void EngineLoop()
     {
         var want = vehicles.Riding && session.Phase == SessionPhase.Playing ? VehicleController.EngineSound(vehicles.Mode) : -1;
@@ -148,6 +149,7 @@ internal sealed partial class AppHost
         if (engineLoop != null)
         {
             engineLoop.Position = player.EyePosition;
+            engineLoop.Rate = vehicles.Controller.EnginePitch;
         }
     }
 }

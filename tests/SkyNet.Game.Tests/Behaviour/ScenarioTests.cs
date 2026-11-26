@@ -235,6 +235,24 @@ public class ScenarioTests
         Assert.Empty(h.Shoot(Car, 50f));
     }
 
+    /// <summary>
+    /// Issue #71, mission 3's club MAP.239: the disco ball NOIRBALL @03b21 (hp 60, state 5) dies
+    /// and its chain steps the dance floor TCHNR3 @025c3 and the bar NOIRBR1 @052c9 (act 0x19) to
+    /// their last TRANSFRM.PRS frame. Handler 0x120833 only swaps the record's model (sub+0xc): the
+    /// record stays in its cell, so the floor still holds the player up.
+    /// </summary>
+    [BehaviourDataFact]
+    public void A_wreck_chained_to_its_last_frame_stays_solid()
+    {
+        const int Ball = 0x03b21, Floor = 0x025c3, Bar = 0x052c9;
+        var h = new Harness(239);
+        h.Shoot(Ball, 100f);
+        h.Settle();
+
+        Assert.True(h.B.TryGetPose(Floor, out var floor) && floor.Visible && floor.Solid && floor.Stage == 1);
+        Assert.True(h.B.TryGetPose(Bar, out var bar) && bar.Visible && bar.Solid && bar.Stage == 1);
+    }
+
     /// <summary>Mission 3's consoles: a chain of nine buttons ends in demolish 0x1B and the robot
     /// spawns (the mission spec's MAP.232 step).</summary>
     [BehaviourDataFact]

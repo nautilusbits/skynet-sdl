@@ -1,3 +1,4 @@
+using SkyNet.Game.Campaign;
 using SkyNet.Game.Enemies;
 using SkyNet.Game.Menu;
 
@@ -70,6 +71,23 @@ public class RobotAiMenuTests : IDisposable
         Assert.Equal(RobotAi.Improved, menu.Settings.RobotAi);
         menu.Update(new MenuInput { Left = true }, Frame);
         Assert.Equal(RobotAi.Classic, menu.Settings.RobotAi);
+    }
+
+    [Fact]
+    public void FullPickupsRowStepsAppliesAndSaves()
+    {
+        var (menu, log, path) = OpenGameplay();
+        var screen = (GameplayScreen)menu.Current!;
+        menu.Update(new MenuInput { Down = true }, Frame);
+        Assert.Equal("fullpickups", screen.Highlighted!.Id);
+        Assert.Equal("TAKE", screen.Value("fullpickups"));
+        Assert.Contains("DOS", screen.HintOf("fullpickups"));
+
+        // Accept: TAKE → LEAVE, handed to the game and written to the file at once.
+        menu.Update(new MenuInput { Accept = true }, Frame);
+        Assert.Equal(FullPickups.Leave, log.Applied[^1].FullPickups);
+        Assert.Equal(FullPickups.Leave, SettingsStore.Load(path).FullPickups);
+        Assert.Equal("LEAVE", screen.Value("fullpickups"));
     }
 
     [Fact]

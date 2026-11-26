@@ -11,7 +11,7 @@ Two static tables drive every gun: the **weapon record table** and the
 | Weapon records | **0x43714** | 0x4361c | 0x60, 26 records |
 | Ammo types | **0x40828** | 0x40728 | 0x32 |
 | Ammo pools `{cur, initial, max}` | **0x440ec** | 0x43ff4 | 12, 13 pools |
-| Campaign start list | **0x4356c** | 0x43470 | i32 list, −1 ends |
+| Campaign start list | **0x4356c** | 0x43470 | i32 list, −1 ends; picked at 0x11cb5b: Future Shock 0x43538, mode 0x80000000 0x435f8, network 0x435b0 (13, 1, 2, 4, 5, 7, 14..25), else 0x4356c. v1.00's had 13 after the pipe; v1.01's is one dword shorter without it (the lists after it moved 0xf8, not 0xfc). The port adds 13 to SkyNET's (the owner's DOS game has it) |
 | Primary defaults per mode | UNCERTAIN (v1.00 0x44372/0x4437e/0x4438a) | | |
 | Secondary default per mode | **0x4449a** = {15, 25, 22} | 0x44396 | |
 | Weapon cycle (`;` / `'`) | UNCERTAIN (v1.00 0x435e0 = records 0..12) | | |
@@ -59,7 +59,7 @@ record index.
 | 10 | PLASMA RIFLE | 3 | 4 | 2 | |
 | 11 | PLASMA CANNON | 3 | 4 | 10 | |
 | 12 | "super uzi" | 20 | 12 | 1 | STRINGS.PRS names it MINI ROCKET; the `superuzi` cheat (0x141fc8) owns and selects record 12; 50 direct + 50 blast |
-| 13 | motion detector | — | — | — | multiplayer only; a plot on the scanner's screen (FUN_0011ff00); a machine avatar loses it (0x134a39). 0x132b00 is the machine vision, not the scanner |
+| 13 | motion detector | — | — | — | a plot on the scanner's screen (FUN_0011ff00), nothing consumed; key 1 toggles it with the pipe. Campaign: v1.00's start list had it, v1.01's dropped it (the port keeps v1.00's, see below); it plots a 0xb3 dot per actor of the sweep list 0x4c808 (0x12984d: the 5×5 cells round the player, flags 0x2c clear), no target, no name. Network: the players, the target and its name; a machine avatar loses it (0x134a39). 0x132b00 is the machine vision, not the scanner |
 | 14-19 | thrown items | 1 | 5-9 | 1 | [throwables.md](throwables.md) |
 | 20-23 | HK plasma / rockets | 8 / 1 | 10 / 11 | 100 / 1 | odd records = other barrel; the HK fires 21 and 22 |
 | 24, 25 | jeep laser / rockets | 8 / 1 | 10 / 11 | 100 / 1 | 0x1257a4: FIRE [0x44476 + mode] = {0, 24, 21}, THROW [0x4449a + mode] = {15, 25, 22} |
@@ -90,7 +90,11 @@ at **0x443c4** SkyNET / 0x4423c Future Shock; each entry NULL or
 `{pool, amount}` pairs ending at pool −1, capped at the pool max). Not on a
 restart or a new game. SkyNET grants: missions 3, 4, 8 = bullets +200,
 energy +200, molotov +20, pipe +25, canister +2, satchel +1; missions 6, 7
-= vehicle rockets +40.
+= vehicle rockets +40. The index is the next mission's row (EAX = [0x341ba]
+after the increment). Future Shock grants vehicle rockets +50 on its
+vehicle missions and a restock (bullets 300, energy 300, shells 50, ...)
+on the others; row 10 (MAP.130) adds 2 satchels, the charges its briefing
+asks for (issue #67). Port: `MissionGrants`.
 
 ## Start weapons
 

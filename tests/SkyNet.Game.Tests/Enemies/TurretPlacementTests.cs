@@ -185,5 +185,35 @@ public class TurretPlacementTests
         Assert.True(Vector3.Dot(gun.Forward, toSoldier) > 0.9f, $"gun forward {gun.Forward}, soldier {toSoldier}");
     }
 
+    /// <summary>Issue #23: the hung turret's bolts fly level at the soldier's eye on the corridor's
+    /// upper floor (the reporter's save) and hurt him: DOS strikes his body, three spheres of 15
+    /// at 7, 23 and 40 under the eye (0x38df9), not only a sphere about his middle.</summary>
+    [BehaviourDataFact]
+    public void FutureShockMap032HungTurretHurtsTheSoldier()
+    {
+        if (FutureShock() is not { } data)
+        {
+            return;
+        }
+
+        var map = data.LoadMap(32)!;
+        var behaviour = new LevelBehaviour(map, BehaviourModel.LoadTransfrm(data), new MissionProgress(5));
+        var (world, _) = LevelCollision.Build(data, map, null, behaviour.IsDynamic);
+        world.Add(behaviour.BuildColliders(data));
+        var soldier = new Soldier { Feet = new Vector3(10330f, -64f, -10944f) };
+        var weapons = new WeaponSystem(WeaponTable.Load(data), world) { Player = soldier };
+        var robots = new Robots(SkyNet.Data.GameTables.Ais, new EnemyModels(data), world, weapons);
+        robots.Populate(map);
+        var turret = At(robots, HungTurret);
+        for (var i = 0; i < 35 * 10 && soldier.Taken == 0f; i++)
+        {
+            robots.Tick(1f / 35f, soldier.Feet);
+            weapons.Tick(new WeaponInput(false, false, false), new Shooter(soldier.Feet, 0f, 0f), 1f / 35f);
+        }
+
+        Assert.True(turret.ShotsFired > 0, "no shot");
+        Assert.True(soldier.Taken > 0f, $"{turret.ShotsFired} shots, none hurt");
+    }
+
     private const int HungTurret = 0x05604;
 }

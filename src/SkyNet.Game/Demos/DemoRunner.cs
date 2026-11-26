@@ -66,7 +66,7 @@ public sealed class HeadlessCampaign : ISessionListener
     /// <summary>One recorded tick.</summary>
     public void Tick(CampaignRecorder? recorder, in TickInput input)
     {
-        recorder?.BeforeTick(LevelOf(Session.Difficulty), Session.RobotAi);
+        recorder?.BeforeTick(LevelOf(Session.Difficulty), Session.RobotAi, Session.FullPickups);
         Controls.Tick(Session, input);
         recorder?.AfterTick(Session, input);
     }

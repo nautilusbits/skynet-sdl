@@ -26,10 +26,10 @@ public interface IWeaponMount
     void Tick(Inventory inventory, float dt);
 
     /// <summary>The record the gun (<paramref name="secondary"/> false) or the pod fires now and
-    /// whether its muzzle's x is mirrored (the other barrel); null: held back (overheated).</summary>
+    /// whether its muzzle's x is mirrored (the other barrel); null: no such gun.</summary>
     (int Record, bool Mirror)? Trigger(bool secondary, Inventory inventory);
 
-    /// <summary>What the pull did (the barrel flips, an empty energy pool overheats).</summary>
+    /// <summary>What the pull did (the barrel flips).</summary>
     void Fired(bool secondary, FireResult result);
 
     /// <summary>The shooter the mount fires as (the jeep's muzzle takes no lead).</summary>
@@ -87,9 +87,10 @@ public sealed class WeaponSystem
     /// <summary>The difficulty's damage to enemies (0x5c210 column 2): LOW 1.5, MED 1.25, HIGH 1.0.</summary>
     public static readonly float[] DamageToEnemiesByDifficulty = [1.5f, 1.25f, 1f];
 
-    /// <summary>A robot's shot strikes the soldier inside this sphere about his centre (the Godot
-    /// port's player capsule is 2 × 38 units tall).</summary>
-    public const float PlayerHitRadius = 32f;
+    /// <summary>DOS's soldier on foot (table 0x38df9, copied by 0x1228ae): three spheres of 15 this
+    /// far under his eye; a shot at the eye strikes the top one (0x145232).</summary>
+    private static readonly float[] BodyDrops = [7f, 23f, 40f];
+    private const float BodyRadius = 15f;
     /// <summary>The record a robot's shots carry (index -1: not one of the soldier's weapons).</summary>
     public static readonly WeaponRecord RobotWeapon = new(-1, "ROBOT", -1, 0, 0, 0, 0, 0, 0, -1, -1, 0, -1, -1, 0, 0);
 
@@ -556,13 +557,34 @@ public sealed class WeaponSystem
             (point, normal, owner, target, found, reach) = (origin + dir * d, -dir, -1, sphere, true, d);
         }
 
-        if (hostile && Player is { Alive: true } player
-            && DamageTargets.RaySphere(origin, dir, player.Centre, MathF.Max(player.Radius, PlayerHitRadius), out var pd) && pd <= reach)
+        if (hostile && Player is { Alive: true } player && RayPlayer(player, origin, dir, out var pd) && pd <= reach)
         {
             (point, normal, owner, target, found) = (origin + dir * pd, -dir, -1, player, true);
         }
 
         return found;
+    }
+
+    /// <summary>Where a hostile ray meets the soldier: a hull's own body, else his DOS body
+    /// (<see cref="BodyDrops"/>) under the eye, 75 over the feet his centre stands 38 over.</summary>
+    private static bool RayPlayer(IDamageable player, Vector3 origin, Vector3 dir, out float distance)
+    {
+        if (player.Radius > 0f)
+        {
+            return player.Ray(origin, dir, float.MaxValue, out distance);
+        }
+
+        var eye = player.Centre + new Vector3(0f, SkyNet.Game.Player.PlayerController.EyeHeight - SkyNet.Game.Player.PlayerController.BodyHeight / 2f, 0f);
+        distance = float.MaxValue;
+        foreach (var drop in BodyDrops)
+        {
+            if (DamageTargets.RaySphere(origin, dir, eye - new Vector3(0f, drop, 0f), BodyRadius, out var d) && d < distance)
+            {
+                distance = d;
+            }
+        }
+
+        return distance < float.MaxValue;
     }
 
     private void Hitscan(Vector3 eye, Vector3 fwd, WeaponRecord w, AmmoRecord ammo)

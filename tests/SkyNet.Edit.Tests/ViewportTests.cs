@@ -79,7 +79,7 @@ public sealed partial class ViewportTests
     /// <summary>The editor itself, hidden: the Viewport docked in the dock space's middle (the main window's
     /// width, under the menu), floated into a window of its own, then docked back by View > Reset layout; the
     /// screenshot is the view's picture only.</summary>
-    [MapDataFact]
+    [EditorFact]
     public void The_editor_docks_floats_and_resets_the_viewport()
     {
         var docked = RunEditor(8);
@@ -93,7 +93,7 @@ public sealed partial class ViewportTests
     }
 
     /// <summary>A Viewport floated into a window of its own still gives its screenshot: the view target's picture.</summary>
-    [MapDataFact]
+    [EditorFact]
     public void A_floated_viewport_gives_its_screenshot()
     {
         var floated = RunEditor(10, "--float", "Viewport");

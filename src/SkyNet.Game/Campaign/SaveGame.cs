@@ -29,10 +29,10 @@ public sealed record SavedMap(int Map, BehaviourSnapshot Behaviour, int[] Taken,
 public readonly record struct SavedShotOff(int Robot, ulong Gone);
 
 /// <summary>The player's ride in a save (format 2): the mode, the hull's points, the jeep's speed,
-/// heading and turret, the vehicle energy pool and whether the gun is overheated, and the body's
+/// heading and turret, the vehicle energy pool and the body's
 /// height (the HK's altitude: a level entry would raise it again).</summary>
 public sealed record SavedVehicle(PlayerMode Mode, float Hull, float Speed, float CarYaw, float AimYaw, float AimPitch,
-    int Energy, bool Overheated, float Altitude);
+    int Energy, float Altitude);
 
 /// <summary>The vehicle layer as a save sees it (<see cref="GameSession.Ride"/>): what to keep, and
 /// putting it back once the loaded map has been entered.</summary>
@@ -316,7 +316,7 @@ public static class SaveFile
             w.Write(v.AimYaw);
             w.Write(v.AimPitch);
             w.Write(v.Energy);
-            w.Write(v.Overheated);
+            w.Write(false);              // the retired overheat flag: the format keeps its byte
             w.Write(v.Altitude);
         }
 
@@ -414,6 +414,13 @@ public static class SaveFile
         }
     }
 
+    /// <summary>The ride's height, past the retired overheat flag.</summary>
+    private static float PastFlag(BinaryReader r)
+    {
+        r.ReadBoolean();
+        return r.ReadSingle();
+    }
+
     private static string? OptString(BinaryReader r)
     {
         if (!r.ReadBoolean())
@@ -462,7 +469,7 @@ public static class SaveFile
         if (version >= 2 && r.ReadBoolean())
         {
             ride = new SavedVehicle((PlayerMode)r.ReadInt32(), r.ReadSingle(), r.ReadSingle(), r.ReadSingle(), r.ReadSingle(),
-                r.ReadSingle(), r.ReadInt32(), r.ReadBoolean(), r.ReadSingle());
+                r.ReadSingle(), r.ReadInt32(), PastFlag(r));
             if (!Enum.IsDefined(ride.Mode) || ride.Mode == PlayerMode.Foot)
             {
                 throw new SaveFormatException($"unknown vehicle mode {(int)ride.Mode}");

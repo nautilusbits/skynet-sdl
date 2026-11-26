@@ -149,7 +149,7 @@ public sealed class EditorPrefsTests
 
     /// <summary>Hidden editor runs on one preferences file: the command line's look, mission and camera stay out
     /// of it; settings changed by a command are written and come back on the next start.</summary>
-    [MapDataFact]
+    [EditorFact]
     public void CommandLineOverridesAreNotWrittenBack()
     {
         var path = TempPrefs();

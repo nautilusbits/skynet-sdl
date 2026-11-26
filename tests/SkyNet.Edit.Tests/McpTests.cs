@@ -15,11 +15,11 @@ public sealed partial class McpTests
     private const int UseGateAct = 0xEF;
     private static readonly TimeSpan StartTimeout = TimeSpan.FromSeconds(90);
 
-    [MapDataFact]
+    [EditorFact]
     public Task An_agent_edits_a_mission_saves_verifies_and_undoes_each_step() => WithEditor(Steps);
 
     /// <summary>The other typed tools, each called once on mission 1: they answer, and their edits are undo steps.</summary>
-    [MapDataFact]
+    [EditorFact]
     public Task Every_typed_tool_answers() => WithEditor(Others);
 
     // The editor started hidden with --mcp 0, a client connected, a folder mod name for its saves; all removed after.

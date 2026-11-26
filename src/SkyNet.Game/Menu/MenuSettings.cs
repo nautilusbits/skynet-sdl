@@ -3,6 +3,7 @@ using System.Text.Json;
 using RetroEng.Json;
 using RetroEng.Platform;
 using RetroEng.Render;
+using SkyNet.Game.Campaign;
 using SkyNet.Game.Enemies;
 using SkyNet.Game.Hud;
 
@@ -41,6 +42,15 @@ public sealed class MenuSettings
     /// <summary>ROBOT AI: DOS's robots (CLASSIC) or smarter movement and fire (IMPROVED, the default;
     /// the console's <c>robotai</c>, <c>--robot-ai</c>).</summary>
     public RobotAi RobotAi { get; set; } = RobotAi.Improved;
+
+    /// <summary>FULL PICKUPS: DOS's TAKE (the default) or LEAVE (<see cref="Campaign.FullPickups"/>).</summary>
+    public FullPickups FullPickups { get; set; }
+
+    /// <summary>GAMEPLAY's MUSIC: the port's synth (ORIGINAL, the default) or a .sf2 (SOUNDFONT, issue #70).</summary>
+    public Audio.MusicSynth MusicSynth { get; set; }
+
+    /// <summary>GAMEPLAY's SOUNDFONT: the .sf2 MUSIC = SOUNDFONT plays (<see cref="Audio.SoundFonts"/> id); empty: the first found.</summary>
+    public string SoundFont { get; set; } = "";
 
     /// <summary>The window's size when <see cref="WindowMode"/> is <see cref="WindowMode.Windowed"/>
     /// (the Godot port's first offered size, 1280 × 720); the window cannot be resized by hand.</summary>
@@ -591,6 +601,9 @@ public static class SettingsStore
             s.UiScale = Enum(root, "uiScale", s.UiScale);
             s.Difficulty = Enum(root, "difficulty", s.Difficulty);
             s.RobotAi = Enum(root, "robotAi", s.RobotAi);
+            s.FullPickups = Enum(root, "fullPickups", s.FullPickups);
+            s.MusicSynth = Enum(root, "musicSynth", s.MusicSynth);
+            s.SoundFont = Audio.SoundFonts.FromSetting(Str(root, "soundFont"));
             s.SoundVolume = Int(root, "soundVolume", s.SoundVolume, 0, MenuSettings.VolumeSteps);
             s.MusicVolume = Int(root, "musicVolume", s.MusicVolume, 0, MenuSettings.VolumeSteps);
             s.WindowMode = Enum(root, "windowMode", s.WindowMode);
@@ -740,6 +753,9 @@ public static class SettingsStore
             w.WriteString("uiScale", s.UiScale.ToString());
             w.WriteString("difficulty", s.Difficulty.ToString());
             w.WriteString("robotAi", s.RobotAi.ToString());
+            w.WriteString("fullPickups", s.FullPickups.ToString());
+            w.WriteString("musicSynth", s.MusicSynth.ToString());
+            w.WriteString("soundFont", s.SoundFont);
             w.WriteNumber("windowWidth", s.WindowWidth);
             w.WriteNumber("windowHeight", s.WindowHeight);
             w.WriteString("windowMode", s.WindowMode.ToString());

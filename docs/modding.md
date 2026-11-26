@@ -572,7 +572,10 @@ rows lie over an empty table, keyed by `sprite`.
   collision and the item table are the sprite's, unchanged.
 - A row whose sprite or model does not read is logged under `[Mods]` and its
   sprite stays a billboard. A key missing from a row stops the table.
-- Not drawn as models: thrown items in flight, impact pieces, effects.
+- A thrown item's sprite (TEXTURE.217) is drawn as its model too, centred
+  where the billboard is and rolled across the flight once a cycle of the
+  sprite's frames. Not drawn as models: the satchel (an item sprite), impact
+  pieces, effects.
 
 ### View-models
 
@@ -706,6 +709,16 @@ sample without a row plays exactly as without the table.
 
 A row has every column. A table that does not read is logged under
 `[Mods]` and every sample plays unchanged.
+
+### Music: SoundFonts
+
+A SoundFont is not a mod: it changes no game data. `NAME.sf2` (SoundFont
+2; SF3 does not load) right in the `soundfonts/` folder beside the game
+(next to `mods/`, subfolders are not read) offers a General MIDI bank to
+OPTIONS > DETAIL > GAMEPLAY > MUSIC = SOUNDFONT, which plays the songs
+through it; SOUNDFONT picks the file. A `soundfonts/` folder inside a mod
+is not read. A file that does not read, or is larger than 256 MB (128 MB
+on Android), is logged under `[Music]` and the port's synth plays.
 
 ## The example mods (`tools/modkit`)
 

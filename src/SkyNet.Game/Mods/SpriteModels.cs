@@ -52,6 +52,29 @@ public sealed class SpriteModel
         return Matrix4x4.CreateTranslation(-bottom) * Matrix4x4.CreateScale(scale) * Matrix4x4.CreateRotationY(yaw * Degrees)
             * Matrix4x4.CreateTranslation(foot + new Vector3(0f, lift, 0f));
     }
+
+    /// <summary>
+    /// The model's space to the world for a thrown item in flight (issue #73): its box's middle on
+    /// <paramref name="centre"/> (the billboard's), sized as <see cref="World"/>, turned by the row's
+    /// yaw, then rolled <paramref name="angle"/> about the level axis across the flight, top first:
+    /// <code>
+    ///   angle 0   ▯ → flight      angle π/2   ▭ → (the top now leads)
+    /// </code>
+    /// </summary>
+    public Matrix4x4 Tumbled(Vector3 centre, float height, Vector3 velocity, float angle)
+    {
+        const float Degrees = MathF.PI / 180f;
+        var (min, max) = Box;
+        var size = max.Y - min.Y;
+        var scale = Row.Scale > 0 ? (float)Row.Scale : size > 1e-6f ? height / size : 1f;
+
+        // The roll axis: up × the level flight (a straight drop rolls about X).
+        var level = new Vector3(velocity.X, 0f, velocity.Z);
+        var axis = level.LengthSquared() > 1e-6f ? Vector3.Normalize(Vector3.Cross(Vector3.UnitY, level)) : Vector3.UnitX;
+
+        return Matrix4x4.CreateTranslation(-(min + max) / 2f) * Matrix4x4.CreateScale(scale) * Matrix4x4.CreateRotationY((float)Row.Yaw * Degrees)
+            * Matrix4x4.CreateFromAxisAngle(axis, angle) * Matrix4x4.CreateTranslation(centre);
+    }
 }
 
 /// <summary>

@@ -321,4 +321,3 @@ movement and when robots fire (`Enemies/Enemy.Improved.cs`):
 - Enemy table v1.01 base: 0x44E00 per one decode vs 0x44d00 in older
   (v1.00) notes. Confirm before reading.
 - Mesh resolution of types 0x36..0x39.
-- Contact damage per type (record +3).

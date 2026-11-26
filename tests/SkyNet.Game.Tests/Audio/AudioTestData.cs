@@ -30,3 +30,15 @@ sealed class AudioDataFactAttribute : FactAttribute
         }
     }
 }
+
+/// <summary>A theory skipped unless SKYNET_DATA points at SkyNET's data folder.</summary>
+sealed class AudioDataTheoryAttribute : TheoryAttribute
+{
+    public AudioDataTheoryAttribute()
+    {
+        if (AudioTestData.Dir == null)
+        {
+            Skip = $"{AudioTestData.EnvVar} is not set to a SkyNET data folder";
+        }
+    }
+}

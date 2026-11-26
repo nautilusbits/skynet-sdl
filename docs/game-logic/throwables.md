@@ -44,6 +44,14 @@ for all five; record 17 is never owned.
   FUN_0011c100); detonates instead when the bounced speed is under 50 u/s,
   or at most 100 u/s on a floor (normal up ≥ 252/256). Each bounce plays
   sound 0x18.
+- **Spin**: the in-flight sprite cycles its frames on the free-running
+  clock, as a map sprite: the gravity family's draw callback 0x123914
+  queues it (FUN_0014ef20) with frame −1, which FUN_00149e00 turns into
+  clock / ms % frames. Bounces change nothing. TEXTURE.217's items: 7-9
+  frames of 71 ms; the satchel (200/4, its pickup sprite) 4 of 214 ms.
+  Port: `WeaponRenderer.LobbedFrame`; ENHANCED with a mod's model for the
+  sprite (`sprite_models`): one roll a sprite cycle across the flight
+  (`TumbleAngle`, `SpriteModel.Tumbled`); the satchel stays a billboard.
 - **No fire pool** from the molotov in DOS.
 - Blast: [damage-hud.md](damage-hud.md#radial-blast), S = the damage
   value; DOS also deals that value as a direct hit.

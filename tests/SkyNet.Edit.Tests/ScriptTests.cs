@@ -46,7 +46,7 @@ public sealed class ScriptTests
     }
 
     /// <summary>A tool step places a robot, a command takes it back, quit ends the run before its frames.</summary>
-    [MapDataFact]
+    [EditorFact]
     public void A_hidden_run_follows_its_script()
     {
         var exe = Path.Combine(AppContext.BaseDirectory, OperatingSystem.IsWindows() ? "SkyNetEdit.exe" : "SkyNetEdit");

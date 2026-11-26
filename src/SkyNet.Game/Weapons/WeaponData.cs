@@ -70,7 +70,7 @@ public sealed class WeaponTable
     public const int WeaponStride = 0x60, WeaponCount = 26, AmmoStride = 0x32, AmmoCount = 25, PoolCount = 13;
     /// <summary>The thrown items (second register, F1-F5): records 14-19, 17 never owned.</summary>
     public const int FirstThrown = 14, LastThrown = 19;
-    /// <summary>Records 20-25 are the vehicle guns; 13 the multiplayer motion detector.</summary>
+    /// <summary>Records 20-25 are the vehicle guns; 13 the motion detector.</summary>
     public const int FirstVehicle = 20, MotionDetector = 13, SuperUzi = 12, Pipe = 0;
 
     /// <summary>The on-foot names (STRINGS.PRS + the CFA art, as the Godot port keys its slots).</summary>
@@ -108,7 +108,9 @@ public sealed class WeaponTable
     public WeaponTable WithStartList(IEnumerable<int> start) => new(Weapons, Ammo, Pools, start, Source);
 
     /// <summary>The shipped tables with <paramref name="game"/>'s start list (Future Shock: the pipe
-    /// alone on foot, then the thrown items and vehicle guns).</summary>
+    /// alone on foot, then the thrown items and vehicle guns). SkyNET's also owns the motion detector:
+    /// v1.00's list (0x43470) began 0, 13, 1, ...; v1.01's (0x4356c, one dword shorter) dropped it, the
+    /// owner's DOS game has it on key 1 with the pipe.</summary>
     public static WeaponTable For(GameKind game)
     {
         var weapons = GameTables.Weapons.Select(w => new WeaponRecord(w.Index, w.Index < Names.Count ? Names[w.Index] : $"WEAPON {w.Index}",
@@ -119,7 +121,7 @@ public sealed class WeaponTable
             a.Model, a.Look is > 0x10000 and < 0x40000 ? -1 : a.Look, a.Effect > 0 ? a.Effect >> 7 : -1, a.Damage, a.Size, a.Life, a.FireSound,
             a.ImpactSound, a.Reach, a.Flags, a.Pieces, a.PieceType));
         var pools = GameTables.Pools.Select(p => new PoolRecord(p.Initial, p.Max));
-        var start = game == GameKind.FutureShock ? GameTables.StartLists.FutureShock : GameTables.StartLists.SkyNet;
+        IEnumerable<int> start = game == GameKind.FutureShock ? GameTables.StartLists.FutureShock : GameTables.StartLists.SkyNet.Append(MotionDetector).Distinct();
         return new WeaponTable(weapons, ammo, pools, start, GameTables.SourceOf(TableNames.Weapons));
     }
 

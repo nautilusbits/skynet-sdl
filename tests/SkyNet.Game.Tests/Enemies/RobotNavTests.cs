@@ -147,13 +147,13 @@ public class RobotNavTests(ITestOutputHelper output)
 
     // ---------------------------------------------------------------- CLASSIC
 
-    /// <summary>A mesh given to CLASSIC's robots changes nothing: DOS's golden still; IMPROVED's run does change.</summary>
+    /// <summary>A mesh given to CLASSIC's robots changes nothing: the same run as without; IMPROVED's run does change.</summary>
     [BehaviourDataFact]
     public void ClassicIgnoresTheMesh()
     {
         static void Nav(Robots robots, CollisionWorld world) => robots.Nav = RobotNav.Bake(world, robots, [], null);
 
-        Assert.Equal(DosParityTests.RobotGolden, DosParityTests.RobotRun(RobotAi.Classic, Nav).Hash);
+        Assert.Equal(DosParityTests.RobotRun(RobotAi.Classic).Hash, DosParityTests.RobotRun(RobotAi.Classic, Nav).Hash);
         Assert.NotEqual(DosParityTests.RobotRun(RobotAi.Improved).Hash, DosParityTests.RobotRun(RobotAi.Improved, Nav).Hash);
     }
 

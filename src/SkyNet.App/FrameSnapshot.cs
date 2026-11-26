@@ -73,6 +73,10 @@ internal sealed class FrameSnapshot
     /// <summary>The screen's pixels per millimetre for the UI's minimum text (UiMetrics.PxPerMm; 0: none).</summary>
     public float PxPerMm;
     public readonly HudText HudText = new();
+    /// <summary>The campaign's motion detector in hand: its plot and where its art is drawn (null: not
+    /// in hand; a deathmatch's is <see cref="DmHud"/>'s).</summary>
+    public ScannerPlot? Scanner;
+    public System.Drawing.RectangleF? ScannerAt;
     public bool Underwater;
     /// <summary>The survived hit's flash: its SHADE.003 row (null: none) and the enhanced look's strength.</summary>
     public int? HitFlashRow;

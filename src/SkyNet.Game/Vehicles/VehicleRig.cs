@@ -110,20 +110,20 @@ public sealed class VehicleRig : IVehicleSaver
     }
 
     /// <summary>The ride for a save: null on foot.</summary>
-    public SavedVehicle? Save() => Guns is { } guns
+    public SavedVehicle? Save() => Guns != null
         ? new SavedVehicle(Mode == VehicleMode.Hk ? PlayerMode.Hk : PlayerMode.Jeep, Hull.Points, Controller.Speed, Controller.CarYaw,
-            Controller.AimYaw, Controller.AimPitch, _session.Weapons.Inventory.Pool(VehicleGuns.EnergyPool), guns.Overheated,
+            Controller.AimYaw, Controller.AimPitch, _session.Weapons.Inventory.Pool(VehicleGuns.EnergyPool),
             _session.Player.Position.Y)
         : null;
 
     /// <summary>A loaded ride: <see cref="Board"/> into its mode where the save put the body (no
-    /// entry rise), then its hull, energy, heat, motion and height (the view's pitch kept).</summary>
+    /// entry rise), then its hull, energy, motion and height (the view's pitch kept).</summary>
     public void Restore(SavedVehicle saved)
     {
         var body = _session.Player;
         var pitch = body.Pitch;
         Board(VehicleModes.From(saved.Mode));
-        if (Guns is not { } guns)
+        if (Guns == null)
         {
             return;
         }
@@ -133,7 +133,6 @@ public sealed class VehicleRig : IVehicleSaver
         Hull.Points = Math.Clamp(saved.Hull, 0f, Hull.Max);
         var inventory = _session.Weapons.Inventory;
         inventory.AddAmmo(VehicleGuns.EnergyPool, saved.Energy - inventory.Pool(VehicleGuns.EnergyPool));
-        guns.Overheated = saved.Overheated;
         Controller.Resume(saved.CarYaw, saved.AimYaw, saved.AimPitch, saved.Speed);
     }
 

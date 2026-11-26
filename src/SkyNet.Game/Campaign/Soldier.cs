@@ -14,6 +14,8 @@ public sealed class Soldier(PlayerController player) : IDamageable
 {
     public const float MaxHealth = HudRecords.SoldierHealth;
     public const float ArmourWear = 82f / 65536f;
+    /// <summary>A full armour bar.</summary>
+    public const float MaxArmour = 1f;
 
     public float Health { get; set; } = MaxHealth;
     /// <summary>0..1 of the bar.</summary>
@@ -81,7 +83,7 @@ public sealed class Soldier(PlayerController player) : IDamageable
     /// <summary>A health pickup: a percentage of the bar, capped at the bar.</summary>
     public void HealPercent(int percent) => Health = MathF.Min(MaxHealth, Health + MaxHealth * percent / 100f);
 
-    public void AddArmour(float fraction) => Armour = Math.Clamp(Armour + fraction, 0f, 1f);
+    public void AddArmour(float fraction) => Armour = Math.Clamp(Armour + fraction, 0f, MaxArmour);
 
     /// <summary>Mission start: full health, no armour.</summary>
     public void Reset()

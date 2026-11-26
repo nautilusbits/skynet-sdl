@@ -25,7 +25,7 @@ namespace SkyNet.Game.Baking;
 public static class MapBaker
 {
     /// <summary>The baker's own version: bump it when what a bake produces changes (a stale block is rebaked).</summary>
-    public const string ToolVersion = "13";
+    public const string ToolVersion = "14";
 
     /// <summary>The side of the map cells the static batch is split by, world units.</summary>
     public const float CellSize = 1024f;
@@ -33,6 +33,9 @@ public static class MapBaker
     /// <summary>A robot's marker Y is its eye: DOS places it at Y + 0x10 (FUN_00129f39).</summary>
     private const int EnemyLift = 0x10;
     private const int MaxSegmentDepth = 4;
+
+    /// <summary>The steps a slide's travel is checked in for faces on a wall's plane (<see cref="PathOf"/>).</summary>
+    private const int PathSteps = 4;
 
     /// <summary>Border boxes grow by this much for the ground built (the Godot port's TERRAIN_VIEW_MARGIN).</summary>
     private const float TerrainViewMargin = 16000f * 1.8f + 200f * 2f;
@@ -145,7 +148,7 @@ public static class MapBaker
         }
 
         var world = new CellBatch();
-        var dynamic = new List<BlockDynamic>();
+        var dynamic = new List<(BlockDynamic, Vector3[])>();
         var instances = 0;
         foreach (var e in map.Entities)
         {
@@ -176,7 +179,7 @@ public static class MapBaker
                     var buckets = one.Buckets.Select(b => new BlockBucket(KeyOf(textures, b.Key), [.. b.Vertices], [.. b.Indices], [])).ToArray();
                     return buckets.Any(b => b.Indices.Length > 0) ? buckets : null;
                 }).ToArray();
-                dynamic.Add(new BlockDynamic(e.FileOffset, stages));
+                dynamic.Add((new BlockDynamic(e.FileOffset, stages), PathOf(e)));
                 continue;
             }
 
@@ -209,6 +212,9 @@ public static class MapBaker
         }
 
         var used = inputs.Used.OrderBy(i => i.Name, StringComparer.Ordinal).ToArray();
+
+        // The world first: the dynamic meshes' faces on its planes are lifted off them (#72).
+        var worldBuckets = world.ToBuckets(textures);
         return new MapBlock
         {
             Number = number,
@@ -229,9 +235,9 @@ public static class MapBaker
             ModelTextures = [.. created.Take(modelTextures)],
             RobotTextures = [.. created.Skip(modelTextures).Take(robotTextures - modelTextures)],
             SpriteTextures = [.. created.Skip(robotTextures)],
-            World = world.ToBuckets(textures),
+            World = worldBuckets,
             Robots = robots.ToBuckets(textures),
-            Dynamic = [.. dynamic],
+            Dynamic = MoverFaces.Separate(worldBuckets, dynamic),
             Sprites = sprites,
             Colliders = [.. colliders],
             CollisionMissing = collisionMissing,
@@ -244,6 +250,28 @@ public static class MapBaker
         SourceHashOf(stored.Select(i => new BlockInput(i.Name, inputs.Md5Of(i.Name))));
 
     private static (int, int) CellOf(float x, float z) => ((int)MathF.Floor(x / CellSize), (int)MathF.Floor(z / CellSize));
+
+    /// <summary>The offsets a dynamic mesh passes, for <see cref="MoverFaces"/>: a slide's or jump's travel
+    /// in <see cref="PathSteps"/> steps (DOS axes X, Y down, Z → +X, −Y, −Z, as LevelBehaviour moves
+    /// it), else its rest pose alone.</summary>
+    private static Vector3[] PathOf(MapEntity e)
+    {
+        if (!Behaviour.ActRules.IsMover(e.ActType))
+        {
+            return [Vector3.Zero];
+        }
+
+        var m = Behaviour.ActRules.Mover(e.ActType);
+        if (m.Family is not (Behaviour.MoverFamily.Slide or Behaviour.MoverFamily.Slide5F or Behaviour.MoverFamily.Jump))
+        {
+            return [Vector3.Zero];
+        }
+
+        // 0x1385a0 drops a 0x5F slide straight down the level's Y.
+        var axis = m.Family == Behaviour.MoverFamily.Slide5F ? 1 : m.Axis;
+        var way = axis switch { 1 => -Vector3.UnitY, 2 => -Vector3.UnitZ, _ => Vector3.UnitX } * (m.Span * m.Sign);
+        return [.. Enumerable.Range(0, PathSteps + 1).Select(i => way * i / PathSteps)];
+    }
 
     private static BlockKey KeyOf(TextureStore textures, SurfaceKey key) =>
         new(key.Texture.IsNone ? null : textures.RefOf(key.Texture), key.FlatIndex);

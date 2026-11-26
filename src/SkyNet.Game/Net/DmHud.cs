@@ -279,23 +279,8 @@ public sealed class DmHud(Renderer renderer)
     /// <summary>FUN_0011ff00's plot over the scanner's art at <paramref name="gun"/> (screen pixels):
     /// a palette 0xb3 pixel for each blip, the target's in 0x0c and its name centred on the bar
     /// under the screen, one pixel of the low frame being <see cref="Weapons.ViewModelLayout.Scale"/>.</summary>
-    private void Scanner(ScannerPlot plot, RectangleF gun, DosHud hud)
-    {
-        var s = Weapons.ViewModelLayout.Scale(_layout.Width, _layout.Height);
-        var (blip, target) = (hud.Colour(MotionDetector.BlipIndex), hud.Colour(MotionDetector.TargetIndex));
-        foreach (var b in plot.Blips)
-        {
-            Fill(gun.X + b.At.X * s, gun.Y + b.At.Y * s, s, s, b.Target ? target : blip);
-        }
-
-        if (plot.Target is not { } name)
-        {
-            return;
-        }
-
-        var at = new Vector2(gun.X + (MotionDetector.NameAt.X + 0.5f) * s, gun.Y + MotionDetector.NameAt.Y * s);
-        Say(_layout.Font, name, at, Math.Max(1, (int)MathF.Round(s / hud.TextGrid)), target, TextAlign.Centre);
-    }
+    private void Scanner(ScannerPlot plot, RectangleF gun, DosHud hud) =>
+        ScannerView.Draw(renderer, plot, gun, hud, _layout.Width, _layout.Height);
 
     private RectangleF Scale(RectangleF r) => new(r.X * _unit, r.Y * _unit, r.Width * _unit, r.Height * _unit);
 

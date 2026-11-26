@@ -239,7 +239,7 @@ internal sealed partial class EditorApp
 
             if (_previewWeapons is { } weapons)
             {
-                weapons.Draw(session.Weapons, eye);
+                weapons.Draw(session.Weapons, eye, (long)(session.Clock * 1000f));
                 weapons.DrawDrops(session.Drops, eye, (long)(session.Clock * 1000f));
             }
 

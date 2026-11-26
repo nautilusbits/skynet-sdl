@@ -143,7 +143,7 @@ non-zero.
 |---|---|---|---|
 | +0 | 1 | u8 | destruction type (index into the table at 0x424d6 in v1.01, 0x423d6 in v1.00: effect sprites, drop, sound) |
 | +1 | 2 | i16 | blast parameter for destruction type 0 |
-| +3 | 2 | | UNCERTAIN |
+| +3 | 2 | u16 | contact damage: points a frame to the soldier whose move meets the record (0x122d2f); robots get 4 (0x129b5a) |
 | +5 | 4 | i32 | next entity in the action chain (≤ 0 ends) |
 | +9 | 1 | u8 | action type (index into the handler table, see game-logic) |
 

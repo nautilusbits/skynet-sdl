@@ -27,6 +27,22 @@ public class LookLightingTests
     }
 
     [Fact]
+    public void EnhancedSpritesTakeTheSunAndTheProbes()
+    {
+        // GitHub #62: the engine lights an enhanced billboard by the sun, its shadow and the baked
+        // light at its card; the colour only tints (the art's own, not an ambient). DOS's stays as is.
+        var art = new Vector4(0.8f, 0.9f, 1f, 1f);
+        var original = new Material(default, default, art, 1, new RenderState());
+
+        var enhanced = LookLighting.SpriteMaterial(original, Game.Menu.Look.Enhanced);
+        var classic = LookLighting.SpriteMaterial(original, Game.Menu.Look.Original);
+
+        Assert.Equal((Shading.Sprite, SpriteLight.Sun | SpriteLight.Probe, art), (enhanced.Shading, enhanced.SpriteLight, enhanced.Colour));
+        Assert.Equal(original, classic);
+        Assert.Equal(SpriteLight.Tint, classic.SpriteLight);
+    }
+
+    [Fact]
     public void InteriorHasNoSunAndAnEvenAmbient()
     {
         var lighting = LookLighting.For(LightPreset.Interior, null, 3992f, 1.2f);

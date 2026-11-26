@@ -28,6 +28,10 @@ rule: an interior of a jeep mission is on foot).
 | Slope | adds 1148 × sin(slope) |
 | Turn rate (0x135271) | none below 21.45 u/s; else wheel × 721.58 / v rad/s, clamp ±1.0738 (350/2048 per s); reversed in reverse |
 | Wheel | lock to lock in 0.305 s |
+| Wheels (0x135f71) | each falls at 392; lands only when it reaches the ground (snaps up ≤ 60, never down), so the car flies off edges and steep drops; the move (0x135dec) is the speed in x/z alone, so the car climbs a slope at full ground speed |
+| View pitch (0x135744, 0x135866) | throttle lifts the nose by the speed it adds less 297.5/s, brake dips it by half the speed it takes, off the pedals back by 8 a frame; at most ±32/2048 |
+| Engine (0x126abb from 0x135d94) | careng1 (69) looped at (70 + \|v·256\|·100 >> 16)/128 of its 11025 Hz: 0.55 idle, 2.63 at top speed; v × 5/4 with no wheel down; volume by distance only |
+| View roll (0x135a7e) | −(wheel·0x4600 × v·256) >> 26 of 2048 (8.2° at full lock and top speed), on top of the ground's roll |
 | Hull | 1000 points |
 
 - **The camera is the turret**: the mouse turns the view, the keys drive,
@@ -116,7 +120,6 @@ a wreck never returns. See [../multiplayer.md](../multiplayer.md) step 9.
   DOS's 392 u/s² on every wheel (v1.01 0x135fb4, 0x188).
 - Jeep plasma is drawn as a bolt with a halo; DOS shows a thin red streak.
 - A rammed target is hit at most once per 0.3 s (`RAM_REARM`); DOS has no wait.
-- Vehicle energy recharges (port addition, see damage-hud.md).
 
 ## Open questions
 
