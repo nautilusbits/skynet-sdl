@@ -8,6 +8,21 @@ using SkyNet.Formats;
 
 namespace SkyNet.Game.Audio;
 
+/// <summary>Which rules placed robot sounds follow: DOS's (ORIGINAL) or the ENHANCED look's
+/// walls, floors, shorter reach and movement cap.</summary>
+public enum SoundRules { Dos, Enhanced }
+
+/// <summary>What a placed DOS sound is, for <see cref="SoundRules.Enhanced"/>.</summary>
+public enum PlacedSound
+{
+    /// <summary>Anything else: DOS's rules always.</summary>
+    Plain,
+    /// <summary>A robot's script sound: muffled by walls and floors.</summary>
+    Robot,
+    /// <summary>A robot's animation-frame sound (servos, steps): also shorter reach and capped.</summary>
+    RobotMove,
+}
+
 /// <summary>
 /// The game's sound effects (MDMDSFXS.BSA) on the mixer, by DOS sound id (<see cref="SoundIds"/>)
 /// or file name, with the Godot port's levels (audio.gd):
@@ -24,7 +39,7 @@ namespace SkyNet.Game.Audio;
 /// volume and pitch (<see cref="SoundIds.DosVolume"/>), 2D voices that skip or restart the same id
 /// (<see cref="DosOverlap"/>, FUN_0012ef06), and 3D voices at full level up to 120 units, falling in
 /// a straight line to silence at <see cref="DosFar"/>, half as loud straight behind (FUN_0012f2c0),
-/// never occluded.</para>
+/// never occluded (ENHANCED robot sounds are: <see cref="PlayDos3D"/>).</para>
 /// </summary>
 public sealed class SoundBank : IDisposable
 {
@@ -51,6 +66,15 @@ public sealed class SoundBank : IDisposable
     /// <summary>DOS mixes at most this many placed one-shots and this many loops at once (six voices
     /// per kind); the nearest win.</summary>
     public const int DosVoices = 6;
+    /// <summary>ENHANCED: a robot's movement sound is silent past here (DOS: <see cref="DosFar"/>).</summary>
+    internal const float MoveReach = 900f;
+    /// <summary>ENHANCED: robot movement sounds play at most this many at once, inside <see cref="DosVoices"/>.</summary>
+    internal const int MoveVoices = 3;
+    /// <summary>ENHANCED: a height gap from this up counts as another floor.</summary>
+    internal const float StoreyHeight = 160f;
+    /// <summary>ENHANCED robot sound levels: a wall between on the same floor, a wall and a floor
+    /// between, another floor in plain sight.</summary>
+    internal const float WallGain = 0.5f, FloorWallGain = 0.18f, FloorGain = 0.7f;
     /// <summary>How a sample without a <c>sounds</c> row plays: unchanged.</summary>
     private static readonly SoundEventRow Neutral = SoundEventRow.Default("");
 
@@ -86,6 +110,7 @@ public sealed class SoundBank : IDisposable
         public bool Dos;
         public float Pitch = 1f;
         public int Priority;
+        public PlacedSound Kind;
         /// <summary>A loop the <c>sounds</c> table plays once per approach.</summary>
         public bool Once;
         /// <summary>That once-only loop has played: not again until the listener leaves.</summary>
@@ -186,6 +211,12 @@ public sealed class SoundBank : IDisposable
 
     /// <summary>Called with every request (a sound-event trace for logs and tests); null: none.</summary>
     public Action<SoundEvent>? Trace { get; set; }
+
+    /// <summary>The rules placed robot sounds follow (the look's; ORIGINAL keeps DOS's).</summary>
+    public SoundRules Rules { get; set; }
+
+    /// <summary>Whether a wall stands between the ears and a source (ENHANCED robot sounds); null: never.</summary>
+    internal Func<Vector3, Vector3, bool>? Occluded { get; set; }
 
     /// <summary>The loops set up and not stopped (near or gated).</summary>
     public int LoopCount => _tracked.Count(t => t.Loop);
@@ -377,8 +408,10 @@ public sealed class SoundBank : IDisposable
     }
 
     /// <summary>A one-shot at a place by DOS's rules (FUN_0012f018): the id's volume and pitch, the
-    /// straight-line fade to <see cref="DosFar"/>, half as loud behind; none past the fade.</summary>
-    public VoiceHandle PlayDos3D(int id, Vector3 position)
+    /// straight-line fade to <see cref="DosFar"/>, half as loud behind; none past the fade. A robot's
+    /// sound (<paramref name="kind"/>) under <see cref="SoundRules.Enhanced"/> is also muffled
+    /// (<see cref="Muffle"/>); a movement one reaches <see cref="MoveReach"/> and shares <see cref="MoveVoices"/>.</summary>
+    public VoiceHandle PlayDos3D(int id, Vector3 position, PlacedSound kind = PlacedSound.Plain)
     {
         if (SoundIds.NameOf(id) is not { } name)
         {
@@ -388,17 +421,32 @@ public sealed class SoundBank : IDisposable
         var e = Event(name);
         var gain = SoundIds.DosGain(id) * (float)e.Volume;
         var max = Reach(e, DosFar);
+        if (Rules == SoundRules.Dos)
+        {
+            kind = PlacedSound.Plain;
+        }
+
+        if (kind == PlacedSound.RobotMove)
+        {
+            max = MathF.Min(max, MoveReach);
+        }
+
         var distance = Vector3.Distance(_listener, position);
-        if (distance >= max || Get(name) is not { } sound)
+        if (distance >= max || Get(name) is not { } sound || !MoveRoom(kind, distance))
         {
             Trace?.Invoke(new SoundEvent(SoundEventKind.Play3D, name, id, position, gain, false));
             return VoiceHandle.None;
         }
 
+        if (kind != PlacedSound.Plain)
+        {
+            gain *= Muffle(position);
+        }
+
         var tracked = new Tracked
         {
             Sound = sound, Name = name, Id = id, Position = position, Volume = gain, Pitch = SoundIds.DosRate(id) * (float)e.Pitch,
-            Priority = e.Priority, Unit = MathF.Min(DosNear, max), Max = max, Dos = true,
+            Priority = e.Priority, Unit = MathF.Min(DosNear, max), Max = max, Dos = true, Kind = kind,
         };
         tracked.Voice = MakeRoom(distance, e.Priority) ? _mixer.Play(sound, Emitter(tracked, distance, Looping.Once), e.Priority) : VoiceHandle.None;
         if (!tracked.Voice.IsNone)
@@ -639,6 +687,62 @@ public sealed class SoundBank : IDisposable
         }
 
         if (farthest == null || farthest.Priority > priority || (farthest.Priority == priority && far <= distance))
+        {
+            return false;
+        }
+
+        Remove(farthest);
+        return true;
+    }
+
+    /// <summary>A robot sound's level for walls and floors between: one ray at the start (the clips
+    /// are short), e.g. a T-800 behind a wall one floor down plays at <see cref="FloorWallGain"/>.</summary>
+    private float Muffle(Vector3 position)
+    {
+        var otherFloor = MathF.Abs(position.Y - _listener.Y) >= StoreyHeight;
+        var walled = Occluded?.Invoke(_listener, position) ?? false;
+        if (walled)
+        {
+            return otherFloor ? FloorWallGain : WallGain;
+        }
+
+        return otherFloor ? FloorGain : 1f;
+    }
+
+    /// <summary>Whether a movement sound at <paramref name="distance"/> may play: under
+    /// <see cref="MoveVoices"/> of them playing, or by stopping the farthest when that is farther.
+    /// Other kinds always may.</summary>
+    private bool MoveRoom(PlacedSound kind, float distance)
+    {
+        if (kind != PlacedSound.RobotMove)
+        {
+            return true;
+        }
+
+        Tracked? farthest = null;
+        var far = -1f;
+        var playing = 0;
+        foreach (var t in _tracked)
+        {
+            if (t.Kind != PlacedSound.RobotMove || t.Removed || !_mixer.IsPlaying(t.Voice))
+            {
+                continue;
+            }
+
+            playing++;
+            var d = Vector3.Distance(_listener, t.Position);
+            if (d > far)
+            {
+                (far, farthest) = (d, t);
+            }
+        }
+
+        if (playing < MoveVoices)
+        {
+            return true;
+        }
+
+        if (farthest == null || far <= distance)
         {
             return false;
         }

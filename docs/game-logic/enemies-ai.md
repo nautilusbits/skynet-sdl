@@ -137,9 +137,29 @@ flicker over hills and the alert bit, a hit turret snaps toward the
 shooter and swings back to rest. Negative bolt speed = alternate muzzle X
 (twin barrels).
 
+## Walkers (state 7)
+
+0x13c600 (v1.01), the hover's trail logic on root motion. Within dw6 of
+the player (0x13c62b) it stands, faces him and takes the newest trail
+point (0x13c7f9). Holding no point and not perceiving him it stands and
+only turns to him (0x13c810): it never roams. Perceived, it takes the
+newest point (0x13b7b6) and then follows the trail with no sight test,
+the next point within 25 (0x13b817), so it hunts him out of sight.
+Blocked: none held, the newest; else 3 points back (0x13b7d8), none: it
+lets go (0x13c7a1). It moves only by the animation's root motion
+(0x13c904). Not ported: the slide's contact codes 4/5 (0x13c7ac); the
+port's 25 is flat.
+
+## Tanks (state 13)
+
+0x13d100 (v1.01): speed eases to script var 48, heading from var 44
+(0x13d346); no target point. Unseen the scripts set speed 0 and no
+heading: it stands.
+
 ## Flyers (state 9)
 
-Constant forward flight steered at the player: strafing overflights.
+Constant forward flight steered at the player, perceived or not
+(0x13cb5e; sight gates only the fire, 0x13cd9d): strafing overflights.
 Sinks toward the player's eye at 250 u/s, climbs at 300 u/s, never below
 p6 − 100 over the ground.
 
@@ -296,8 +316,8 @@ movement and when robots fire (`Enemies/Enemy.Improved.cs`):
   vertically without any test, so the HK's wings and belly pass through the
   street's scaffolding (≈18 % of its ticks in a 20 s chase); a walker blocked
   while it sees the soldier stands pressing into the obstacle for good; within
-  `near` of him it walks in place; unseen it wanders to random spots, often
-  into walls.
+  `near` of him it walks in place; unseen, before it holds a trail point,
+  it stands and only turns to him (DOS never roams, see Walkers).
 - Flyers: a hull of spheres (the body's bounds, turned with the yaw) is pushed
   out of the level and moved by a sweep with sliding, so it never enters
   geometry; a look-ahead sweep (0.8 s of flight) turns or climbs round what is

@@ -1280,6 +1280,12 @@ internal sealed partial class AppHost : IDisposable
         WaitForFrames();
         var enhanced = s.Look == Look.Enhanced && level != null;
         renderer.Lighting = enhanced ? LookLighting.For(level!, s) : null;
+        // ENHANCED muffles robots behind walls and floors; ORIGINAL keeps DOS's sound.
+        if (sounds != null)
+        {
+            sounds.Rules = s.Look == Look.Enhanced ? SoundRules.Enhanced : SoundRules.Dos;
+        }
+
         renderer.Gamma = enhanced ? Renderer.DefaultGamma : s.Gamma;
         // ENHANCED OPTIONS: anti-aliasing (the original look stays unsmoothed), texture filter and the light budget;
         // the upscale: sharp for the original look.

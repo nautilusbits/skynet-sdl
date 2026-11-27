@@ -131,9 +131,11 @@ public sealed class DmGame : IDisposable
         }
 
         _models = new EnemyModels(session.Data);
-        // The parked vehicles stop bodies and shots as DOS's vehicle records do.
+        // The parked vehicles stop bodies and shots as DOS's vehicle records do; the own soldier
+        // and his ride move in the player's world, a copy of the world's sources made at start.
         _parked = new ParkedVehicleColliders(() => (IEnumerable<DmVehicle>?)_host?.Server.Vehicles.Values ?? _client?.Vehicles.Values ?? [], _models);
         session.World.Add(_parked);
+        session.PlayerWorld.Add(_parked);
         _onShot = (record, from, dir) =>
         {
             _firing = FiringHold;
@@ -778,6 +780,7 @@ public sealed class DmGame : IDisposable
         }
 
         _session.World.Remove(_parked);
+        _session.PlayerWorld.Remove(_parked);
         _session.DeathmatchDrop = null;
         _session.LevelBlast = null;
         _session.EndDeathmatch();
@@ -890,6 +893,11 @@ public sealed class DmGame : IDisposable
         {
             Clock = _clock,
         };
+        if (_host?.Bots is { } bots)
+        {
+            _recorder.Demo.SetField(NetDemo.KeyBotSeed, bots.Seed.ToString(CultureInfo.InvariantCulture));
+        }
+
         return null;
     }
 

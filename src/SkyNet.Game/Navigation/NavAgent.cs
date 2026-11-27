@@ -4,7 +4,12 @@ namespace SkyNet.Game.Navigation;
 
 /// <summary>The body a nav mesh is baked for: one mesh per agent type (soldier, jeep).
 /// Lengths in world units; <paramref name="StepHeight"/> is the tallest ledge it walks up.</summary>
-public sealed record NavAgent(float Radius, float Height, float StepHeight, float MaxSlopeDegrees);
+public sealed record NavAgent(float Radius, float Height, float StepHeight, float MaxSlopeDegrees)
+{
+    /// <summary>The highest drop off a ledge the bake links as a one-way jump down (0: none, the
+    /// robots); the drop must land on the mesh.</summary>
+    internal float MaxDrop { get; init; }
+}
 
 /// <summary>How fine a nav mesh is baked: voxel width and height in world units, and the part of
 /// the world it covers on X and Z (<paramref name="AreaMin"/>-<paramref name="AreaMax"/>; null: all).

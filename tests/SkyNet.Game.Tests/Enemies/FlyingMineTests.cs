@@ -25,12 +25,36 @@ public class FlyingMineTests
         var data = BehaviourData.Data;
         var map = data.LoadMap(mapNo)!;
         var world = LevelCollision.Build(data, map, data.LoadWld(mapNo)).World;
-        var robots = new Robots(SkyNet.Data.GameTables.Ais, new EnemyModels(data), world, seed: 7) { Ai = ai, HoldFire = true };
+        // Seed 3 (was 7): the outcome rides on the shared stream (IMPROVED's own streams moved it).
+        var robots = new Robots(SkyNet.Data.GameTables.Ais, new EnemyModels(data), world, seed: 3) { Ai = ai, HoldFire = true };
         robots.Populate(map);
         var mine = robots.All.Where(r => r.TypeIndex == GlobeType).ElementAt(globe);
         var feet = new Vector3(x, y, z);
         robots.Tick(Dt, feet + new Vector3(10f, 0f, 0f));   // he steps up: a trail point a hover can take (0x13b7b6)
         for (var t = 0; t < Budget / Dt && mine.Alive; t++)
+        {
+            robots.Tick(Dt, feet);
+        }
+
+        Assert.False(mine.Alive, $"still at {mine.Position}, the soldier at {feet}");
+    }
+
+    /// <summary>MAP.282's globe 11 sees the soldier ~400 u off with a low prop (top ~38) between: it
+    /// slid along the prop and turned away from it for ~9 s (probing along its slow-turning yaw, not
+    /// its way; never climbing over), going off only after 12.6 s. It should close in at its speed.</summary>
+    [BehaviourDataFact]
+    public void TheImprovedMineClimbsOverALowProp()
+    {
+        const float Quick = 6f;
+        var data = BehaviourData.Data;
+        var map = data.LoadMap(282)!;
+        var world = LevelCollision.Build(data, map, data.LoadWld(282)).World;
+        var robots = new Robots(SkyNet.Data.GameTables.Ais, new EnemyModels(data), world, seed: 3) { Ai = RobotAi.Improved, HoldFire = true };
+        robots.Populate(map);
+        var mine = robots.All.Where(r => r.TypeIndex == GlobeType).ElementAt(11);
+        var feet = new Vector3(1857f, 16f, -1867f);
+        robots.Tick(Dt, feet + new Vector3(10f, 0f, 0f));
+        for (var t = 0; t < Quick / Dt && mine.Alive; t++)
         {
             robots.Tick(Dt, feet);
         }

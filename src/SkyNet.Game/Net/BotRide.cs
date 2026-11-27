@@ -146,7 +146,19 @@ internal sealed class BotRide
     /// <summary>The goal of the last <see cref="Drive"/> is reached (within <see cref="Arrived"/>).</summary>
     public bool AtGoal { get; private set; }
     /// <summary>Stuck often lately: the vehicle cannot get on.</summary>
-    public bool StuckLong => _stuckAt.Count(t => _clock - t <= StuckLongWindow) >= StuckLongCount;
+    public bool StuckLong
+    {
+        get
+        {
+            var n = 0;
+            foreach (var t in _stuckAt)
+            {
+                n += _clock - t <= StuckLongWindow ? 1 : 0;
+            }
+
+            return n >= StuckLongCount;
+        }
+    }
     /// <summary>The HK's hull rests on something.</summary>
     public bool Landed => Riding && _world.Raycast(Controller.Body.Position + new Vector3(0f, 5f, 0f), -Vector3.UnitY, LandedGap + 5f, out _);
     /// <summary>The jeep's path corners still ahead (none in the HK).</summary>
@@ -423,7 +435,10 @@ internal sealed class BotRide
         var points = _points;
         points.Clear();
         points.Add(p);
-        points.AddRange(_corners.Skip(_corner));
+        for (var i = _corner; i < _corners.Count; i++)
+        {
+            points.Add(_corners[i]); // a loop: Skip allocates every tick
+        }
         if (_nav == null || _corners.Count == 0)
         {
             points.Add(goal); // no mesh, or none under the car: straight at it
@@ -466,7 +481,7 @@ internal sealed class BotRide
         _repathT -= dt;
         if (_nav != null && (_pathTo is not { } old || Flat(old - goal) > RepathMoved || _repathT <= 0f || OffLeg(p)))
         {
-            _nav.FindPath(p, goal, _corners);
+            _nav.FindPath(p, goal, _corners, null, BotBrain.WalkNodes);
             _pathTo = goal;
             _corner = _corners.Count > 0 ? 1 : 0; // the first is the start
             _repathT = RepathEvery;
@@ -516,7 +531,10 @@ internal sealed class BotRide
         // (a backing car turns the other way).
         Stuck++;
         _stuckAt.Add(_clock);
-        _stuckAt.RemoveAll(t => _clock - t > StuckLongWindow);
+        while (_stuckAt.Count > 0 && _clock - _stuckAt[0] > StuckLongWindow)
+        {
+            _stuckAt.RemoveAt(0); // added in time order: the oldest first
+        }
         _reverseT = ReverseFor;
         _reverseWheel = err >= 0f ? 1f : -1f;
         _repathT = 0f;

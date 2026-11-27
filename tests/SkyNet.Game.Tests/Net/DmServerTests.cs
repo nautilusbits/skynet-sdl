@@ -374,4 +374,19 @@ public class DmItemLayoutTests
         var full = DmItemLayout.Lay(3, c => c switch { "health" => 4, "rockets" => 2, "slugthrowers" => 1, _ => 0 });
         Assert.Equal([25612, 25734, 25738], full.Select(p => p.Sprite));
     }
+
+    /// <summary>Security review (phase 3): a client's shot must leave from near where the server has
+    /// it (the bots hear shots there), with a weapon it can fire (the bots weigh enemies' weapons).</summary>
+    [Fact]
+    public void A_clients_shot_from_afar_or_with_a_weapon_it_cannot_fire_is_refused()
+    {
+        var s = new DmServer(new DmSettings(), new Random(1));
+        var p = s.AddHuman(2, "P2", DmClass.Human)!;
+        (p.Alive, p.Position) = (true, new Vector3(500, 0, 500));
+        Assert.True(s.ClientFire(2, 7, new Vector3(500, 75, 460), -Vector3.UnitZ));
+        Assert.False(s.ClientFire(2, 7, new Vector3(5000, 75, 5000), -Vector3.UnitZ)); // a decoy far off
+        Assert.False(s.ClientFire(2, 99, new Vector3(500, 75, 460), -Vector3.UnitZ));  // no such weapon
+        Assert.False(s.ClientFire(2, 24, new Vector3(500, 75, 460), -Vector3.UnitZ));  // the jeep's gun, on foot
+        Assert.Equal(7, p.Weapon);
+    }
 }

@@ -1,4 +1,5 @@
 using System.Numerics;
+using RetroEng.Loop;
 using RetroEng.Physics;
 using SkyNet.Game.Navigation;
 
@@ -13,8 +14,9 @@ namespace SkyNet.Game.Enemies;
 ///   walkers  probe ahead (middle and shoulders) → follow the obstacle round; no progress for 1 s →
 ///            back off;
 ///            keep apart from other robots
-///   all      remember the last sighting: go there, then search round the soldier; side-step when
-///            DOS would walk in place next to him; fire only along a clear line
+///   all      see in a cone, hear shots and blasts, alert states (Enemy.Alert.cs): patrol, investigate,
+///            search round what it knows; side-step when DOS would walk in place next to him; fire
+///            only along a clear line
 /// </code>
 /// CLASSIC never reaches this code, so its runs stay DOS's (DosParityTests).
 /// </summary>
@@ -24,11 +26,9 @@ public sealed partial class Enemy
     private const float MemoryTime = 20f;
     /// <summary>A spot is reached within this (flat units).</summary>
     private const float Arrive = 60f;
-    /// <summary>The search round the soldier: radius and how often a new spot is picked.</summary>
-    private const float SearchRadius = 500f, SearchRetarget = 5f;
     /// <summary>Following an obstacle: headings are probed this far ahead; it is given up after this long (s).</summary>
     private const float FollowProbe = 80f, FollowMax = 8f;
-    /// <summary>Headings a wander tries for a clear way.</summary>
+    /// <summary>Headings a patrol leg tries for a clear way.</summary>
     private const int RoamTries = 6;
     /// <summary>The obstacle is left once the goal's way is clear this far ahead and the goal is no more
     /// than <see cref="LeaveSlack"/> further than where the obstacle was met (units).</summary>
@@ -52,6 +52,8 @@ public sealed partial class Enemy
     private const float AvoidTime = 0.8f, AvoidTurnBoost = 1.5f;
     /// <summary>The flyer's headings tried, either side (degrees); 0 is the climb.</summary>
     private static readonly float[] AvoidAngles = [35f, 0f, 70f, 110f, 150f];
+    /// <summary>A homing mine's: the climb first.</summary>
+    private static readonly float[] MineAvoidAngles = [0f, 35f, 70f, 110f, 150f];
     /// <summary>The walker's probes across: both shoulders, then the middle.</summary>
     private static readonly float[] Probes = [1f, -1f, 0f];
     /// <summary>The flyer's turns: the goal's side first, then the other.</summary>
@@ -60,6 +62,8 @@ public sealed partial class Enemy
     private static readonly float[] FloorAhead = [0.34f, 0.67f, 1f];
     /// <summary>A climb goes this many body heights up.</summary>
     private const float ClimbHeights = 1.5f;
+    /// <summary>A climb lower than this is not tried (units).</summary>
+    private const float MinRise = 8f;
     /// <summary>The flyer's hull: sphere radius bounds, the gap kept from surfaces.</summary>
     private const float HullMin = 8f, HullMax = 150f, Skin = 2f;
     private const int SlideIterations = 3, DepenetrateRounds = 4;
@@ -75,6 +79,12 @@ public sealed partial class Enemy
     private const float HullYawStep = 0.05f;
 
     private Vector3 _halfSize = new(30f);
+    /// <summary>IMPROVED's draws: this robot's own stream, never the shared <see cref="Robots.Rng"/>.</summary>
+    private readonly SimRandom _improvedRng;
+
+    /// <summary>The own stream's state, for the session hash (IMPROVED only).</summary>
+    internal ulong ImprovedRngState => _improvedRng.State;
+
     private Vector3? _lastSeen;
     private float _memoryT;
     private bool _searching;
@@ -130,78 +140,33 @@ public sealed partial class Enemy
 
     // ------------------------------------------------------------------ memory
 
-    /// <summary>A sighting is kept: where, and for <see cref="MemoryTime"/>.</summary>
-    private void Remember(in AisSenses senses, Vector3? player)
+    /// <summary>What a save keeps of IMPROVED (<see cref="RobotSnapshot.Memory"/>).</summary>
+    private RobotMemory SaveMemory() =>
+        new(_lastSeen, _memoryT, _searching, _searchSpot, _searchT, _wanderTarget, _wanderT, _backOffT, _backOffYaw, _improvedRng.State)
+        {
+            Alert = _alertState, AlertT = _alertT, Post = _post, Spot = _spot, Combat = SaveCombat(),
+            Search = new RobotSearch(_seenAt, _seenVel, _searchDir, _lead, _slot, _leadT),
+        };
+
+    /// <summary>A saved memory put back; none (an older save): nothing remembered, the stream kept.
+    /// Called after the perception state is restored.</summary>
+    private void LoadMemory(RobotMemory? memory)
     {
-        if (!senses.See || player is not { } p)
+        var m = memory ?? new RobotMemory(null, 0f, false, default, 0f, default, 0f, 0f, 0f, _improvedRng.State);
+        (_lastSeen, _memoryT, _searching, _searchSpot, _searchT) = (m.LastSeen, m.MemoryT, m.Searching, m.SearchSpot, m.SearchT);
+        (_wanderTarget, _wanderT, _backOffT, _backOffYaw) = (m.WanderTarget, m.WanderT, m.BackOffT, m.BackOffYaw);
+        _improvedRng.State = m.Rng;
+        (_alertState, _alertT, _post, _spot) = (m.Alert, m.AlertT, m.Post ?? _post, m.Spot);
+        LoadCombat(m.Combat);
+        LoadSearch(m.Search);
+        _pausing = false;
+
+        // Not saved: a held robot holds where it stands, a search looks round again from here.
+        (_holdAt, _face, _lookBase, _looks) = (Position, null, Yaw, 0);
+        if (memory == null && _perceived)
         {
-            return;
+            _alertState = RobotAlert.Combat;   // an older save: a robot that saw him was fighting
         }
-
-        _lastSeen = p;
-        _memoryT = MemoryTime;
-        _searching = false;
-    }
-
-    /// <summary>Where an active robot goes while it does not see the soldier: the last sighting, then
-    /// spots round the soldier; with nothing remembered, DOS's wander.</summary>
-    private Vector3 Hunt(float dt, Vector3 player)
-    {
-        if (_lastSeen is not { } seen || _memoryT <= 0f)
-        {
-            _lastSeen = null;
-            return Roam(dt);
-        }
-
-        _memoryT -= dt;
-        if (!_searching)
-        {
-            if (Flat(seen - Position).Length() > Arrive)
-            {
-                return seen;
-            }
-
-            _searching = true;
-            _searchT = 0f;
-        }
-
-        _searchT -= dt;
-        if (_searchT <= 0f || Flat(_searchSpot - Position).Length() <= Arrive)
-        {
-            var rng = _ctx.Rng;
-            var a = rng.NextSingle() * MathF.Tau;
-            _searchSpot = player + new Vector3(MathF.Cos(a), 0f, MathF.Sin(a)) * (SearchRadius * rng.NextSingle());
-            _searchT = SearchRetarget;
-        }
-
-        return _searchSpot;
-    }
-
-    /// <summary>DOS's wander (a new spot every 4-9 s, up to <see cref="WanderRadius"/> away), but toward
-    /// a spot whose way is clear for a while: a few headings are tried; a blocked wander spot is
-    /// dropped at once.</summary>
-    private Vector3 Roam(float dt)
-    {
-        _wanderT -= dt;
-        if (_wanderT > 0f && _wanderTarget != Vector3.Zero && !(_blocked && !_following))
-        {
-            return _wanderTarget;
-        }
-
-        var rng = _ctx.Rng;
-        _wanderT = 4f + 5f * rng.NextSingle();
-        var reach = 300f + (WanderRadius - 300f) * rng.NextSingle();
-        var a0 = rng.NextSingle() * MathF.Tau;
-        for (var i = 0; i < RoamTries; i++)
-        {
-            var dir = Heading(a0 + i * MathF.Tau / RoamTries);
-            if (!LongBlocked(dir))
-            {
-                return _wanderTarget = Position + dir * reach;
-            }
-        }
-
-        return _wanderTarget = Position + Heading(a0) * reach;
     }
 
     /// <summary>Next to the soldier, where DOS walks in place: a spot further out and round him, kept
@@ -245,7 +210,7 @@ public sealed partial class Enemy
 
         var flyer = State == 9 || IsFlying;
         var near = Type?.Near ?? 100;
-        var target = see ? player : Hunt(dt, player);
+        var target = see ? player : Goal(dt);
         var sideStep = false;
         if (see && !flyer && State != 13 && moving && Flat(player - Position).Length() <= near * SideStepNear)
         {
@@ -255,6 +220,23 @@ public sealed partial class Enemy
         else if (!see || Flat(player - Position).Length() > near * SideStepOut)
         {
             _sideStep = null;
+        }
+
+        // Hurt: to cover. Without a token: a walker flanks him at range, a drone holds off.
+        var waits = _cover == null && Waits(SightOf(see));
+        if (_cover is { } hide)
+        {
+            target = hide;
+            sideStep = true;
+        }
+        else if (waits && State == 7 && moving)
+        {
+            target = Flank(player, near);
+            sideStep = true;
+        }
+        else
+        {
+            _flank = null;
         }
 
         var to = Flat(target - Position);
@@ -291,10 +273,15 @@ public sealed partial class Enemy
             _dropLook = Math.Clamp(to.Length(), DropLookMin, DropLook);
         }
 
-        var wantYaw = to.Length() > 1f ? YawOf(to) : Yaw;
+        var wantYaw = !see && _face is { } face ? face : to.Length() > 1f ? YawOf(to) : Yaw;
         if (State == 13 && Brain != null && Brain.HasVar(44))
         {
             wantYaw = Brain.Var(44, 0) / 2048f * MathF.Tau;
+        }
+
+        if (State == 13 && see && speed > 0f && dist <= MathF.Max(near, TankKeep))
+        {
+            speed = 0f;   // a tank keeps its range
         }
 
         if ((State == 13 && speed < 0f) || State == 9)
@@ -308,7 +295,10 @@ public sealed partial class Enemy
 
         if (flyer)
         {
-            Fly(dt, wantYaw, speed, see, player);
+            // A hover holds in place where it pauses or holds (DOS hovers stand off the trail); the HK
+            // circles, a mine keeps drifting (it homes once it sees him).
+            var holds = State == 6 && !IsKamikaze && ((!moving && (!see || _cover != null)) || (waits && dist <= HoverHold));
+            Fly(dt, wantYaw, holds ? 0f : speed, see, player);
             return;
         }
 
@@ -562,12 +552,12 @@ public sealed partial class Enemy
 
         _stillT = 0f;
 
-        var rng = _ctx.Rng;
+        var rng = _improvedRng;
         _backOffYaw = Wrap(Yaw + MathF.PI + (rng.NextSingle() * 2f - 1f) * MathF.PI * 0.5f);
         _backOffT = BackOffTime;
         _following = false;
         _followSide = -_followSide;
-        _searching |= _lastSeen != null;
+        _leadT = 0f;   // a search spot it cannot reach: it looks round from here
         _sideStep = null;
         _pathTo = null;
         Unstuck++;
@@ -722,9 +712,9 @@ public sealed partial class Enemy
             _avoidT -= dt;
             wantYaw = _avoidYaw;
         }
-        else if (looks && MathF.Abs(speed) > 0.5f && HullHits(hull, Position, Heading(Yaw) * (sign * look)))
+        else if (looks && MathF.Abs(speed) > 0.5f && HullHits(hull, Position, Probe(SightOf(see), player) * (sign * look)))
         {
-            Avoid(hull, wantYaw, sign, look);
+            Avoid(hull, wantYaw, sign, look, player);
             wantYaw = _avoidT > 0f ? _avoidYaw : wantYaw;
         }
 
@@ -735,10 +725,30 @@ public sealed partial class Enemy
 
         Yaw = Wrap(Approach(Yaw, wantYaw, TurnRate * dt * (_avoidT > 0f ? AvoidTurnBoost : 1f)));
         hull = Hull();
-        var way = _avoidT > 0f ? Forward : MineWay(see, player - Position);
-        var motion = way * (speed * dt) + new Vector3(0f, Lift(dt, speed, see, player), 0f);
+        var way = _avoidT > 0f && !(Homes(see) && _climbTo != null) ? Forward : FlyWay(SightOf(see), player);
+        var motion = way * (speed * dt) + new Vector3(0f, Lift(dt, speed, see, player), 0f) + Strafe(dt, SightOf(see));
         _blocked = Slide(hull, motion);
         FlyApart(dt, hull);
+    }
+
+    /// <summary>Where a flyer looks ahead: a homing mine or a hover going to cover along its way
+    /// (it flies there, whatever its slow turn faces), others along their facing.</summary>
+    private Vector3 Probe(Sight sight, Vector3 player) => Homes(sight == Sight.Seen) || Hiding ? FlyWay(sight, player) : Heading(Yaw);
+
+    /// <summary>A hover (6) on its way to cover.</summary>
+    private bool Hiding => State == 6 && _cover != null;
+
+    /// <summary>A flyer's flat heading: a hover straight to its cover (as DOS flies a hover at its
+    /// point, 0x137545), else <see cref="MineWay"/>.</summary>
+    private Vector3 FlyWay(Sight sight, Vector3 player)
+    {
+        if (!Hiding)
+        {
+            return MineWay(sight == Sight.Seen, player - Position);
+        }
+
+        var to = Flat(_cover!.Value - Position);
+        return to.LengthSquared() > 1f ? Vector3.Normalize(to) : Vector3.Zero;
     }
 
     /// <summary>The hover's keep-apart reach: half its largest side.</summary>
@@ -808,17 +818,25 @@ public sealed partial class Enemy
     }
 
     /// <summary>A clear way round what lies ahead: a turn toward the goal's side first, the climb
-    /// over it, then wider turns either side; held for <see cref="AvoidTime"/>.</summary>
-    private void Avoid(SphereBody hull, float wantYaw, float sign, float look)
+    /// over it, then wider turns either side; held for <see cref="AvoidTime"/>. A homing mine tries
+    /// the climb first, along its way: turning off took it away from a low prop it could pass over.</summary>
+    private void Avoid(SphereBody hull, float wantYaw, float sign, float look, Vector3 player)
     {
         var first = Wrap(wantYaw - Yaw) >= 0f ? 1 : -1;
         var rise = MathF.Max(BodyHeight, 40f) * ClimbHeights;
-        foreach (var angle in AvoidAngles)
+        var homes = Homes(Sees);
+        var ahead = Probe(SightOf(Sees), player);
+        if (homes)
+        {
+            rise = MathF.Min(rise, Headroom(rise));   // its eye kept under a ceiling: it would lose him
+        }
+
+        foreach (var angle in homes ? MineAvoidAngles : AvoidAngles)
         {
             if (angle == 0f)
             {
                 var up = new Vector3(0f, rise, 0f);
-                if (!HullHits(hull, Position, up) && !HullHits(hull, Position + up, Heading(Yaw) * (sign * look)))
+                if (rise >= MinRise && !HullHits(hull, Position, up) && !HullHits(hull, Position + up, ahead * (sign * look)))
                 {
                     _avoidYaw = Yaw;
                     _climbTo = Position.Y + rise;
@@ -849,6 +867,14 @@ public sealed partial class Enemy
         _avoidT = AvoidTime;
     }
 
+    /// <summary>How far it may rise (up to <paramref name="rise"/>) and keep its eye under a ceiling.</summary>
+    private float Headroom(float rise)
+    {
+        var up = new Vector3(0f, 1f, 0f);
+        const float gap = EyeHeight + Skin;
+        return Cast(Position + up, Position + up * (rise + gap), out var roof) ? roof.Point.Y - gap - Position.Y : rise;
+    }
+
     /// <summary>The vertical step: DOS's altitude rules (<see cref="Move"/>), raised to a climb's height.</summary>
     private float Lift(float dt, float speed, bool see, Vector3 player)
     {
@@ -876,7 +902,7 @@ public sealed partial class Enemy
 
         if (State == 6 && IsKamikaze && see)
         {
-            var dy = player.Y + 40f - Position.Y;
+            var dy = MathF.Max(player.Y + 40f, _climbTo ?? float.NegativeInfinity) - Position.Y;
             return Math.Clamp(dy, -speed * dt, speed * dt);
         }
 
@@ -915,14 +941,14 @@ public sealed partial class Enemy
 
     // ------------------------------------------------------------------ fire
 
-    /// <summary>Nothing of the level between the robot's eye and the soldier, nor between the muzzle and the aim.</summary>
-    private bool ClearShot(EnemyPart part, Vector3 muzzle, Vector3 aim, Vector3 player)
+    /// <summary>Nothing of the level between the robot's eye and the soldier, nor between the bolt's start and the aim.</summary>
+    private bool ClearShot(EnemyPart part, Vector3 start, Vector3 aim, Vector3 player)
     {
         if (part.IsTurret && !LineOfSight(player))
         {
             return false;
         }
 
-        return !Cast(muzzle, aim, out _);
+        return !Cast(start, aim, out _);
     }
 }

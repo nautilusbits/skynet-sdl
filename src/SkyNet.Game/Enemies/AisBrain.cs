@@ -14,6 +14,9 @@ public readonly record struct AisSenses(bool See, float Distance, int Bearing, i
     public static AisSenses None => new(false, 1e9f, 0, 0, false);
 }
 
+/// <summary>Where a brain's sound came from: the script's SOUND op or an animation frame event (servos, steps).</summary>
+internal enum AisSoundSource { Script, Frame }
+
 /// <summary>
 /// The AIS script VM of one actor (FUN_0012a500 in v1.00, + the animation stepper 0x135c70 and
 /// the frame events FUN_001375b1), ported from the Godot port's enemy_ai.gd. IF, GOTO and SOUND
@@ -40,6 +43,7 @@ public sealed class AisBrain
     private readonly SimRandom _rng;
     private readonly Dictionary<int, int> _vars = [];
     private readonly List<int> _sounds = [];
+    private readonly List<AisSoundSource> _sources = [];
     private float _scriptAcc;
     private float _cursor;
 
@@ -52,6 +56,7 @@ public sealed class AisBrain
         State = Type?.State ?? 0;
         Pc = Type?.ScriptVa ?? 0;
         OneShotWalker = State == 7 && Pc != 0 && !ScriptLoops(ais, Pc);
+        _events = Type?.Events;   // boxed once: the frame's read boxed it each time
     }
 
     /// <summary>A brain over a hand-built script (tests): the ops and blocks come from <paramref name="ais"/>'s
@@ -100,6 +105,8 @@ public sealed class AisBrain
     public int AnimStarts { get; private set; }
     /// <summary>Frame-event and script sounds of the last tick.</summary>
     public IReadOnlyList<int> Sounds => _sounds;
+    /// <summary>Where each of <see cref="Sounds"/> came from (same order).</summary>
+    internal IReadOnlyList<AisSoundSource> SoundSources => _sources;
 
     /// <summary>A walker whose script starts no looping block (the spider bot): its walk cycle is
     /// one-shot firing blocks, and the script waits for each to end (DOS runs the script on the
@@ -185,11 +192,14 @@ public sealed class AisBrain
 
         Frame = f;
         FrameChanged = true;
-        foreach (var ev in Events)
+        var events = Events;
+        for (var i = 0; i < events.Count; i++)   // by index: foreach on the interface boxed its enumerator
         {
+            var ev = events[i];
             if (ev.Frame == f)
             {
                 _sounds.Add(ev.Sound);
+                _sources.Add(AisSoundSource.Frame);
             }
         }
     }
@@ -250,6 +260,7 @@ public sealed class AisBrain
     public void Update(float dt, in AisSenses senses)
     {
         _sounds.Clear();
+        _sources.Clear();
         FrameChanged = false;
         StepAnim(dt);
         _scriptAcc += dt;
@@ -308,6 +319,7 @@ public sealed class AisBrain
                     break;
                 case AisOpKind.Sound:
                     _sounds.Add(op.A);
+                    _sources.Add(AisSoundSource.Script);
                     Pc = op.Next;
                     break;
                 case AisOpKind.Wait:

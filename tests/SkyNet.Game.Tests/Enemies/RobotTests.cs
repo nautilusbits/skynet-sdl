@@ -135,6 +135,7 @@ public class RobotTests
         soldier.Feet = feet;
         var frames = new HashSet<int>();
         var start = robot.Position;
+        robots.Tick(Dt, feet + new Vector3(10f, 0f, 0f));   // he steps: a trail point a walker can take (0x13b7b6)
         for (var t = 0f; t < 16f; t += Dt)   // its script stops it to fire as its rolls fall
         {
             robots.Tick(Dt, feet);

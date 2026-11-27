@@ -2,6 +2,7 @@ using System.Numerics;
 using RetroEng.Loop;
 using RetroEng.Physics;
 using SkyNet.Game.Campaign;
+using SkyNet.Game.Enemies;
 using SkyNet.Game.Navigation;
 using SkyNet.Game.Player;
 using SkyNet.Game.Vehicles;
@@ -22,14 +23,42 @@ public interface IBotOutput
     /// <summary>The bot's own hurt (a fall): a self-hit.</summary>
     void SelfHit(int id, float points, int weapon);
     void Pickup(int id, int key);
+    /// <summary>The bot's shot blew up at <paramref name="at"/> (the other bots hear it).</summary>
+    internal void Blast(int id, Vector3 at)
+    {
+    }
+}
+
+/// <summary>What a bot is about (Quake III's AI nodes):
+/// <code>
+///   SeekItem ── enemy in sight ──► Fight ── hurt / outgunned ──► Retreat ── healed, timed out ──► SeekItem
+///      ▲  │                         │  ▲                           (fires back while it runs)
+///      │  └ heard a shot / hit ──►  ▼  │ seen again
+///      └──── searched, gave up ── Chase (last seen / heard place, 5-10 s)
+///   SeekItem ── reached its vehicle goal ──► Ride ── wrecked, stuck, hull low, cut off ──► SeekItem
+/// </code></summary>
+internal enum BotState
+{
+    /// <summary>To the best item or vehicle by value over travel time; walks when nothing presses.</summary>
+    SeekItem,
+    /// <summary>An enemy in sight: keeps the weapon's range, strafes, shoots.</summary>
+    Fight,
+    /// <summary>The enemy lost (or a noise, a hit from nowhere): to where it was last known.</summary>
+    Chase,
+    /// <summary>Hurt or outgunned: away to health or armour, shooting back.</summary>
+    Retreat,
+    /// <summary>In a jeep or an HK.</summary>
+    Ride,
 }
 
 /// <summary>
-/// One deathmatch bot on the server (the Godot port's bot_brain.gd, its constants and its rules):
-/// hunts the nearest player it can see (a ray through the level's collision from eye to eye),
-/// keeps a weapon-dependent distance while strafing, fires bursts with a skill-dependent spread,
-/// roams item spots (health when hurt) and spawns when nobody is in sight, jumps what blocks it at
-/// the knee, and grabs the items it walks over. It moves with the soldier's own
+/// One deathmatch bot on the server (the Godot port's bot_brain.gd, its constants and its rules,
+/// with Quake III's nodes, goals and aim as ideas): a <see cref="BotState"/> machine; it acquires
+/// players in its view cone (a ray through the level's collision from eye to eye), turns to a hit
+/// and to a shot it hears, keeps a weapon-dependent distance while strafing, aims with
+/// <see cref="BotAim"/>, fires bursts with a skill- and trait-dependent spread, seeks items and
+/// free vehicles by value over travel time, jumps what blocks it at the knee, and grabs the items
+/// it walks over. Its character is <see cref="BotTraits"/>. It moves with the soldier's own
 /// <see cref="PlayerController"/> (DOS walk/run numbers, gravity, jump, step-up, fall damage and the
 /// campaign's collision), fed as if its keys were held: forward and sidestep with RUN, JUMP when
 /// blocked; the other bodies block it (<see cref="BodyBlock"/>).
@@ -51,16 +80,29 @@ public sealed class BotBrain
     /// taller for a body standing on a step).</summary>
     public const float GrabAcross = PickupTable.GrabAcross, GrabVertical = PickupTable.GrabVertical + 60f;
     public const float PickupInterval = 0.4f;
-    /// <summary>A target out of sight this long is given up.</summary>
-    public const float LoseAfter = 3f;
+    /// <summary>A target out of sight is chased at most this long (5-10 s by aggression), then given up.</summary>
+    public const float LoseAfter = ChaseMax;
+    private const float ChaseMin = 5f, ChaseMax = 10f;
+    /// <summary>Think ticks are spread over this many 60 Hz ticks (<see cref="ThinkInterval"/>): bot
+    /// n thinks on tick (n × <see cref="PhaseStride"/>) mod it, so a dozen never think on one tick.</summary>
+    private const int ThinkTicks = 12, PhaseStride = 5;
+    /// <summary>A new face is seen within this half angle of the view (75°), or this near all round;
+    /// the target it hunts by line of sight alone; all round for <see cref="HurtWide"/> s after a hit.</summary>
+    private static readonly float ViewHalf = 75f * MathF.PI / 180f;
+    private const float FeelRange = 300f, HurtWide = 1.5f;
+    /// <summary>A gun is heard this far, a blast this far; a noise is looked into for this long (s).</summary>
+    private const float HearShot = 2500f, HearBlast = 4000f, InvestigateFor = 6f;
+    /// <summary>Stuck this often in a chase: given up.</summary>
+    private const int ChaseStuckMax = 3;
+    private int _chaseStuck;
+    /// <summary>A look turned to (a hit, a noise) counts as done within this (rad).</summary>
+    private const float LookedAt = 0.15f;
     /// <summary>The shot leaves this far ahead of the eye (bot_brain.gd).</summary>
     public const float MuzzleAhead = 40f;
     /// <summary>The firing flag stays in the pose this long after a shot (as <see cref="DmGame.FiringHold"/>).</summary>
     public const float FiringHold = 0.25f;
     /// <summary>Shots only leave when facing the target within this (radians, 12°).</summary>
     public static readonly float FireCone = 12f * MathF.PI / 180f;
-    /// <summary>Facing turns towards the aim at this rate (lerp weight per second).</summary>
-    public const float TurnRate = 8f;
     /// <summary>The distance band about the preferred range.</summary>
     public const float RangeBand = 250f;
     public const float KneeHeight = 30f, KneeProbe = 110f;
@@ -101,12 +143,33 @@ public sealed class BotBrain
         (1.8f, 0.15f, 0.35f),
     ];
 
+    /// <summary>Per skill 0-2, the aim (<see cref="BotAim"/>): error settle rate (1/s), trail behind a
+    /// crossing target (s), the view's top turn (degrees a second).</summary>
+    private static readonly (float Settle, float Lag, float TurnDeg)[] AimSkills =
+    [
+        (1.2f, 0.30f, 200f),
+        (2.2f, 0.18f, 320f),
+        (3.5f, 0.08f, 480f),
+    ];
+
+    /// <summary>Slow shots are led from this aim score on (skill / 4 + aim skill / 2).</summary>
+    private const float LeadAt = 0.45f;
+
+    /// <summary>The weapon records from worst to best: a bot never swaps down. (UZI, SHOTGUN,
+    /// ASSAULT RIFLE, MACHINE GUN, GRENADE LAUNCHER, LASER RIFLE, small PLASMA, LASER CANNON,
+    /// medium PLASMA, ROCKET LAUNCHER, PLASMA CANNON, SUPER UZI.)</summary>
+    private static readonly int[] Preference = [1, 4, 2, 3, 5, 7, 9, 8, 10, 6, 11, WeaponTable.SuperUzi];
+
+    /// <summary>Where <paramref name="weapon"/> stands in <see cref="Preference"/> (−1 none); a vehicle's gun tops it.</summary>
+    internal static int Rank(int weapon) => weapon >= WeaponTable.FirstVehicle ? Preference.Length : Array.IndexOf(Preference, weapon);
+
     /// <summary>A weapon record a bot can carry and fire: the on-foot guns 1-12 (no pipe, no motion
     /// detector, no thrown items).</summary>
     public static bool Carries(int weapon) => weapon is >= 1 and <= WeaponTable.SuperUzi;
 
-    /// <summary>A bot's shot in flight (a bolt or a lobbed shell), stepped as the weapons step theirs.</summary>
-    private sealed class Shot(int weapon, AmmoRecord ammo, Vector3 at, Vector3 velocity)
+    /// <summary>A bot's shot in flight (a bolt or a lobbed shell), stepped as the weapons step theirs
+    /// (a struct: a shot fired allocates nothing).</summary>
+    private struct Shot(int weapon, AmmoRecord ammo, Vector3 at, Vector3 velocity)
     {
         public readonly int Weapon = weapon;
         public readonly AmmoRecord Ammo = ammo;
@@ -121,19 +184,39 @@ public sealed class BotBrain
 
     private readonly CollisionWorld _world;
     private readonly WeaponTable _table;
-    private readonly Random _rng;
-    private float _thinkT, _poseT, _pickupT, _firing;
+    private Random _rng;
+    private readonly BotTraits _traits;
+    private readonly BotAim _aim;
+    private readonly BotClaims _claims;
+    private readonly int _phase;
+    private int _tick;
+    private float _poseT, _pickupT, _firing;
     private float _fireCd, _burstPause;
     private int _burstLeft;
     private float _strafeDir = 1f, _strafeT;
+    private bool _hop;
     private float _goalT;
     private float _stuckT, _evadeT, _evadeDir = 1f;
-    private float _aimYaw, _aimPitch;
+
+    // Alerts: a hit or a noise turns the view to _lookAt once _lookDelay (the reaction) has passed.
+    private Vector3? _lookAt;
+    private float _lookDelay, _hurtT, _noiseT, _deafT, _chaseFor = ChaseMax, _retreatT, _campT;
+    private Vector3 _noiseAt;
+    private readonly List<(Vector3 Feet, float Radius)> _others = [];
+    private readonly List<DmPlayer> _blastees = [];
 
     // The nav path (with a mesh): corners from the bot to _pathTo, _corner the one walked to.
     //   bot ─► c1 ─► c2 ─► goal      repath: goal moved, RepathEvery passed, off the leg, stuck
     /// <summary>A corner this near (horizontally) is passed.</summary>
     private const float CornerReached = 40f;
+    /// <summary>...and no higher over the feet than this: a spiral stair's next turn lies right over
+    /// the last one, and a turn skipped walks the bot off the flight's side (one below is passed:
+    /// the bot falls to it, or stands on a prop over it).</summary>
+    private const float CornerRise = PlayerController.StepHeight / 2f;
+    /// <summary>A landing farther than this from its ledge is jumped to (a walk off falls short);
+    /// a jump's rise (DOS 177² / 2·392) must still land unhurt.</summary>
+    private const float WalkOffReach = 100f;
+    private static readonly float JumpRise = PlayerController.JumpSpeed * PlayerController.JumpSpeed / (2f * PlayerController.Gravity);
     /// <summary>A goal moved this far, or the bot this far off its leg, asks for a new path.</summary>
     private const float RepathMoved = 100f, OffPath = 120f;
     private const float RepathEvery = 1.5f;
@@ -152,13 +235,24 @@ public sealed class BotBrain
 
     /// <inheritdoc cref="BotBrain(int, int, CollisionWorld, WeaponTable, Random, NavMesh?)"/>
     /// <param name="rides">The jeep's mesh and the HK's ceiling; null: none (straight at the goal, no ceiling).</param>
-    internal BotBrain(int id, int skill, CollisionWorld world, WeaponTable table, Random rng, NavMesh? nav, BotRides? rides)
+    /// <param name="traits">Its character; null: <see cref="BotTraits.Average"/>.</param>
+    /// <param name="claims">The vehicles the server's bots head for; null: its own (no other bots).</param>
+    internal BotBrain(int id, int skill, CollisionWorld world, WeaponTable table, Random rng, NavMesh? nav, BotRides? rides,
+        BotTraits? traits = null, BotClaims? claims = null)
     {
         Id = id;
         Skill = Math.Clamp(skill, 0, Skills.Length - 1);
         _world = world;
         _table = table;
         _rng = rng;
+        _traits = traits ?? BotTraits.Average;
+        _claims = claims ?? new BotClaims();
+        _phase = (int)((uint)((DmServer.FirstBotId - id) * PhaseStride) % ThinkTicks);
+        var a = AimSkills[Skill];
+        var aimSkill = _traits.AimSkill;
+        _aim = new BotAim(a.Settle * BotTraits.Lerp(0.6f, 1.4f, aimSkill), a.Lag * BotTraits.Lerp(1.4f, 0.6f, aimSkill),
+            a.TurnDeg * BotTraits.Lerp(0.75f, 1.25f, aimSkill) * MathF.PI / 180f,
+            Skill / 4f + aimSkill / 2f >= LeadAt ? AimLead.Slow : AimLead.None);
         _nav = nav != null ? new NavQuery(nav) : null;
         Body = new PlayerController(world);
         _ride = new BotRide(Body, world, table, rides ?? BotRides.None, TurretRates[Skill]);
@@ -168,6 +262,10 @@ public sealed class BotBrain
 
     public int Id { get; }
     public int Skill { get; }
+    /// <summary>Its node now (set at each think).</summary>
+    internal BotState State { get; private set; }
+    internal BotTraits Traits => _traits;
+    internal BotAim Aim => _aim;
     public PlayerController Body { get; }
     /// <summary>The weapon record in hand.</summary>
     public int Weapon { get; set; }
@@ -210,14 +308,16 @@ public sealed class BotBrain
     public void Spawn(Vector3 feet, float yaw)
     {
         _ride.Leave();
-        _rideKey = null;
+        DropRide(0f);
         _landing = false;
         Body.Spawn(feet, yaw);
-        _aimYaw = yaw;
-        _aimPitch = 0f;
         Target = null;
         TargetVisible = false;
         Goal = null;
+        _goalKind = GoalKind.None;
+        State = BotState.SeekItem;
+        _lookAt = null;
+        _hurtT = _noiseT = _campT = _retreatT = 0f;
         _burstLeft = 0;
         _burstPause = 0f;
         _fireCd = 0.5f;
@@ -227,10 +327,13 @@ public sealed class BotBrain
         PickWeapon();
     }
 
+    /// <summary>A new stream (the server's next round).</summary>
+    internal void Reseed(Random rng) => _rng = rng;
+
     private void PickWeapon() => Weapon = WeaponChoices[_rng.Next(WeaponChoices.Length)];
 
     /// <summary>The server gave it item <paramref name="sprite"/>: a weapon it can carry goes in hand
-    /// (as the soldier's pickup selects the weapon it grants).</summary>
+    /// (as the soldier's pickup selects the weapon it grants) unless it is worse than the one held.</summary>
     public bool Took(int sprite)
     {
         if (!PickupTable.Items.TryGetValue(sprite, out var item) || !Carries(item.Weapon) || _table.AmmoOf(_table.Weapons[item.Weapon]) == null)
@@ -238,9 +341,22 @@ public sealed class BotBrain
             return false;
         }
 
+        if (Rank(item.Weapon) < Rank(Weapon))
+        {
+            return false; // never a swap down: the ammo is all it takes
+        }
+
         Weapon = item.Weapon;
         WeaponsTaken++;
         return true;
+    }
+
+    /// <summary>The server gave it <paramref name="item"/> at <paramref name="now"/>: not sought
+    /// again until it is back (<see cref="DmProtocol.PickupRespawn"/>).</summary>
+    internal void Took(DmPickup item, double now)
+    {
+        _avoid[item.Key] = now + DmProtocol.PickupRespawn;
+        Took(item.Sprite);
     }
 
     /// <summary>One tick of <paramref name="dt"/> seconds while alive and the round runs.</summary>
@@ -253,10 +369,9 @@ public sealed class BotBrain
             GetOut(server, Exit.PutOut); // a wreck: the server put it out
         }
 
-        _thinkT -= dt;
-        if (_thinkT <= 0f)
+        // A fixed rotation: this bot's tick of every ThinkTicks (no clock, so a seed replays).
+        if ((_tick++ + _phase) % ThinkTicks == 0)
         {
-            _thinkT = ThinkInterval;
             Think(server, output);
         }
 
@@ -296,16 +411,33 @@ public sealed class BotBrain
 
     // ---- perception ----
 
-    /// <summary>The nearest living player in sight within <see cref="SeeRange"/>; else the old
-    /// target is chased to where it was last seen, and given up after <see cref="LoseAfter"/> s
-    /// out of sight or when it dies.</summary>
+    /// <summary>The nearest living player in sight within <see cref="SeeRange"/> (a new one in the
+    /// view cone); else the old target is chased to where it was last seen, and given up after its
+    /// chase time (at most <see cref="LoseAfter"/> s) out of sight or when it dies. Then the node.</summary>
     public void Think(DmServer server, IBotOutput output)
+    {
+        _server = server;
+        _hurtT = MathF.Max(0f, _hurtT - ThinkInterval);
+        _deafT = MathF.Max(0f, _deafT - ThinkInterval);
+        if (_noiseT > 0f && (_noiseT -= ThinkInterval) <= 0f)
+        {
+            GiveUp(); // looked into long enough
+        }
+        Perceive(server);
+        CheckPickups(server, output);
+        Transition(server);
+    }
+
+    private float _lostT;
+
+    private void Perceive(DmServer server)
     {
         int? best = null;
         var bestD = SeeRange;
         var me = Body.Position;
         var eye = EyeOf(me);
-        foreach (var p in server.Players.Values)
+        var allRound = _hurtT > 0f;
+        foreach (var p in server.AllPlayers)
         {
             if (p.Id == Id || !p.Alive)
             {
@@ -313,7 +445,18 @@ public sealed class BotBrain
             }
 
             var d = Vector3.Distance(p.Position, me);
-            if (d < bestD && CanSee(eye, EyeOf(p.Position)))
+            if (d >= bestD)
+            {
+                continue;
+            }
+
+            // A new face must be in the view cone (or near, or the bot just hit); the hunted one is watched.
+            if (p.Id != Target && !allRound && d > FeelRange && !InView(p.Position))
+            {
+                continue;
+            }
+
+            if (CanSee(eye, EyeOf(p.Position)))
             {
                 best = p.Id;
                 bestD = d;
@@ -322,32 +465,214 @@ public sealed class BotBrain
 
         if (best is { } b)
         {
-            // A new face costs the reaction time before the first shot. (bot_brain.gd clamps the
-            // same target's clock up to 0 on every think, which cut any reaction to one think.)
+            // A new face costs the reaction time before the first shot and a fresh aim error; one
+            // seen again only half the error. (bot_brain.gd clamps the same target's clock up to 0
+            // on every think, which cut any reaction to one think.)
             if (b != Target)
             {
-                TargetSeen = -Skills[Skill].Reaction;
+                TargetSeen = -ReactionTime;
+                _aim.Acquire(_rng, SpreadRad, 1f);
+                _chaseFor = BotTraits.Lerp(ChaseMin, ChaseMax, _traits.Aggression);
+            }
+            else if (!TargetVisible)
+            {
+                _aim.Acquire(_rng, SpreadRad, ResightShare);
             }
 
             Target = b;
             TargetVisible = true;
             LastSeen = server.Players[b].Position;
             _lostT = 0f;
-        }
-        else if (Target is { } t)
-        {
-            TargetVisible = false;
-            _lostT += ThinkInterval;
-            if (_lostT > LoseAfter || !server.IsAlive(t))
-            {
-                Target = null;
-            }
+            _lookAt = null;
+            return;
         }
 
-        CheckPickups(server, output);
+        if (Target is not { } t)
+        {
+            return;
+        }
+
+        TargetVisible = false;
+        _lostT += ThinkInterval;
+        if (_lostT > _chaseFor || !server.IsAlive(t))
+        {
+            Target = null;
+        }
     }
 
-    private float _lostT;
+    /// <summary>A re-sighted target's aim error: this share of a new one's.</summary>
+    private const float ResightShare = 0.5f;
+
+    /// <summary>Within <see cref="ViewHalf"/> of where the bot looks.</summary>
+    private bool InView(Vector3 at)
+    {
+        var d = at - Body.Position;
+        return MathF.Abs(WrapAngle(MathF.Atan2(-d.X, -d.Z) - Body.Yaw)) <= ViewHalf;
+    }
+
+    /// <summary>Seconds before a new face is shot at (the skill's, by the reaction trait).</summary>
+    private float ReactionTime => Skills[Skill].Reaction * BotTraits.Lerp(1.3f, 0.7f, _traits.Reaction);
+
+    /// <summary>A shot's spread (radians; the skill's, by the accuracy trait).</summary>
+    private float SpreadRad => Skills[Skill].Spread * BotTraits.Lerp(1.4f, 0.6f, _traits.Accuracy) * MathF.PI / 180f;
+
+    // ---- alerts ----
+
+    /// <summary>A hit from <paramref name="attacker"/>: it looks round for a moment, and an attacker
+    /// out of sight (or nearer than the one it fights) becomes the target, chased from where he
+    /// stands now; the view turns there after the reaction time.</summary>
+    internal void Hurt(int attacker, DmServer server)
+    {
+        if (attacker == Id || !server.Players.TryGetValue(attacker, out var a))
+        {
+            return;
+        }
+
+        _hurtT = HurtWide;
+        if (Target == attacker && TargetVisible)
+        {
+            return;
+        }
+
+        var me = Body.Position;
+        if (Target != null && TargetVisible && Flat(a.Position - me) >= Flat(LastSeen - me))
+        {
+            return; // the nearer threat in sight stays the target
+        }
+
+        if (Target != attacker)
+        {
+            TargetSeen = -ReactionTime;
+            _aim.Acquire(_rng, SpreadRad, 1f);
+            _chaseFor = BotTraits.Lerp(ChaseMin, ChaseMax, _traits.Aggression);
+        }
+
+        Target = attacker;
+        TargetVisible = false;
+        LastSeen = a.Position;
+        _lostT = 0f;
+        LookAt(a.Position);
+    }
+
+    /// <summary>A gun or a blast at <paramref name="at"/> (<paramref name="source"/> its player):
+    /// heard within its radius when nobody is in sight; the lost target heard again is placed, else
+    /// the noise is looked into.</summary>
+    internal void Hear(int source, Vector3 at, NoiseKind kind)
+    {
+        if (source == Id || TargetVisible)
+        {
+            return;
+        }
+
+        var radius = kind == NoiseKind.Blast ? HearBlast : HearShot;
+        if (Vector3.DistanceSquared(at, Body.Position) > radius * radius)
+        {
+            return;
+        }
+
+        if (Target == source)
+        {
+            LastSeen = at;
+            _lostT = 0f;
+            return;
+        }
+
+        // One noise at a time, and a rest after a search that found nobody (a battle elsewhere
+        // does not pull it round the map).
+        if (Target != null || _ride.Riding || _noiseT > 0f || _deafT > 0f)
+        {
+            return;
+        }
+
+        _noiseAt = at;
+        _noiseT = InvestigateFor;
+        LookAt(at);
+    }
+
+    /// <summary>The view turns to <paramref name="at"/> once the reaction time has passed.</summary>
+    private void LookAt(Vector3 at)
+    {
+        _lookAt = at;
+        _lookDelay = ReactionTime;
+    }
+
+    // ---- nodes ----
+
+    /// <summary>The node for now (the class's <see cref="BotState"/> drawing).</summary>
+    private void Transition(DmServer server)
+    {
+        if (_ride.Riding)
+        {
+            State = BotState.Ride;
+            return;
+        }
+
+        var share = server.Players.TryGetValue(Id, out var me) ? me.Health / DmProtocol.DosHealth : 1f;
+        if (State == BotState.Retreat)
+        {
+            _retreatT += ThinkInterval;
+            if (share < RecoverShare && _retreatT < RetreatMax)
+            {
+                return;
+            }
+
+            Goal = null; // healed, or long enough
+        }
+
+        if (Target is { } t && TargetVisible)
+        {
+            var enemy = server.Players.GetValueOrDefault(t);
+            if (enemy != null && Outmatched(share, enemy))
+            {
+                State = BotState.Retreat;
+                _retreatT = 0f;
+                PickRetreat(server, enemy.Position);
+                return;
+            }
+
+            State = BotState.Fight;
+            return;
+        }
+
+        if (Target != null || _noiseT > 0f)
+        {
+            State = BotState.Chase;
+            return;
+        }
+
+        if (State != BotState.SeekItem)
+        {
+            State = BotState.SeekItem;
+            Goal = null;
+        }
+
+        // Seeking: weighed again every so often (the goal in hand counts a little more).
+        _goalT -= ThinkInterval;
+        if (_goalT <= 0f && _rideKey == null)
+        {
+            PickGoal(server);
+        }
+    }
+
+    /// <summary>Hurt below the caution's share, or outgunned (its weapon well under the enemy's,
+    /// a vehicle's gun against it on foot) and not well.</summary>
+    private bool Outmatched(float share, DmPlayer enemy)
+    {
+        if (share < BotTraits.Lerp(RetreatLow, RetreatHigh, _traits.Caution))
+        {
+            return true;
+        }
+
+        var weak = Rank(Weapon) + WeakGap <= Rank(enemy.Weapon);
+        return weak && share < BotTraits.Lerp(WeakLow, WeakHigh, _traits.Caution);
+    }
+
+    /// <summary>Retreat below a health share of RetreatLow (reckless) to RetreatHigh (careful);
+    /// outgunned by WeakGap ranks below WeakLow to WeakHigh; back once over RecoverShare or after
+    /// RetreatMax s.</summary>
+    private const float RetreatLow = 0.15f, RetreatHigh = 0.45f, WeakLow = 0.3f, WeakHigh = 0.9f, RetreatMax = 12f;
+    private const int WeakGap = 4;
+    private float RecoverShare => BotTraits.Lerp(0.5f, 0.8f, _traits.Caution);
 
     public static Vector3 EyeOf(Vector3 feet) => feet + new Vector3(0f, Eye, 0f);
 
@@ -369,7 +694,7 @@ public sealed class BotBrain
 
         _pickupT = 0f;
         var p = Body.Position;
-        foreach (var item in server.Pickups.Values)
+        foreach (var item in server.AllPickups)
         {
             var d = item.Position - p;
             if (!item.Taken && new Vector2(d.X, d.Z).Length() <= GrabAcross && MathF.Abs(d.Y) <= GrabVertical)
@@ -383,46 +708,14 @@ public sealed class BotBrain
 
     private void Move(float dt, DmServer server, IBotOutput output)
     {
-        var want = Vector3.Zero;
         var p = Body.Position;
-        if (_rideKey != null)
+        var want = State switch
         {
-            // Off to a vehicle (Decide drops it when an enemy comes close).
-            want = ToVehicle(server, dt);
-        }
-        else if (Target != null && TargetVisible)
-        {
-            // In sight: hold the weapon's range, strafing.
-            var to = server.Players.TryGetValue(Target.Value, out var tp) ? tp.Position - p : LastSeen - p;
-            want = KeepDistance(to, dt);
-        }
-        else if (Target != null)
-        {
-            // Out of sight: to where it was last seen.
-            var to = LastSeen - p;
-            to.Y = 0f;
-            if (to.Length() > GoalReached)
-            {
-                want = Toward(LastSeen, dt);
-            }
-            else
-            {
-                Target = null;
-            }
-        }
-        else
-        {
-            _goalT -= dt;
-            if (Goal is not { } g || _goalT <= 0f || new Vector2(g.X - p.X, g.Z - p.Z).Length() < GoalReached)
-            {
-                PickGoal(server);
-            }
-
-            if (Goal is { } goal)
-            {
-                want = Toward(goal, dt);
-            }
-        }
+            BotState.Fight => FightMove(server, dt),
+            BotState.Chase => ChaseMove(dt),
+            BotState.Retreat => RetreatMove(server, dt),
+            _ => SeekMove(server, dt),
+        };
 
         // Parked vehicles (not on the mesh): pushed off the ones about to be walked into.
         if (want.LengthSquared() > 0.01f)
@@ -430,12 +723,14 @@ public sealed class BotBrain
             want = Vector3.Normalize(want) + AwayFromParked(server, p);
         }
 
-        // Obstacles: a knee-height ray ahead; blocked means jump, and a stuck bot veers.
+        // Obstacles: a knee-height ray ahead; blocked means jump, and a stuck bot veers. A fighter
+        // hops now and then (its jump trait).
         var jump = false;
         if (want.LengthSquared() > 0.01f)
         {
             want = Vector3.Normalize(want);
-            jump = Body.OnFloor && _world.Raycast(p + new Vector3(0f, KneeHeight, 0f), want, KneeProbe, out _);
+            var knee = _world.Raycast(p + new Vector3(0f, KneeHeight, 0f), want, KneeProbe, out _);
+            jump = Body.OnFloor && ((knee && !Climbing()) || JumpOff());
             if (_evadeT > 0f)
             {
                 _evadeT -= dt;
@@ -444,29 +739,21 @@ public sealed class BotBrain
             }
         }
 
-        // Facing: the target's eye when in sight, else the way it walks.
-        if (Target is { } id && TargetVisible && server.Players.TryGetValue(id, out var tgt))
+        if (_hop && State == BotState.Fight && Body.OnFloor)
         {
-            var d = EyeOf(tgt.Position) - EyeOf(p);
-            _aimYaw = MathF.Atan2(-d.X, -d.Z);
-            _aimPitch = MathF.Atan2(d.Y, new Vector2(d.X, d.Z).Length());
-        }
-        else if (want.LengthSquared() > 0.01f)
-        {
-            _aimYaw = MathF.Atan2(-want.X, -want.Z);
-            _aimPitch = 0f;
+            jump = true;
+            _hop = false;
         }
 
-        var w = Math.Clamp(dt * TurnRate, 0f, 1f);
-        Body.Yaw += WrapAngle(_aimYaw - Body.Yaw) * w;
-        Body.Pitch = float.Lerp(Body.Pitch, _aimPitch, w);
+        Face(server, want, dt);
 
-        // The soldier's legs: forward / sidestep relative to the facing, RUN held.
+        // The soldier's legs: forward / sidestep relative to the facing; RUN held unless it strolls.
         var ahead = new Vector3(-MathF.Sin(Body.Yaw), 0f, -MathF.Cos(Body.Yaw));
         var right = new Vector3(MathF.Cos(Body.Yaw), 0f, -MathF.Sin(Body.Yaw));
         var fwd = Vector3.Dot(want, ahead);
         var str = Vector3.Dot(want, right);
-        var down = TickInput.Bit(Keys.Run) | (jump ? TickInput.Bit(Keys.Jump) : 0UL);
+        var run = Hurried ? TickInput.Bit(Keys.Run) : 0UL;
+        var down = run | (jump ? TickInput.Bit(Keys.Jump) : 0UL);
         var before = Body.Position;
         Body.Step(new TickInput(down, 0, 0, 0f, 0f, 0f, str, -fwd), dt, Keys);
         Body.Position = BodyBlock.Separate(before, Body.Position, Others(server), _world, Body.Body);
@@ -490,29 +777,72 @@ public sealed class BotBrain
                 _repathT = 0f;
                 Stuck++;
                 _evadeT = EvadeFor;
-                _evadeDir = _rng.NextDouble() < 0.5 ? -1f : 1f;
+                _evadeDir = FreerSide(p, want);
 
                 // Stuck on the way to a vehicle again and again: it is out of reach.
                 if (_rideKey != null && ++_walkStuck >= WalkStuckMax)
                 {
-                    _rideKey = null;
-                    _reboardT = ReboardWait;
+                    GiveUpRide();
                 }
 
-                if (Target == null)
+                // Stuck again and again on the way to an item (a prop the mesh does not know, a
+                // leg it cannot climb): out of reach for a while, longer each time.
+                if (_goalKind == GoalKind.Item && ++_goalStuck >= GoalStuckMax)
+                {
+                    var strikes = _strikes[_goalKey] = _strikes.GetValueOrDefault(_goalKey) + 1;
+                    Avoid(AvoidStuck * MathF.Min(strikes, MaxStrikes));
+                    Goal = null;
+                }
+
+                if (State == BotState.SeekItem && _rideKey == null)
                 {
                     PickGoal(server);
+                }
+
+                if (State == BotState.Retreat && Goal == null)
+                {
+                    PickRetreat(server, LastSeen);
+                }
+
+                // A chase that sticks is given up (the last seen place lies past a wall).
+                if (State == BotState.Chase && ++_chaseStuck >= ChaseStuckMax)
+                {
+                    GiveUp();
                 }
             }
         }
     }
+
+    /// <summary>The way to veer when stuck walking <paramref name="want"/>: the side with more room
+    /// at the knee (a pole or a fence end the mesh hugs), a coin toss when both are as open.</summary>
+    private float FreerSide(Vector3 p, Vector3 want)
+    {
+        var knee = p + new Vector3(0f, KneeHeight, 0f);
+        float Room(float side)
+        {
+            var dir = Vector3.Normalize(want * 0.5f + new Vector3(-want.Z, 0f, want.X) * side);
+            return _world.Raycast(knee, dir, SideProbe, out var hit) ? hit.Time : SideProbe;
+        }
+
+        var left = Room(1f);
+        var right = Room(-1f);
+        if (MathF.Abs(left - right) < 1f)
+        {
+            return _rng.NextDouble() < 0.5 ? -1f : 1f;
+        }
+
+        return left > right ? 1f : -1f;
+    }
+
+    /// <summary>How far the stuck bot looks to each side for room.</summary>
+    private const float SideProbe = 200f;
 
     /// <summary>A push off every parked vehicle within <see cref="ParkedAvoid"/> of
     /// <paramref name="p"/> (stronger the nearer), the one walked to excepted.</summary>
     private Vector3 AwayFromParked(DmServer server, Vector3 p)
     {
         var push = Vector3.Zero;
-        foreach (var v in server.Vehicles.Values)
+        foreach (var v in server.AllVehicles)
         {
             if (v.Driver != 0 || v.Wrecked || v.Key == _rideKey)
             {
@@ -550,20 +880,70 @@ public sealed class BotBrain
     {
         var p = Body.Position;
         _repathT -= dt;
-        if (_pathTo is not { } old || Flat(old - dest) > RepathMoved || _repathT <= 0f || OffLeg(p))
+        // Not in the air: a drop is followed to its landing before a new plan.
+        var plan = _pathTo is not { } old || Flat(old - dest) > RepathMoved || _repathT <= 0f || OffLeg(p);
+        if (plan && (Body.OnFloor || _pathTo == null))
         {
-            _nav!.FindPath(p, dest, _corners);
+            _nav!.FindPath(p, dest, _corners, _blocked, WalkNodes);
             _pathTo = dest;
             _corner = 0;
             _repathT = RepathEvery;
         }
 
-        while (_corner < _corners.Count && Flat(_corners[_corner] - p) < CornerReached)
+        while (_corner < _corners.Count && Flat(_corners[_corner] - p) < CornerReached && !Overhead(p))
         {
             _corner++;
         }
 
         return _corner < _corners.Count ? _corners[_corner] : dest;
+    }
+
+    /// <summary>The next corner lies over <paramref name="p"/> by more than <see cref="CornerRise"/>
+    /// while the last one does not: the bot is on the flight, a turn below the next. Passed: the
+    /// path's start (snapped maybe onto a flight over the bot), a climb link's top (walking on
+    /// steps the body up onto it), a corner the bot is under (off the flight: on its way back).</summary>
+    private bool Overhead(Vector3 p)
+    {
+        if (_corner == 0 || _corners[_corner].Y - p.Y < CornerRise)
+        {
+            return false;
+        }
+
+        var last = _corners[_corner - 1];
+        return last.Y - p.Y < CornerRise && !_nav!.IsLink(last, _corners[_corner]);
+    }
+
+    /// <summary>On a climb link's leg (up onto a ledge within the step-up): walked, never jumped,
+    /// for in the air the body does not step up.</summary>
+    private bool Climbing()
+    {
+        if (_nav == null || _corner < 1 || _corner >= _corners.Count)
+        {
+            return false;
+        }
+
+        var from = _corners[_corner - 1];
+        var to = _corners[_corner];
+        return to.Y - from.Y > KneeHeight && _nav.IsLink(from, to);
+    }
+    /// <summary>Just past a ledge (a drop link's start: the leg falls more than a step), headed for
+    /// a landing farther than a walk off carries the body: time to jump.</summary>
+    private bool JumpOff()
+    {
+        if (_corner < 1 || _corner >= _corners.Count)
+        {
+            return false;
+        }
+
+        var edge = _corners[_corner - 1];
+        var land = _corners[_corner];
+        if (edge.Y - land.Y <= PlayerController.StepHeight)
+        {
+            return false; // no drop: walked
+        }
+
+        var high = edge.Y - land.Y + JumpRise <= NavAgents.SafeDrop;
+        return high && Flat(land - edge) > WalkOffReach && Flat(edge - Body.Position) < CornerReached * 1.5f;
     }
 
     /// <summary>Farther than <see cref="OffPath"/> from the leg being walked.</summary>
@@ -585,112 +965,784 @@ public sealed class BotBrain
     private static float Flat(Vector3 v) => new Vector2(v.X, v.Z).Length();
 
     /// <summary>Every other living body: its feet and half width (a driver's vehicle's sphere).</summary>
-    private IEnumerable<(Vector3, float)> Others(DmServer server)
+    private List<(Vector3 Feet, float Radius)> Others(DmServer server)
     {
-        foreach (var p in server.Players.Values)
+        _others.Clear();
+        foreach (var p in server.AllPlayers)
         {
             if (p.Id != Id && p.Alive)
             {
-                yield return (p.Position, server.VehicleOf(p.Id) is { } v ? DmAvatar.VehicleRadius(v.Kind) : BodyBlock.Radius);
+                _others.Add((p.Position, server.VehicleOf(p.Id) is { } v ? DmAvatar.VehicleRadius(v.Kind) : BodyBlock.Radius));
             }
         }
+
+        return _others;
+    }
+
+    // ---- the nodes' legs ----
+
+    /// <summary>It runs unless it only strolls to a wander goal (or waits at a reached one).</summary>
+    private bool Hurried => State != BotState.SeekItem || _goalKind is GoalKind.Item or GoalKind.Vehicle;
+
+    /// <summary>Fight: the weapon's range, strafing; still off to its vehicle unless the enemy is close and nearer.</summary>
+    private Vector3 FightMove(DmServer server, float dt)
+    {
+        var p = Body.Position;
+        var to = Target is { } t && server.Players.TryGetValue(t, out var tp) ? tp.Position - p : LastSeen - p;
+        if (_rideKey is { } key && server.Vehicles.TryGetValue(key, out var v) && !EnemyFirst(server, v.Position))
+        {
+            return ToVehicle(server, dt);
+        }
+
+        return KeepDistance(to, dt);
+    }
+
+    /// <summary>Chase: to where the target was last seen (or the noise was); there, given up.</summary>
+    private Vector3 ChaseMove(float dt)
+    {
+        // A vehicle on the way is taken first: the chase goes on from its seat.
+        if (_rideKey != null && _server != null)
+        {
+            return ToVehicle(_server, dt);
+        }
+
+        var at = Target != null ? LastSeen : _noiseAt;
+        if (Flat(at - Body.Position) > GoalReached)
+        {
+            return Toward(at, dt);
+        }
+
+        GiveUp();
+        return Vector3.Zero;
+    }
+
+    /// <summary>The search found nobody: back to seeking, deaf to noises for a while.</summary>
+    private void GiveUp()
+    {
+        Target = null;
+        _noiseT = 0f;
+        _deafT = InvestigateFor;
+        _chaseStuck = 0;
+    }
+
+    /// <summary>Retreat: to the health or armour picked (or away), a new pick once there.</summary>
+    private Vector3 RetreatMove(DmServer server, float dt)
+    {
+        if (_rideKey != null)
+        {
+            return ToVehicle(server, dt);
+        }
+
+        if (Goal is not { } g || Flat(g - Body.Position) < GoalReached)
+        {
+            PickRetreat(server, LastSeen);
+        }
+
+        return Goal is { } goal ? Toward(goal, dt) : Vector3.Zero;
+    }
+
+    /// <summary>SeekItem: to its vehicle, or to its goal (a new one when reached or overdue; a
+    /// camper waits a moment at a reached one).</summary>
+    private Vector3 SeekMove(DmServer server, float dt)
+    {
+        if (_rideKey != null)
+        {
+            return ToVehicle(server, dt);
+        }
+
+        if (_campT > 0f)
+        {
+            _campT -= dt;
+            return Vector3.Zero;
+        }
+
+        var p = Body.Position;
+        if (Goal is { } g && Flat(g - p) < GoalReached)
+        {
+            Reached();
+            if (_campT > 0f)
+            {
+                return Vector3.Zero;
+            }
+        }
+
+        if (Goal == null || server.Now > _goalDue)
+        {
+            if (Goal != null)
+            {
+                Avoid(AvoidUnreached); // overdue: out of reach for now
+            }
+
+            PickGoal(server);
+        }
+
+        return Goal is { } goal ? Toward(goal, dt) : Vector3.Zero;
+    }
+
+    /// <summary>A goal reached: not sought again for a while (an item not grabbed is out of
+    /// reach); a camper waits there up to <see cref="CampMax"/> s.</summary>
+    private void Reached()
+    {
+        Avoid(AvoidReached);
+        Goal = null;
+        _campT = _rng.NextDouble() < _traits.Camp ? Range(0.5f, CampMax) * _traits.Camp : 0f;
+    }
+
+    private void Avoid(float seconds)
+    {
+        if (_goalKind == GoalKind.Item && _server != null)
+        {
+            _avoid[_goalKey] = Math.Max(_avoid.GetValueOrDefault(_goalKey), _server.Now + seconds);
+        }
+    }
+
+    /// <summary>The view: on the target in sight (<see cref="BotAim"/>), else to a hit's or noise's
+    /// place once the reaction passed, else the way it walks; turned at the aim's rate.</summary>
+    private void Face(DmServer server, Vector3 want, float dt)
+    {
+        float yaw = Body.Yaw, pitch = 0f;
+        if (Target is { } id && TargetVisible && server.Players.TryGetValue(id, out var tgt))
+        {
+            var record = _table.Weapons[Weapon];
+            var ammo = _table.AmmoOf(record);
+            var speed = ammo == null || ammo.Family == AmmoFamily.Hitscan ? 0f : record.Speed;
+            var drop = ammo?.Family == AmmoFamily.Gravity ? record.Lift : 0f;
+            (yaw, pitch) = _aim.Track(Body.EyePosition, EyeOf(tgt.Position), speed, drop, dt);
+        }
+        else if (_lookAt is { } look && (_lookDelay -= dt) <= 0f)
+        {
+            var d = look - Body.Position;
+            yaw = MathF.Atan2(-d.X, -d.Z);
+            if (MathF.Abs(WrapAngle(yaw - Body.Yaw)) < LookedAt)
+            {
+                _lookAt = null; // looked: now the way it walks
+            }
+        }
+        else if (_lookAt == null && want.LengthSquared() > 0.01f)
+        {
+            yaw = MathF.Atan2(-want.X, -want.Z);
+        }
+
+        var step = _aim.TurnRate * dt;
+        Body.Yaw = WrapAngle(BotAim.Toward(Body.Yaw, yaw, step));
+        Body.Pitch = Math.Clamp(Body.Pitch + Math.Clamp(pitch - Body.Pitch, -step, step), -PlayerController.PitchMax, PlayerController.PitchMax);
     }
 
     /// <summary>The horizontal intent towards <paramref name="to"/> (from the bot to its target):
     /// closer when beyond the weapon's range, back when inside it, sideways within the band,
-    /// always with some strafe that flips every 0.8-2.2 s.</summary>
+    /// always with some strafe (harder with the strafe trait) that flips every 0.4-0.6 s; an
+    /// aggressive bot holds a shorter range.</summary>
     public Vector3 KeepDistance(Vector3 to, float dt)
     {
         to.Y = 0f;
         var dist = to.Length();
         var fwd = dist > 1f ? to / dist : -Vector3.UnitZ;
         var side = new Vector3(-fwd.Z, 0f, fwd.X);
-        var pref = RangeFor(Weapon);
+        var pref = RangeFor(Weapon) * BotTraits.Lerp(1.2f, 0.8f, _traits.Aggression);
+        var strafe = BotTraits.Lerp(0.5f, 1.5f, _traits.Strafe);
         _strafeT -= dt;
         if (_strafeT <= 0f)
         {
-            _strafeT = Range(0.8f, 2.2f);
+            _strafeT = Range(StrafeMin, StrafeMax);
             _strafeDir = _rng.NextDouble() < 0.5 ? -1f : 1f;
+            _hop = _rng.NextDouble() < _traits.Jump * HopShare;
         }
 
         if (dist > pref + RangeBand)
         {
-            return fwd + side * _strafeDir * 0.4f;
+            return fwd + side * _strafeDir * 0.4f * strafe;
         }
 
-        return dist < pref - RangeBand ? -fwd + side * _strafeDir * 0.6f : side * _strafeDir;
+        return dist < pref - RangeBand ? -fwd + side * _strafeDir * 0.6f * strafe : side * _strafeDir;
     }
 
-    /// <summary>A roaming goal: a health item when hurt, else any item standing (nearer ones
-    /// likelier), else a spawn, else a point 1500 away; one of the best three.</summary>
-    public void PickGoal(DmServer server)
+    /// <summary>The strafe's flip time (s); the share of flips a full jumper hops on.</summary>
+    private const float StrafeMin = 0.4f, StrafeMax = 0.6f, HopShare = 0.3f;
+
+    // ---- goals (Quake III's goal weights over travel time, ideas only) ----
+    //
+    //   value: health ∝ the bar missing, armour ∝ the armour missing, a better weapon ∝ the ranks
+    //          gained, ammo a little, a free vehicle (more when enemies are far, the arena large),
+    //          a spawn to wander to the least
+    //   score = value / (travel time + TimeBias); the goal in hand × KeepGoal
+    //   cheapest first: the straight-line hope bounds the nav path's score, at most MaxWeighed paths
+
+    /// <summary>What a roaming goal is.</summary>
+    private enum GoalKind
     {
-        _goalT = Range(6f, 12f);
-        Goal = null;
-        var p = Body.Position;
-        var me = server.Players.GetValueOrDefault(Id);
-        var hurt = me != null && me.Health < HurtShare * DmProtocol.DosHealth;
-        var options = new List<(float Weight, Vector3 Pos)>();
-        foreach (var item in server.Pickups.Values)
+        None,
+        Item,
+        Vehicle,
+        Wander,
+    }
+
+    /// <summary>What a goal pick is for.</summary>
+    private enum GoalUse
+    {
+        /// <summary>Anything of value.</summary>
+        Roam,
+        /// <summary>Health and armour away from the enemy, else a spawn far from it.</summary>
+        Retreat,
+    }
+
+    private struct Option
+    {
+        public GoalKind Kind;
+        public int Key;
+        public Vector3 At;
+        public float Value, Hope, Time;
+        public bool Weighed;
+    }
+
+    private const float HealthWeight = 3f, ArmourWeight = 2f, WeaponWeight = 2.5f, AmmoValue = 0.3f, VehicleWeight = 3f, WanderValue = 0.1f;
+    /// <summary>Health and armour count by the bar they fill: a quarter of it is worth the weight.</summary>
+    private const float FillScale = 4f;
+    /// <summary>Seconds added to every travel time (a goal at the feet is not infinitely good).</summary>
+    private const float TimeBias = 1f;
+    /// <summary>The goal in hand counts this much more (no flip-flop between two near equals).</summary>
+    private const float KeepGoal = 1.3f;
+    /// <summary>Nav paths weighed a pick at most; the goal is weighed again every RethinkEvery s.</summary>
+    private const int MaxWeighed = 6;
+    private const float RethinkEvery = 2f;
+    /// <summary>A vehicle's worth grows by FarBonus with the enemies far (FarEnemy) and by OpenBonus
+    /// on an arena LargeArena across.</summary>
+    private const float FarBonus = 1f, FarEnemy = 4000f, OpenBonus = 0.5f, LargeArena = 12000f;
+    /// <summary>An HK is worth this much more than a jeep (it flies over the fight, rockets ready).</summary>
+    private const float HkBonus = 1.25f;
+    /// <summary>Items nearer than this are being walked over; farther than ItemFar not looked at.</summary>
+    private const float ItemNear = 150f, ItemFar = 9000f, SpawnNear = 300f;
+    /// <summary>Overdue goals are out of reach this long (s); reached ones are not sought for this long; campers wait up to CampMax.</summary>
+    private const float AvoidUnreached = 15f, AvoidReached = 4f, CampMax = 3f;
+    /// <summary>Stuck this often on the way to an item: avoided AvoidStuck s × its strikes (at most MaxStrikes).</summary>
+    private const int GoalStuckMax = 2, MaxStrikes = 4;
+    private const float AvoidStuck = 30f;
+    private int _goalStuck;
+    private readonly Dictionary<int, int> _strikes = [];
+    /// <summary>A goal is overdue after twice its travel time and this.</summary>
+    private const float GoalSlack = 4f;
+    /// <summary>A partial path ending this far from its goal: unreachable.</summary>
+    private const float PartialSlack = 150f;
+
+    private readonly List<Option> _options = [];
+    private readonly List<Vector3> _probe = [];
+    private readonly Dictionary<int, double> _avoid = [];
+    private readonly Dictionary<int, double> _avoidRide = [];
+    private GoalKind _goalKind;
+    private int _goalKey;
+    private double _goalDue;
+    private float _arenaOpen = -1f;
+
+    /// <summary>A roaming goal: the best of the items standing, the free vehicles and the spawns by
+    /// value over travel time; with none, a point 1500 away.</summary>
+    public void PickGoal(DmServer server) => Pick(server, GoalUse.Roam, Body.Position);
+
+    /// <summary>A retreat goal: health or armour not towards <paramref name="enemy"/>, else the spawn farthest from it.</summary>
+    private void PickRetreat(DmServer server, Vector3 enemy) => Pick(server, GoalUse.Retreat, enemy);
+
+    private void Pick(DmServer server, GoalUse use, Vector3 enemy)
+    {
+        // The tick's picks are spent (a round's start: every bot at once): this one waits a tick.
+        if (!_claims.TakePick())
         {
-            if (item.Taken)
-            {
-                continue;
-            }
-
-            var heal = PickupTable.Items.TryGetValue(item.Sprite, out var fx) && fx.HealPercent > 0;
-            if (hurt && !heal)
-            {
-                continue;
-            }
-
-            var d = Vector3.Distance(item.Position, p);
-            if (d is > 150f and < 9000f)
-            {
-                options.Add((hurt ? d : d * Range(0.5f, 1.5f), item.Position));
-            }
-        }
-
-        if (options.Count == 0)
-        {
-            foreach (var sp in server.Spawns)
-            {
-                var d = Vector3.Distance(sp.Feet, p);
-                if (d > 300f)
-                {
-                    options.Add((d * Range(0.5f, 1.5f), sp.Feet));
-                }
-            }
-        }
-
-        if (options.Count == 0)
-        {
-            var a = (float)(_rng.NextDouble() * Math.Tau);
-            Goal = p + new Vector3(MathF.Cos(a), 0f, MathF.Sin(a)) * 1500f;
             return;
         }
 
-        options.Sort((x, y) => x.Weight.CompareTo(y.Weight));
-        Goal = options[Math.Min(_rng.Next(3), options.Count - 1)].Pos;
+        _server = server;
+        _goalT = RethinkEvery;
+        _pickNodes = 0;
+        _fromReached = _nav != null && _claims.Reach is { } reach && reach.Contains(_nav.EndPoly(Body.Position));
+        Picks++;
+        var p = Body.Position;
+        var me = server.Players.GetValueOrDefault(Id);
+        _options.Clear();
+        foreach (var item in server.AllPickups)
+        {
+            var d = Flat(item.Position - p);
+            if (item.Taken || d < ItemNear || d > ItemFar || _avoid.GetValueOrDefault(item.Key) > server.Now)
+            {
+                continue;
+            }
+
+            var value = ItemValue(item.Sprite, me, use);
+            if (use == GoalUse.Retreat && Flat(item.Position - enemy) < Flat(p - enemy))
+            {
+                value *= TowardsEnemy;
+            }
+
+            Offer(GoalKind.Item, item.Key, item.Position, value);
+        }
+
+        // A seat is also the way out of a losing fight on foot (the hull takes the hits).
+        if (!_ride.Riding && _reboardT <= 0f)
+        {
+            OfferVehicles(server, use, enemy);
+        }
+
+        for (var i = 0; i < server.Spawns.Count; i++)
+        {
+            var sp = server.Spawns[i].Feet;
+            if (Flat(sp - p) > SpawnNear)
+            {
+                var far = use == GoalUse.Retreat ? Flat(sp - enemy) / FarEnemy : Range(0.5f, 1.5f);
+                Offer(GoalKind.Wander, i, sp, WanderValue * far);
+            }
+        }
+
+        if (Best() is not { } best)
+        {
+            var a = (float)(_rng.NextDouble() * Math.Tau);
+            SetGoal(GoalKind.Wander, -1, p + new Vector3(MathF.Cos(a), 0f, MathF.Sin(a)) * 1500f, 1500f / PlayerController.RunSpeed);
+            return;
+        }
+
+        var o = _options[best];
+        SetGoal(o.Kind, o.Key, o.At, o.Weighed ? o.Time : Flat(o.At - p) / PlayerController.RunSpeed);
+    }
+
+    /// <summary>An item retreated to that lies towards the enemy is worth this share.</summary>
+    private const float TowardsEnemy = 0.3f;
+
+    /// <summary>Every free whole vehicle under open sky that no other bot heads for and this one has
+    /// not given up on.</summary>
+    private void OfferVehicles(DmServer server, GoalUse use, Vector3 enemy)
+    {
+        var like = BotTraits.Lerp(0.4f, 1.6f, _traits.VehicleLike);
+        var far = Math.Clamp((NearestEnemy(server) - CloseEnemy) / (FarEnemy - CloseEnemy), 0f, 1f);
+        var worth = VehicleWeight * like * (1f + FarBonus * far + OpenBonus * ArenaOpen(server));
+        foreach (var v in server.AllVehicles)
+        {
+            if (v.Driver != 0 || v.Wrecked || v.Hull < BoardHull * Hull.PointsFor(v.Kind) || _claims.TakenByOther(v.Key, Id)
+                || _avoidRide.GetValueOrDefault(v.Key) > server.Now
+                || Roofed(v.Position + new Vector3(0f, 2f * DmAvatar.VehicleRadius(v.Kind) + RoofClear, 0f)))
+            {
+                continue;
+            }
+
+            var kind = v.Kind == VehicleMode.Hk ? HkBonus : 1f;
+            if (use == GoalUse.Retreat && Flat(v.Position - enemy) < Flat(Body.Position - enemy))
+            {
+                kind *= TowardsEnemy;
+            }
+            Offer(GoalKind.Vehicle, v.Key, v.Position, worth * kind * v.Hull / Hull.PointsFor(v.Kind));
+        }
+    }
+
+    /// <summary>What item <paramref name="sprite"/> is worth to the bot now.</summary>
+    private float ItemValue(int sprite, DmPlayer? me, GoalUse use)
+    {
+        if (!PickupTable.Items.TryGetValue(sprite, out var fx))
+        {
+            return 0f;
+        }
+
+        var focus = BotTraits.Lerp(0.6f, 1.4f, _traits.ItemFocus);
+        var health = me != null ? me.Health / DmProtocol.DosHealth : 1f;
+        if (fx.HealPercent > 0)
+        {
+            var careful = BotTraits.Lerp(0.7f, 1.3f, _traits.Caution);
+            return HealthWeight * MathF.Min(fx.HealPercent / 100f, 1f - health) * FillScale * careful * focus;
+        }
+
+        if (fx.Armour > 0)
+        {
+            var armour = me?.Armour ?? 0f;
+            return ArmourWeight * MathF.Min(fx.Armour / 65536f, 1f - armour) * FillScale * focus;
+        }
+
+        if (use == GoalUse.Retreat)
+        {
+            return 0f;
+        }
+
+        var gain = Carries(fx.Weapon) ? Rank(fx.Weapon) - Rank(Weapon) : 0;
+        return gain > 0 ? WeaponWeight * (0.5f + (float)gain / Preference.Length) * focus : AmmoValue * focus;
+    }
+
+    /// <summary>One more option; its hope is its score over the straight line (the best it can be).</summary>
+    private void Offer(GoalKind kind, int key, Vector3 at, float value)
+    {
+        if (value <= 0f)
+        {
+            return;
+        }
+
+        var keep = kind == _goalKind && key == _goalKey && Goal != null ? KeepGoal : 1f;
+        value *= keep;
+        var hope = value / (Flat(at - Body.Position) / PlayerController.RunSpeed + TimeBias);
+        _options.Add(new Option { Kind = kind, Key = key, At = at, Value = value, Hope = hope });
+    }
+
+    /// <summary>The option with the best score: weighed (a nav path) in order of hope until no hope
+    /// beats the best score or <see cref="MaxWeighed"/> were weighed; null when none.</summary>
+    private int? Best()
+    {
+        int? best = null;
+        var bestScore = 0f;
+        for (var n = 0; n < MaxWeighed; n++)
+        {
+            var next = -1;
+            for (var i = 0; i < _options.Count; i++)
+            {
+                if (!_options[i].Weighed && (next < 0 || _options[i].Hope > _options[next].Hope))
+                {
+                    next = i;
+                }
+            }
+
+            if (next < 0 || _options[next].Hope <= bestScore)
+            {
+                break;
+            }
+
+            var o = _options[next];
+            var reach = Reach.Cut;
+            var t = float.MaxValue;
+            if (!CutOff(o))
+            {
+                t = Travel(o.At, out reach);
+                if (reach == Reach.Cut)
+                {
+                    Unreachable(o.Kind, o.Key, Found.Searched);
+                }
+            }
+
+            o.Weighed = true;
+            o.Time = t;
+            _options[next] = o;
+
+            // The pick's search budget is spent: the best weighed so far.
+            if (reach == Reach.Unknown)
+            {
+                break;
+            }
+
+            if (reach == Reach.Cut)
+            {
+                continue;
+            }
+
+            var score = o.Value / (t + TimeBias);
+            if (score > bestScore)
+            {
+                (best, bestScore) = (next, score);
+            }
+        }
+
+        return best;
+    }
+
+    /// <summary>What a goal's path search says of it: reached, cut off, or nothing (the pick's
+    /// search budget ran out first).</summary>
+    private enum Reach
+    {
+        Yes,
+        Cut,
+        Unknown,
+    }
+
+    /// <summary>How a goal was found cut off: by this bot's search, or another bot's lately.</summary>
+    private enum Found
+    {
+        Searched,
+        Shared,
+    }
+
+    /// <summary>Polygons a pick's path searches expand at most, all its goals together: a search
+    /// for a cut-off goal expands every polygon it reaches (7 000 on MAP.601, 15-30 ms), and the
+    /// budget keeps a pick's cost fixed, the same in every replay.</summary>
+    internal const int PickNodes = 6000;
+
+    /// <summary>Polygons a walk's path search expands at most (a chase after a target on a roof).</summary>
+    internal const int WalkNodes = 3000;
+
+    private int _pickNodes;
+    /// <summary>The bot stands on the mesh the spawns reach (<see cref="BotClaims.Reach"/>).</summary>
+    private bool _fromReached;
+
+    /// <summary>Picks made; path searches of the picks; those that found the goal cut off; the most
+    /// polygons a pick's searches expanded.</summary>
+    internal int Picks { get; private set; }
+    internal int PickSearches { get; private set; }
+    internal int CutSearches { get; private set; }
+    internal int MostPickNodes { get; private set; }
+
+    /// <summary>Goal <paramref name="o"/> is known cut off without a search: off the mesh the spawns
+    /// reach (from a spot on it), or found so by another bot lately.</summary>
+    private bool CutOff(Option o)
+    {
+        if (_fromReached && _claims.Reach is { } reach && !reach.Contains(_nav!.EndPoly(o.At)))
+        {
+            return true;
+        }
+
+        if (!_claims.Unreached((int)o.Kind, o.Key, _server!.Now))
+        {
+            return false;
+        }
+
+        Unreachable(o.Kind, o.Key, Found.Shared);
+        return true;
+    }
+
+    /// <summary>The other bots skip a goal found cut off this long (s).</summary>
+    private const double SharedUnreached = 10.0;
+
+    /// <summary>A goal no path reaches is not weighed again for <see cref="AvoidUnreached"/> s, nor
+    /// by the other bots for <see cref="SharedUnreached"/> s: a search that fails floods the whole
+    /// mesh (15-30 ms on MAP.601, whose HKs stand on the roofs).</summary>
+    private void Unreachable(GoalKind kind, int key, Found how)
+    {
+        var until = _server!.Now + AvoidUnreached;
+        if (how == Found.Searched)
+        {
+            _claims.MarkUnreached((int)kind, key, _server.Now + SharedUnreached);
+        }
+
+        if (kind == GoalKind.Item)
+        {
+            _avoid[key] = Math.Max(_avoid.GetValueOrDefault(key), until);
+            return;
+        }
+
+        if (kind == GoalKind.Vehicle)
+        {
+            _avoidRide[key] = Math.Max(_avoidRide.GetValueOrDefault(key), until);
+        }
+    }
+
+    /// <summary>Seconds running to <paramref name="to"/>: along the nav path (none: straight; a
+    /// vehicle's driver: straight); unreachable when the path stops well short.</summary>
+    private float Travel(Vector3 to, out Reach reach)
+    {
+        var p = Body.Position;
+        reach = Reach.Yes;
+        if (_nav == null || _ride.Riding)
+        {
+            return Flat(to - p) / PlayerController.RunSpeed;
+        }
+
+        // A leg it cannot climb blocks the polygon it crosses for good, and the path is asked again
+        // (the way round: a ramp, the roofs and a drop).
+        for (var tries = 0; tries <= MaxDetours; tries++)
+        {
+            if (_pickNodes >= PickNodes)
+            {
+                reach = Reach.Unknown;
+                return float.MaxValue;
+            }
+
+            var found = _nav.FindPath(p, to, _probe, _blocked, PickNodes - _pickNodes);
+            _pickNodes += _nav.Nodes;
+            MostPickNodes = Math.Max(MostPickNodes, _pickNodes);
+            PickSearches++;
+            if (_nav.OutOfNodes)
+            {
+                reach = Reach.Unknown;
+                return float.MaxValue;
+            }
+
+            if (found == PathResult.None || _probe.Count == 0 || (found == PathResult.Partial && Flat(_probe[^1] - to) > PartialSlack))
+            {
+                break;
+            }
+
+            var bad = BadLeg();
+            if (bad < 0)
+            {
+                var length = Flat(_probe[0] - p);
+                for (var i = 1; i < _probe.Count; i++)
+                {
+                    length += Flat(_probe[i] - _probe[i - 1]);
+                }
+
+                return length / PlayerController.RunSpeed;
+            }
+
+            // The polygon the leg crosses, not the floor it starts or ends on.
+            var poly = _nav.PolyAt(Vector3.Lerp(_probe[bad - 1], _probe[bad], 0.5f), out _);
+            var ends = poly == _nav.PolyAt(_probe[bad - 1], out _) || poly == _nav.PolyAt(_probe[bad], out _);
+            if (ends)
+            {
+                break;
+            }
+
+            if (poly == 0 || _blocked.Count >= MaxBlocked || _blocked.Contains(poly))
+            {
+                break;
+            }
+
+            _blocked.Add(poly);
+        }
+
+        CutSearches++;
+        reach = Reach.Cut;
+        return float.MaxValue;
+    }
+
+    /// <summary>The probe path's first leg it cannot climb (its end's index), −1 none.</summary>
+    private int BadLeg()
+    {
+        for (var i = 1; i < _probe.Count; i++)
+        {
+            if (!Climbable(_probe[i - 1], _probe[i]))
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    /// <summary>New paths asked a goal at most; polygons a bot blocks at most (they are the map's).</summary>
+    private const int MaxDetours = 3, MaxBlocked = 32;
+    private readonly List<long> _blocked = new(MaxBlocked);
+
+    /// <summary>A leg that rises more than a step has floor under it all the way (a ramp, stairs):
+    /// on MAP.605 the mesh joins the street to the overpass the HKs park on with legs that run
+    /// 90-170 over the street, no way up.</summary>
+    private bool Climbable(Vector3 a, Vector3 b)
+    {
+        // Down more than a step: only off a baked drop link (it lands unhurt on the mesh). Up a step: walked.
+        if (b.Y - a.Y <= PlayerController.StepHeight)
+        {
+            return a.Y - b.Y <= PlayerController.StepHeight || (_nav?.IsLink(a, b) ?? false);
+        }
+
+        // Up past a step: a climb link, or floor under the line all the way (a ramp, stairs).
+        if (_nav?.IsLink(a, b) ?? false)
+        {
+            return true;
+        }
+
+
+        for (var k = 1; k < LegSamples; k++)
+        {
+            var q = Vector3.Lerp(a, b, (float)k / LegSamples);
+            // From just over the line down: a deck over the street is above the probe, not under it.
+            var reach = KneeHeight + PlayerController.StepHeight;
+            if (!_world.Raycast(q + new Vector3(0f, KneeHeight, 0f), -Vector3.UnitY, reach, out var floor)
+                || q.Y - floor.Point.Y > RiseGap)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>Floor probes along a climbing leg.</summary>
+    private const int LegSamples = 10;
+    /// <summary>A rising leg's line may run this far over the floor (stairs, a ramp's kink).</summary>
+    private const float RiseGap = 65f;
+
+    private void SetGoal(GoalKind kind, int key, Vector3 at, float travel)
+    {
+        if (kind != _goalKind || key != _goalKey)
+        {
+            _goalStuck = 0;
+        }
+
+        Goal = at;
+        _goalKind = kind;
+        _goalKey = key;
+        _goalDue = (_server?.Now ?? 0.0) + travel * 2f + GoalSlack;
+        if (kind != GoalKind.Vehicle)
+        {
+            DropRide(0f);
+            return;
+        }
+
+        _claims.Claim(key, Id);
+        _rideKey = key;
+        _walkT = MathF.Max(WalkFor, travel * 2f);
+        _walkStuck = 0;
+    }
+
+    /// <summary>The vehicle walked to is out of reach (not reached in time, stuck on the way):
+    /// not sought for AvoidStuck s × its strikes (a seat on a deck the mesh only seems to reach).</summary>
+    private void GiveUpRide()
+    {
+        if (_rideKey is not { } key)
+        {
+            return;
+        }
+
+        var strikes = _rideStrikes[key] = _rideStrikes.GetValueOrDefault(key) + 1;
+        DropRide(AvoidStuck * MathF.Min(strikes, MaxStrikes));
+    }
+
+    private readonly Dictionary<int, int> _rideStrikes = [];
+
+    /// <summary>No vehicle in view any more; that one not sought for <paramref name="avoid"/> s.</summary>
+    private void DropRide(float avoid)
+    {
+        if (_rideKey is { } key && avoid > 0f && _server != null)
+        {
+            _avoidRide[key] = _server.Now + avoid;
+        }
+
+        if (_rideKey != null && _goalKind == GoalKind.Vehicle)
+        {
+            Goal = null;
+            _goalKind = GoalKind.None;
+        }
+
+        _rideKey = null;
+        _claims.Release(Id);
+    }
+
+    /// <summary>The nearest other living player (∞ none).</summary>
+    private float NearestEnemy(DmServer server)
+    {
+        var best = float.PositiveInfinity;
+        foreach (var p in server.AllPlayers)
+        {
+            if (p.Id != Id && p.Alive)
+            {
+                best = MathF.Min(best, Flat(p.Position - Body.Position));
+            }
+        }
+
+        return best;
+    }
+
+    /// <summary>0..1: how large the arena is (its spawns' and items' spread over <see cref="LargeArena"/>), once.</summary>
+    private float ArenaOpen(DmServer server)
+    {
+        if (_arenaOpen >= 0f)
+        {
+            return _arenaOpen;
+        }
+
+        Vector2 lo = new(float.MaxValue), hi = new(float.MinValue);
+        foreach (var sp in server.Spawns)
+        {
+            lo = Vector2.Min(lo, new Vector2(sp.Feet.X, sp.Feet.Z));
+            hi = Vector2.Max(hi, new Vector2(sp.Feet.X, sp.Feet.Z));
+        }
+
+        foreach (var item in server.AllPickups)
+        {
+            lo = Vector2.Min(lo, new Vector2(item.Position.X, item.Position.Z));
+            hi = Vector2.Max(hi, new Vector2(item.Position.X, item.Position.Z));
+        }
+
+        _arenaOpen = hi.X >= lo.X ? Math.Clamp(MathF.Max(hi.X - lo.X, hi.Y - lo.Y) / LargeArena, 0f, 1f) : 0f;
+        return _arenaOpen;
     }
 
     // ---- vehicles ----
     //
-    //   on foot ─ Decide (1 s): free whole vehicle in reach, nobody close, health ok, open sky,
-    //   │         utility ≥ MinUtility, the skill's chance ─► walk to its side ─► EnterVehicle
+    //   on foot ─ a goal (PickGoal): a free whole vehicle under open sky, unclaimed, its value over
+    //   │         the walk ─► claim, walk to its side ─► EnterVehicle (Decide: gone, enemy close, overdue ─► drop)
     //   driving ─ Drive: jeep path / HK flight to the orbit point, the last seen place or a roam goal
     //   └ Decide: hull low, stuck for long, target where the vehicle cannot go ─► out (an HK lands first)
     //     a wreck: the server puts it out ─► on foot
 
     /// <summary>How often the ride is weighed (s).</summary>
     private const float DecideEvery = 1f;
-    /// <summary>Vehicles farther than this are not walked to.</summary>
-    private const float BoardSearch = 2500f;
     /// <summary>An enemy in sight this near keeps it on foot (the fight is now).</summary>
     private const float CloseEnemy = 1200f;
-    /// <summary>The utility a vehicle needs: nearness (1 at the bot, 0 at <see cref="BoardSearch"/>)
-    /// plus <see cref="HuntBonus"/> when the target is out of sight or far.</summary>
-    private const float MinUtility = 0.4f, HuntBonus = 0.3f;
     /// <summary>The bot walks to this far off the vehicle's middle, on its side.</summary>
     private const float BoardSide = 85f;
     /// <summary>Something over the head this near: indoors, no ride.</summary>
@@ -712,7 +1764,8 @@ public sealed class BotBrain
     private const float JeepOrbit = 700f, HkOrbit = 1000f, OrbitStep = 0.6f;
     /// <summary>On foot a parked vehicle this near pushes the bot off it this hard (a share of its walk).</summary>
     private const float ParkedAvoid = 220f, AvoidPush = 1.5f;
-    /// <summary>A vehicle not reached in this long is given up (s).</summary>
+    /// <summary>A vehicle not reached in this long, or twice its path's run when longer (the far
+    /// overpass HK: stairs, a roof, a drop), is given up (s).</summary>
     private const float WalkFor = 20f;
     /// <summary>Stuck this often on the way to a vehicle: given up.</summary>
     private const int WalkStuckMax = 3;
@@ -725,8 +1778,7 @@ public sealed class BotBrain
     /// <summary>A jeep goal this far off the jeep's mesh is out of its reach.</summary>
     private static readonly Vector3 MeshReach = new(160f, 200f, 160f);
 
-    /// <summary>Per skill 0-2: chance a second to go for a vehicle, chance to ram, turret swing (rad/s).</summary>
-    private static readonly float[] RideChance = [0.15f, 0.3f, 0.5f];
+    /// <summary>Per skill 0-2: chance to ram, turret swing (rad/s).</summary>
     private static readonly float[] RamChance = [0f, 0.4f, 0.8f];
     private static readonly float[] TurretRates = [2f, 3.5f, 5f];
 
@@ -757,7 +1809,9 @@ public sealed class BotBrain
     private DmServer? _server;
     private IBotOutput? _output;
     private int? _rideKey;
-    private int _walkStuck;
+    private int _walkStuck, _seatKey;
+    /// <summary>A vehicle left stuck is not sought for this long (s).</summary>
+    private const float AvoidStuckRide = 30f;
     private bool _landing, _ramming;
     private float _decideT, _reboardT, _landT, _orbitT, _orbitDir = 1f, _rocketT, _cutOffT, _walkT;
 
@@ -773,58 +1827,44 @@ public sealed class BotBrain
             return;
         }
 
-        if (_rideKey is { } key && (!server.Vehicles.TryGetValue(key, out var v) || v.Driver != 0 || v.Wrecked))
+        if (_rideKey is not { } key)
         {
-            _rideKey = null;
+            return;
         }
 
-        // A vehicle not reached in WalkFor is out of reach (on a roof, behind a fence): given up.
+        // The vehicle went (taken, wrecked), was not reached in WalkFor (on a roof, behind a
+        // fence), or an enemy in sight came close (the fight is now): another goal.
         _walkT -= DecideEvery;
-        if (_rideKey != null && _walkT <= 0f)
+        var gone = !server.Vehicles.TryGetValue(key, out var v) || v.Driver != 0 || v.Wrecked;
+        if (gone || EnemyFirst(server, v!.Position))
         {
-            _rideKey = null;
-            _reboardT = ReboardWait;
-        }
-
-        if (_reboardT > 0f || server.Vehicles.Count == 0)
-        {
+            DropRide(0f);
             return;
         }
 
-        var me = server.Players.GetValueOrDefault(Id);
-        var close = Target is { } t && TargetVisible && server.Players.TryGetValue(t, out var tp) && Flat(tp.Position - Body.Position) < CloseEnemy;
-        if (close || me == null || me.Health < HurtShare * DmProtocol.DosHealth)
+        if (_walkT <= 0f)
         {
-            _rideKey = null;
-            return;
+            GiveUpRide();
+        }
+    }
+
+    /// <summary>An enemy in sight within <see cref="CloseEnemy"/> and nearer than the vehicle at
+    /// <paramref name="vehicle"/>: the fight comes first (a nearer vehicle is fought from).</summary>
+    private bool EnemyFirst(DmServer server, Vector3 vehicle)
+    {
+        if (Target is not { } t || !TargetVisible || !server.Players.TryGetValue(t, out var tp))
+        {
+            return false;
         }
 
-        if (_rideKey != null || _rng.NextDouble() >= RideChance[Skill] || Indoors(Body.Position))
+        // On foot against a vehicle: the seat first, whatever the distance.
+        if (server.VehicleOf(t) != null)
         {
-            return;
+            return false;
         }
 
-        // The best free vehicle by utility: near, more so when the hunt goes far.
-        var hunting = Target != null && (!TargetVisible || Flat(LastSeen - Body.Position) > BoardSearch) ? HuntBonus : 0f;
-        var best = MinUtility;
-        foreach (var c in server.Vehicles.Values)
-        {
-            var d = Flat(c.Position - Body.Position);
-            var worn = c.Hull < BoardHull * Hull.PointsFor(c.Kind);
-            if (c.Driver != 0 || c.Wrecked || worn || d > BoardSearch || Roofed(c.Position + new Vector3(0f, 2f * DmAvatar.VehicleRadius(c.Kind) + RoofClear, 0f)))
-            {
-                continue;
-            }
-
-            var utility = 1f - d / BoardSearch + hunting;
-            if (utility > best)
-            {
-                best = utility;
-                _rideKey = c.Key;
-                _walkT = WalkFor;
-                _walkStuck = 0;
-            }
-        }
+        var enemy = Flat(tp.Position - Body.Position);
+        return enemy < CloseEnemy && enemy < Flat(vehicle - Body.Position);
     }
 
     /// <summary>Out when the hull is low, the vehicle stuck for long, or the target out of sight
@@ -884,12 +1924,13 @@ public sealed class BotBrain
         var p = Body.Position;
         if (Vector3.Distance(p, v.Position) <= DmProtocol.VehicleBoardReach)
         {
-            if (server.EnterVehicle(Id, key))
+            var seated = server.EnterVehicle(Id, key);
+            DropRide(0f);
+            if (seated)
             {
                 GetIn(v);
             }
 
-            _rideKey = null;
             return Vector3.Zero;
         }
 
@@ -903,6 +1944,8 @@ public sealed class BotBrain
         Body.Position = v.Position;
         Body.Velocity = Vector3.Zero;
         _ride.Enter(v.Kind, v.Yaw);
+        State = BotState.Ride;
+        _seatKey = v.Key;
         Boarded++;
         _landing = false;
         _ramming = false;
@@ -922,12 +1965,21 @@ public sealed class BotBrain
             server.LeaveVehicle(Id, at, Heading);
         }
 
+        // A vehicle that kept sticking is not taken again soon.
+        if (_ride.StuckLong)
+        {
+            _avoidRide[_seatKey] = server.Now + AvoidStuckRide;
+        }
+
         _ride.Leave();
         Body.Position = PlayerStart.Clear(_world, Body.Body, at + right * StepAside + new Vector3(0f, StepUp, 0f));
         Body.Velocity = Vector3.Zero;
         _landing = false;
         _rideKey = null;
         _reboardT = ReboardWait;
+        State = BotState.SeekItem;
+        Goal = null;
+        _goalKind = GoalKind.None;
         _pathTo = null;
         _corners.Clear();
     }
@@ -979,7 +2031,13 @@ public sealed class BotBrain
         else
         {
             _goalT -= dt;
-            if (Goal == null || _goalT <= 0f || _ride.AtGoal)
+            if (Goal != null && _ride.AtGoal)
+            {
+                Reached(); // as near as the vehicle goes: somewhere else next
+                _campT = 0f;
+            }
+
+            if (Goal == null || _goalT <= 0f)
             {
                 PickGoal(server);
             }
@@ -1002,7 +2060,7 @@ public sealed class BotBrain
             return;
         }
 
-        foreach (var v in server.Vehicles.Values)
+        foreach (var v in server.AllVehicles)
         {
             if (v.Driver == 0 && !v.Wrecked)
             {
@@ -1010,7 +2068,7 @@ public sealed class BotBrain
             }
         }
 
-        foreach (var p in server.Players.Values)
+        foreach (var p in server.AllPlayers)
         {
             if (p.Id != Id && p.Alive && p.Id != rammed)
             {
@@ -1038,8 +2096,9 @@ public sealed class BotBrain
     /// <summary>Every other player is a ram target (proxies kept for the ram's re-arm waits).</summary>
     private void SyncRamTargets(DmServer server)
     {
-        foreach (var id in server.Players.Keys)
+        foreach (var pl in server.AllPlayers)
         {
+            var id = pl.Id;
             if (id != Id && !_ramProxies.ContainsKey(id))
             {
                 var t = new RamTarget(this, id);
@@ -1089,6 +2148,7 @@ public sealed class BotBrain
             return;
         }
 
+        // The view (turned by the aim, error and all) must be near the target.
         var eye = Body.EyePosition;
         var d = EyeOf(tgt.Position) - eye;
         if (MathF.Abs(WrapAngle(MathF.Atan2(-d.X, -d.Z) - Body.Yaw)) > FireCone || !CanSee(eye, EyeOf(tgt.Position)))
@@ -1116,7 +2176,9 @@ public sealed class BotBrain
             _burstPause = Skills[Skill].BurstPause * Range(0.7f, 1.4f);
         }
 
-        var dir = Spread(Vector3.Normalize(d), Skills[Skill].Spread * MathF.PI / 180f * Range(0.3f, 1f));
+        // On foot along the view (where the aim put it); a driver's turret straight at the target.
+        var along = _ride.Riding ? Vector3.Normalize(d) : PlayerController.Direction(Body.Yaw, Body.Pitch);
+        var dir = Spread(along, SpreadRad * Range(0.3f, 1f));
         var from = eye + dir * MuzzleAhead;
         Shots++;
         _firing = FiringHold;
@@ -1179,6 +2241,7 @@ public sealed class BotBrain
             var len = motion.Length();
             if (len < 1e-6f)
             {
+                _inFlight[i] = s;
                 continue;
             }
 
@@ -1187,6 +2250,7 @@ public sealed class BotBrain
             if (victim == null && t >= len)
             {
                 s.Position += motion;
+                _inFlight[i] = s;
                 continue;
             }
 
@@ -1196,6 +2260,7 @@ public sealed class BotBrain
             {
                 s.Velocity = bounced;
                 s.Position = wall.Point + wall.Normal * 2f;
+                _inFlight[i] = s;
                 continue;
             }
 
@@ -1219,8 +2284,11 @@ public sealed class BotBrain
     /// takes the falloff's points; the bot's own is a self-hit, as the soldier's own blast is.</summary>
     private void BlastAt(DmServer server, IBotOutput output, Vector3 at, float strength, int? except, int weapon)
     {
+        output.Blast(Id, at);
         var reach = Blast.Reach(strength);
-        foreach (var p in server.Players.Values.ToList())
+        _blastees.Clear();
+        _blastees.AddRange(server.AllPlayers); // a copy: a kill may change the roster
+        foreach (var p in _blastees)
         {
             if (!p.Alive || p.Id == except)
             {
@@ -1272,7 +2340,7 @@ public sealed class BotBrain
         var wall = _world.Raycast(from, dir, reach, out var hit) ? hit.Time : reach;
         int? best = null;
         var bestT = wall;
-        foreach (var p in server.Players.Values)
+        foreach (var p in server.AllPlayers)
         {
             if (p.Id == Id || !p.Alive)
             {

@@ -424,7 +424,9 @@ public class DmRulesTests
     [Fact]
     public void A_bots_shotgun_blasts_whoever_stands_by_the_one_it_hits()
     {
-        var (server, bot, rec) = BotSetup(4, new Vector3(0, 0, -350), new Vector3(20, 0, -380));
+        // The two stand shoulder to shoulder: since phase 3 the bot strafes and aims with an error, so
+        // its shot lands anywhere on the near one's sphere (the blast reaches 65).
+        var (server, bot, rec) = BotSetup(4, new Vector3(0, 0, -350), new Vector3(30, 0, -340));
         Run(server, bot, rec, 4f);
         var ammo = WeaponTable.Shipped.AmmoOf(WeaponTable.Shipped.Weapons[4])!;
         Assert.True(ammo.Blasts);

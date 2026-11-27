@@ -35,7 +35,9 @@ internal static class NavRecast
 
     /// <summary>Bakes <paramref name="verts"/> (x, y, z per corner) and <paramref name="faces"/>
     /// (three corners each) inside <paramref name="min"/>-<paramref name="max"/>.</summary>
-    internal static DtNavMesh Bake(float[] verts, int[] faces, Vector3 min, Vector3 max, NavAgent agent, NavBuild build)
+    /// <param name="world">The collision the drops are probed in (<see cref="NavAgent.MaxDrop"/>).</param>
+    internal static DtNavMesh Bake(float[] verts, int[] faces, Vector3 min, Vector3 max, NavAgent agent, NavBuild build,
+        RetroEng.Physics.CollisionWorld world)
     {
         var geom = new RcSampleInputGeomProvider(verts, faces);
         var cs = build.CellSize;
@@ -59,12 +61,54 @@ internal static class NavRecast
             maxTiles = Math.Max(1, tw * th),
             maxPolys = MaxPolysPerTile,
         };
+        var nav = Assemble(tiles, param, agent, cfg, null);
+        if (agent.MaxDrop <= agent.StepHeight)
+        {
+            return nav;
+        }
+
+        // A second pass with the drop links found on the first mesh, each in the tile it starts in.
+        var drops = NavDrops.Find(nav, agent, world);
+        var size = TileCells * cs;
+        // Each link in the tile its start lies in, the start kept off the tile's border (Detour
+        // takes a start on the border for one outside the tile), the end at most a tile over.
+        var byTile = drops
+            .Select(d => (Tile: ((int)MathF.Floor((d.From.X - bmin.X) / size), (int)MathF.Floor((d.From.Z - bmin.Z) / size)), Link: d))
+            .Select(t => (t.Tile, Link: (From: Inside(t.Link.From, bmin, size, t.Tile), t.Link.To)))
+            .Where(t => MathF.Abs(t.Link.To.X - t.Link.From.X) < size && MathF.Abs(t.Link.To.Z - t.Link.From.Z) < size)
+            .ToLookup(t => t.Tile, t => t.Link);
+        return Assemble(tiles, param, agent, cfg, byTile);
+    }
+
+    /// <summary><paramref name="p"/> moved BorderGap inside tile <paramref name="tile"/> on X and Z.</summary>
+    private static Vector3 Inside(Vector3 p, RcVec3f bmin, float size, (int X, int Z) tile)
+    {
+        var x0 = bmin.X + tile.X * size;
+        var z0 = bmin.Z + tile.Z * size;
+        return new Vector3(Math.Clamp(p.X, x0 + BorderGap, x0 + size - BorderGap), p.Y, Math.Clamp(p.Z, z0 + BorderGap, z0 + size - BorderGap));
+    }
+
+    /// <summary>How far inside its tile a link's start is kept.</summary>
+    private const float BorderGap = 2f;
+    /// <summary>The tiles as one mesh, in (z, x) order; each with the drops that start in it; false joins cut.</summary>
+    private static DtNavMesh Assemble(List<RcBuilderResult> tiles, DtNavMeshParams param, NavAgent agent, RcConfig cfg,
+        ILookup<(int, int), (Vector3 From, Vector3 To)>? drops)
+    {
         var nav = new DtNavMesh();
         nav.Init(in param, VertsPerPoly);
-
         foreach (var r in tiles.OrderBy(t => t.TileZ).ThenBy(t => t.TileX))
         {
-            if (TileData(r, agent, cfg) is not { } data)
+            var mine = drops?[(r.TileX, r.TileZ)].ToList() ?? [];
+
+            // A link landing in another tile takes a third link slot from this tile's pool, which
+            // Detour sizes at two a link (DotRecast then runs past it): a spare zero-length link at
+            // its start buys the slots.
+            var size = param.tileWidth;
+            var x0 = param.orig.X + r.TileX * size;
+            var z0 = param.orig.Z + r.TileZ * size;
+            var spares = mine.Where(l => l.To.X < x0 || l.To.X >= x0 + size || l.To.Z < z0 || l.To.Z >= z0 + size).Select(l => (l.From, l.From)).ToList();
+            mine.AddRange(spares);
+            if (TileData(r, agent, cfg, mine) is not { } data)
             {
                 continue;
             }
@@ -72,6 +116,7 @@ internal static class NavRecast
             nav.AddTile(data, 0, 0, out _);
         }
 
+        NavJoins.Cut(nav, agent.StepHeight);
         return nav;
     }
 
@@ -130,7 +175,7 @@ internal static class NavRecast
     }
 
     /// <summary>One baked tile as Detour data; null when it holds no walkable polygon.</summary>
-    private static DtMeshData? TileData(RcBuilderResult r, NavAgent agent, RcConfig cfg)
+    private static DtMeshData? TileData(RcBuilderResult r, NavAgent agent, RcConfig cfg, List<(Vector3 From, Vector3 To)> drops)
     {
         var mesh = r.Mesh;
         var detail = r.MeshDetail;
@@ -166,6 +211,28 @@ internal static class NavRecast
             tileX = r.TileX,
             tileZ = r.TileZ,
         };
+        if (drops.Count > 0)
+        {
+            // One-way links (dir 0), the walk flag, as wide as the agent.
+            p.offMeshConCount = drops.Count;
+            p.offMeshConVerts = new float[drops.Count * 6];
+            p.offMeshConRad = new float[drops.Count];
+            p.offMeshConFlags = new int[drops.Count];
+            p.offMeshConAreas = new int[drops.Count];
+            p.offMeshConDir = new int[drops.Count];
+            p.offMeshConUserID = new int[drops.Count];
+            for (var i = 0; i < drops.Count; i++)
+            {
+                var (a, b) = drops[i];
+                (p.offMeshConVerts[i * 6], p.offMeshConVerts[i * 6 + 1], p.offMeshConVerts[i * 6 + 2]) = (a.X, a.Y, a.Z);
+                (p.offMeshConVerts[i * 6 + 3], p.offMeshConVerts[i * 6 + 4], p.offMeshConVerts[i * 6 + 5]) = (b.X, b.Y, b.Z);
+                p.offMeshConRad[i] = agent.Radius;
+                p.offMeshConFlags[i] = WalkFlag;
+                p.offMeshConAreas[i] = WalkableArea;
+                p.offMeshConUserID[i] = i;
+            }
+        }
+
         return DtNavMeshBuilder.CreateNavMeshData(p);
     }
 

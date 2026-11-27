@@ -25,7 +25,7 @@ public static class DmNav
         }
 
         var arena = DmArena.From(map, session.Wld, session.MapNumber);
-        return NavCache.Get($"{session.Data.Game}-MAP.{session.MapNumber:D3}", world, NavAgents.Soldier, Cells(arena, NavAgents.SoldierCells));
+        return NavCache.Get($"{session.Data.Game}-MAP.{session.MapNumber:D3}", world, NavAgents.Bot, Cells(arena, NavAgents.SoldierCells));
     }
 
     /// <summary>What bots in <paramref name="vehicles"/> need on <paramref name="session"/>'s map:

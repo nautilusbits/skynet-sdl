@@ -25,34 +25,60 @@ public static class BodyBlock
         var pos = after;
         foreach (var (feet, r) in others)
         {
-            if (MathF.Abs(feet.Y - pos.Y) >= DmAvatar.Height)
-            {
-                continue; // one stands on the other's head height or above: no side contact
-            }
-
-            var min = Radius + r;
-            var d = new Vector2(pos.X - feet.X, pos.Z - feet.Z);
-            var len = d.Length();
-            if (len >= min)
-            {
-                continue;
-            }
-
-            if (len < 1e-3f)
-            {
-                // Right on top: out the way it came, else along +X.
-                d = new Vector2(before.X - feet.X, before.Z - feet.Z);
-                len = d.Length();
-                if (len < 1e-3f)
-                {
-                    (d, len) = (Vector2.UnitX, 1f);
-                }
-            }
-
-            var dir = d / len;
-            pos = new Vector3(feet.X + dir.X * min, pos.Y, feet.Z + dir.Y * min);
+            pos = Push(before, pos, feet, r);
         }
 
+        return Settle(before, after, pos, world, body);
+    }
+
+    /// <inheritdoc cref="Separate(Vector3, Vector3, IEnumerable{ValueTuple{Vector3, float}}, CollisionWorld, SphereBody)"/>
+    /// <remarks>A list walks without allocating (the bots, every tick).</remarks>
+    internal static Vector3 Separate(Vector3 before, Vector3 after, List<(Vector3 Feet, float Radius)> others, CollisionWorld world,
+        SphereBody body)
+    {
+        var pos = after;
+        foreach (var (feet, r) in others)
+        {
+            pos = Push(before, pos, feet, r);
+        }
+
+        return Settle(before, after, pos, world, body);
+    }
+
+    /// <summary><paramref name="pos"/> pushed out of the body at <paramref name="feet"/>.</summary>
+    private static Vector3 Push(Vector3 before, Vector3 pos, Vector3 feet, float r)
+    {
+        if (MathF.Abs(feet.Y - pos.Y) >= DmAvatar.Height)
+        {
+            return pos; // one stands on the other's head height or above: no side contact
+        }
+
+        var min = Radius + r;
+        var d = new Vector2(pos.X - feet.X, pos.Z - feet.Z);
+        var len = d.Length();
+        if (len >= min)
+        {
+            return pos;
+        }
+
+        if (len < 1e-3f)
+        {
+            // Right on top: out the way it came, else along +X.
+            d = new Vector2(before.X - feet.X, before.Z - feet.Z);
+            len = d.Length();
+            if (len < 1e-3f)
+            {
+                (d, len) = (Vector2.UnitX, 1f);
+            }
+        }
+
+        var dir = d / len;
+        return new Vector3(feet.X + dir.X * min, pos.Y, feet.Z + dir.Y * min);
+    }
+
+    /// <summary>The pushed place, unless it is in the level: then the body keeps its place across.</summary>
+    private static Vector3 Settle(Vector3 before, Vector3 after, Vector3 pos, CollisionWorld world, SphereBody body)
+    {
         if (pos != after && world.Overlaps(body, pos, slack: 1f))
         {
             return new Vector3(before.X, after.Y, before.Z);

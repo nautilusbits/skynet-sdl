@@ -62,6 +62,9 @@ public static class NetDemo
         KeyGoalLimit = "goal limit", KeyTime = "time limit", KeyClasses = "classes", KeyCheats = "cheats", KeyBots = "bots",
         KeyBotSkill = "bot skill", KeyReplenish = "replenish", KeyKeyframes = "keyframe seconds", KeyRecorded = "recorded";
 
+    /// <summary>The seed the host's bots derive their streams from (DmBots.Seed): the match can be played again.</summary>
+    internal const string KeyBotSeed = "bot seed";
+
     /// <summary>A new demo's header: the game, the build, the protocol, who records it and the host's rules.</summary>
     public static NetDemoData Create(GameData? data, NetDemoRole role, int localId, string localName, DmSettings s)
     {

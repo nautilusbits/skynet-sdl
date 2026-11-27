@@ -143,7 +143,12 @@ public sealed class SaveFormatException(string message, Exception? inner = null)
 /// (a list, in the robots' order, of {a list of f32 hit points, empty while all are whole; u64 the
 /// shot-off bits; a list of u8 looks: counter, bit 2 the last answer, bit 3 a pending alert});
 /// format 11 appends the soldier's trail (a flag byte, then f64 clock, i32 head, the stamps as
-/// i32s and the points as vectors) and each robot's trail point {i32 index, i32 stamp}.
+/// i32s and the points as vectors) and each robot's trail point {i32 index, i32 stamp};
+/// format 12 appends each robot's IMPROVED memory (a flag byte, then <see cref="RobotMemory"/>'s
+/// fields; a nullable vector is a flag byte and the vector); format 13 appends each robot's alert
+/// (a flag byte, then u8 state, f32 timer, the post as a nullable vector and the spot); format 14
+/// appends each robot's fight (a flag byte, then <see cref="RobotCombat"/>'s fields); format 15
+/// appends each robot's search (a flag byte, then <see cref="RobotSearch"/>'s fields).
 /// </summary>
 public static class SaveFile
 {
@@ -152,12 +157,14 @@ public static class SaveFile
     /// drops and the statistics (2026-10-10); 4: the pilot's name and call sign (2026-10-10); 5: the
     /// wall switches turned to their ON face (2026-10-10); 6: maps kept per mission-file instance (2026-10-11);
     /// 7: the simulation generator's state (2026-10-11); 8: the robots' perception counter and last
-    /// answer (2026-10-11); 9: the automap's seen set (2026-10-21); 10: the robots' segments (issue #58).</summary>
-    public const ushort Version = 11;
+    /// answer (2026-10-11); 9: the automap's seen set (2026-10-21); 10: the robots' segments (issue #58); 12: IMPROVED's memory; 13: IMPROVED's alert state; 14: IMPROVED's fight; 15: IMPROVED's search.</summary>
+    public const ushort Version = 15;
     /// <summary>The oldest format still read.</summary>
     public const ushort OldestVersion = 1;
     /// <summary>A sanity cap on any length read from a file.</summary>
     private const int MaxCount = 1 << 24;
+    /// <summary>Sanity caps on a robot's saved numbers: a place or angle (units), a timer (s).</summary>
+    private const float MaxCoord = 1e7f, MaxTimer = 3600f;
 
     public static byte[] Write(SaveGame save) => Write(save, Version);
 
@@ -403,6 +410,30 @@ public static class SaveFile
             w2.Write(x.Node);
             w2.Write(x.NodeStamp);
         });
+        if (version < 12)
+        {
+            return;
+        }
+
+        Array(w, s.Robots, (w2, x) => Memory(w2, x.Memory));
+        if (version < 13)
+        {
+            return;
+        }
+
+        Array(w, s.Robots, (w2, x) => Alert(w2, x.Memory));
+        if (version < 14)
+        {
+            return;
+        }
+
+        Array(w, s.Robots, (w2, x) => Combat(w2, x.Memory?.Combat));
+        if (version < 15)
+        {
+            return;
+        }
+
+        Array(w, s.Robots, (w2, x) => Search(w2, x.Memory?.Search));
     }
 
     private static void OptString(BinaryWriter w, string? text)
@@ -558,6 +589,83 @@ public static class SaveFile
             for (var i = 0; i < robots.Length; i++)
             {
                 robots[i] = robots[i] with { Node = nodes[i].Node, NodeStamp = nodes[i].Stamp };
+            }
+        }
+
+        if (version >= 12)
+        {
+            var memories = Array(r, Memory);
+            if (memories.Length != robots.Length)
+            {
+                throw new SaveFormatException("the robots' memory list does not match the robots");
+            }
+
+            for (var i = 0; i < robots.Length; i++)
+            {
+                robots[i] = robots[i] with { Memory = memories[i] };
+            }
+        }
+
+        if (version == 12)
+        {
+            // Format 12 kept no alert: a robot that had seen him was fighting.
+            for (var i = 0; i < robots.Length; i++)
+            {
+                if (robots[i].Memory is { LastSeen: not null } m)
+                {
+                    robots[i] = robots[i] with { Memory = m with { Alert = RobotAlert.Combat } };
+                }
+            }
+        }
+
+        if (version >= 13)
+        {
+            var alerts = Array(r, Alert);
+            if (alerts.Length != robots.Length)
+            {
+                throw new SaveFormatException("the robots' alert list does not match the robots");
+            }
+
+            for (var i = 0; i < robots.Length; i++)
+            {
+                if (robots[i].Memory is { } m && alerts[i] is { } a)
+                {
+                    robots[i] = robots[i] with { Memory = m with { Alert = a.Alert, AlertT = a.AlertT, Post = a.Post, Spot = a.Spot } };
+                }
+            }
+        }
+
+        if (version >= 14)
+        {
+            var fights = Array(r, Combat);
+            if (fights.Length != robots.Length)
+            {
+                throw new SaveFormatException("the robots' fight list does not match the robots");
+            }
+
+            for (var i = 0; i < robots.Length; i++)
+            {
+                if (robots[i].Memory is { } m && fights[i] is { } f)
+                {
+                    robots[i] = robots[i] with { Memory = m with { Combat = f } };
+                }
+            }
+        }
+
+        if (version >= 15)
+        {
+            var searches = Array(r, Search);
+            if (searches.Length != robots.Length)
+            {
+                throw new SaveFormatException("the robots' search list does not match the robots");
+            }
+
+            for (var i = 0; i < robots.Length; i++)
+            {
+                if (robots[i].Memory is { } m && searches[i] is { } s)
+                {
+                    robots[i] = robots[i] with { Memory = m with { Search = s } };
+                }
             }
         }
 
@@ -751,8 +859,172 @@ public static class SaveFile
         w.Write(x.Alert);
     }
 
-    private static RobotSnapshot Robot(BinaryReader r) => new(r.ReadInt32(), r.ReadInt32(), Vec(r), r.ReadSingle(), r.ReadSingle(),
-        r.ReadBoolean(), r.ReadBoolean(), r.ReadSingle(), r.ReadInt32(), r.ReadBoolean(), r.ReadBoolean());
+    private static RobotSnapshot Robot(BinaryReader r) => new(r.ReadInt32(), r.ReadInt32(), FiniteVec(r), Finite(r), Finite(r),
+        r.ReadBoolean(), r.ReadBoolean(), Finite(r), r.ReadInt32(), r.ReadBoolean(), r.ReadBoolean());
+
+    /// <summary>A robot's number: refused when NaN, infinite or beyond <see cref="MaxCoord"/> (a crafted
+    /// or damaged file; a NaN timer held a robot in one state for ever).</summary>
+    private static float Finite(BinaryReader r)
+    {
+        var v = r.ReadSingle();
+        return float.IsFinite(v) && MathF.Abs(v) <= MaxCoord ? v : throw new SaveFormatException($"a robot's number out of range ({v})");
+    }
+
+    private static Vector3 FiniteVec(BinaryReader r) => new(Finite(r), Finite(r), Finite(r));
+
+    /// <summary>A robot's timer, finite and clamped to 0..<see cref="MaxTimer"/>.</summary>
+    private static float Timer(BinaryReader r) => Math.Clamp(Finite(r), 0f, MaxTimer);
+
+    /// <summary>A robot's IMPROVED memory: a flag byte, then its fields (format 12).</summary>
+    private static void Memory(BinaryWriter w, RobotMemory? memory)
+    {
+        w.Write(memory.HasValue);
+        if (memory is not { } m)
+        {
+            return;
+        }
+
+        w.Write(m.LastSeen.HasValue);
+        Vec(w, m.LastSeen ?? default);
+        w.Write(m.MemoryT);
+        w.Write(m.Searching);
+        Vec(w, m.SearchSpot);
+        w.Write(m.SearchT);
+        Vec(w, m.WanderTarget);
+        w.Write(m.WanderT);
+        w.Write(m.BackOffT);
+        w.Write(m.BackOffYaw);
+        w.Write(m.Rng);
+    }
+
+    private static RobotMemory? Memory(BinaryReader r)
+    {
+        if (!r.ReadBoolean())
+        {
+            return null;
+        }
+
+        var hasSeen = r.ReadBoolean();
+        var seen = FiniteVec(r);
+        return new RobotMemory(hasSeen ? seen : null, Timer(r), r.ReadBoolean(), FiniteVec(r), Timer(r), FiniteVec(r),
+            Timer(r), Timer(r), Finite(r), r.ReadUInt64());
+    }
+
+    /// <summary>A robot's alert (format 13): a flag byte, then the state, its timer, the post and the spot.</summary>
+    private static void Alert(BinaryWriter w, RobotMemory? memory)
+    {
+        w.Write(memory.HasValue);
+        if (memory is not { } m)
+        {
+            return;
+        }
+
+        w.Write((byte)m.Alert);
+        w.Write(m.AlertT);
+        w.Write(m.Post.HasValue);
+        Vec(w, m.Post ?? default);
+        Vec(w, m.Spot);
+    }
+
+    private static RobotMemory? Alert(BinaryReader r)
+    {
+        if (!r.ReadBoolean())
+        {
+            return null;
+        }
+
+        var alert = (RobotAlert)r.ReadByte();
+        if (!Enum.IsDefined(alert))
+        {
+            throw new SaveFormatException($"unknown robot alert {(int)alert}");
+        }
+
+        var time = Timer(r);
+        var hasPost = r.ReadBoolean();
+        var post = FiniteVec(r);
+        return new RobotMemory() { Alert = alert, AlertT = time, Post = hasPost ? post : null, Spot = FiniteVec(r) };
+    }
+
+    /// <summary>A robot's fight (format 14): a flag byte, then its fields; a nullable vector is a flag byte and the vector.</summary>
+    private static void Combat(BinaryWriter w, RobotCombat? combat)
+    {
+        w.Write(combat.HasValue);
+        if (combat is not { } c)
+        {
+            return;
+        }
+
+        w.Write(c.Contact);
+        w.Write(c.LostT);
+        w.Write(c.ReactT);
+        w.Write(c.AimErr);
+        Vec(w, c.AimDir);
+        Vec(w, c.LastFeet);
+        Vec(w, c.TargetVel);
+        w.Write(c.Token);
+        w.Write(c.TokenT);
+        w.Write(c.TokenShots);
+        w.Write(c.TokenRest);
+        w.Write(c.Cover.HasValue);
+        Vec(w, c.Cover ?? default);
+        w.Write(c.CoverT);
+        w.Write(c.CoverHeld);
+        w.Write(c.CoverRest);
+        w.Write(c.CoverTry);
+        w.Write(c.Strafe);
+        w.Write(c.StrafeT);
+        w.Write(c.Flank.HasValue);
+        Vec(w, c.Flank ?? default);
+        w.Write(c.FlankSide);
+        w.Write(c.StaleT);
+    }
+
+    private static RobotCombat? Combat(BinaryReader r)
+    {
+        if (!r.ReadBoolean())
+        {
+            return null;
+        }
+
+        var (contact, lost, react, err) = (r.ReadBoolean(), Timer(r), Timer(r), Timer(r));
+        var (aim, feet, vel) = (FiniteVec(r), FiniteVec(r), FiniteVec(r));
+        var (token, tokenT, shots, rest) = (r.ReadBoolean(), Timer(r), r.ReadInt32(), Timer(r));
+        var hasCover = r.ReadBoolean();
+        var cover = FiniteVec(r);
+        var (coverT, held, coverRest, coverTry, strafe, strafeT) = (Timer(r), r.ReadBoolean(), Timer(r), r.ReadInt32(), r.ReadInt32(), Timer(r));
+        var hasFlank = r.ReadBoolean();
+        var flank = FiniteVec(r);
+        return new RobotCombat(contact, lost, react, err, aim, feet, vel, token, tokenT, shots, rest, hasCover ? cover : null, coverT,
+            held, coverRest, coverTry, strafe, strafeT, hasFlank ? flank : null, r.ReadInt32(), Timer(r));
+    }
+
+    /// <summary>A robot's search (format 15): a flag byte, then its fields.</summary>
+    private static void Search(BinaryWriter w, RobotSearch? search)
+    {
+        w.Write(search.HasValue);
+        if (search is not { } s)
+        {
+            return;
+        }
+
+        Vec(w, s.SeenAt);
+        Vec(w, s.SeenVel);
+        Vec(w, s.Way);
+        w.Write(s.Lead);
+        w.Write(s.Slot);
+        w.Write(s.LeadT);
+    }
+
+    private static RobotSearch? Search(BinaryReader r)
+    {
+        if (!r.ReadBoolean())
+        {
+            return null;
+        }
+
+        var (seenAt, seenVel, way) = (FiniteVec(r), FiniteVec(r), FiniteVec(r));
+        return new RobotSearch(seenAt, seenVel, way, r.ReadInt32(), r.ReadInt32(), Timer(r));
+    }
 
     private static void Kit(BinaryWriter w, InventoryState k)
     {

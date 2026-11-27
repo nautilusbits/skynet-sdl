@@ -96,6 +96,67 @@ public class SoundBankTests
         Assert.False(bank.Play3D(SoundIds.Explosion1, new Vector3(0, 0, -150)).IsNone);
     }
 
+    private static (Mixer, SoundBank) LoudBank(SoundRules rules, bool walls)
+    {
+        var mixer = new Mixer();
+        var clip = new byte[44100];
+        Array.Fill(clip, (byte)255);
+        var bank = new SoundBank(mixer, _ => clip) { Rules = rules, Occluded = (_, _) => walls };
+        bank.SetListener(Vector3.Zero, -Vector3.UnitZ, Vector3.UnitY);
+        return (mixer, bank);
+    }
+
+    private static float Heard(Mixer mixer, VoiceHandle voice)
+    {
+        mixer.Mix(new float[Mixer.BlockFrames * 2]);
+        return mixer.Loudness(voice);
+    }
+
+    [Theory]
+    [InlineData(SoundRules.Enhanced, true, 0f, 0.5f)]       // wall, same floor
+    [InlineData(SoundRules.Enhanced, true, 200f, 0.18f)]    // wall, other floor
+    [InlineData(SoundRules.Enhanced, false, 200f, 0.7f)]    // clear, other floor
+    [InlineData(SoundRules.Enhanced, false, 0f, 1f)]
+    [InlineData(SoundRules.Dos, true, 200f, 1f)]            // ORIGINAL: never muffled
+    public void RobotSoundsAreMuffledInEnhanced(SoundRules rules, bool walls, float above, float gain)
+    {
+        var (mixer, bank) = LoudBank(rules, walls);
+        var at = above > 0f ? new Vector3(0, above, 0) : new Vector3(0, 0, -100);
+        var voice = bank.PlayDos3D(SoundIds.Explosion1, at, PlacedSound.Robot);
+        Assert.Equal(gain * SoundBank.DosFade(at.Length()), Heard(mixer, voice), 2);
+    }
+
+    [Fact]
+    public void RobotMovesReachLessInEnhanced()
+    {
+        var far = new Vector3(0, 0, -(SoundBank.MoveReach + 100f));
+        var (_, enhanced) = LoudBank(SoundRules.Enhanced, false);
+        Assert.True(enhanced.PlayDos3D(SoundIds.Explosion1, far, PlacedSound.RobotMove).IsNone);
+        Assert.False(enhanced.PlayDos3D(SoundIds.Explosion1, far, PlacedSound.Robot).IsNone);
+        var (_, dos) = LoudBank(SoundRules.Dos, false);
+        Assert.False(dos.PlayDos3D(SoundIds.Explosion1, far, PlacedSound.RobotMove).IsNone);
+    }
+
+    [Fact]
+    public void RobotMovesShareThreeVoicesNearestFirst()
+    {
+        var (mixer, bank) = LoudBank(SoundRules.Enhanced, false);
+        var voices = new List<VoiceHandle>();
+        for (var i = 0; i < SoundBank.MoveVoices; i++)
+        {
+            voices.Add(bank.PlayDos3D(SoundIds.Explosion1, new Vector3(0, 0, -200 - 100 * i), PlacedSound.RobotMove));
+        }
+
+        Assert.DoesNotContain(VoiceHandle.None, voices);
+
+        // Full: a farther one gets none, a nearer one takes the farthest's; other sounds still play.
+        Assert.True(bank.PlayDos3D(SoundIds.Explosion1, new Vector3(0, 0, -600), PlacedSound.RobotMove).IsNone);
+        Assert.False(bank.PlayDos3D(SoundIds.Explosion1, new Vector3(0, 0, -150), PlacedSound.RobotMove).IsNone);
+        mixer.Mix(new float[Mixer.BlockFrames * 2]);
+        Assert.False(mixer.IsPlaying(voices[^1]));
+        Assert.False(bank.PlayDos3D(SoundIds.Explosion1, new Vector3(0, 0, -600)).IsNone);
+    }
+
     [Fact]
     public void LoopsStartNearAndStopFar()
     {

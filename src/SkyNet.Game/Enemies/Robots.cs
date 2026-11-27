@@ -23,6 +23,37 @@ public readonly record struct RobotSnapshot(int MarkerOffset, int SpawnSource, V
     /// <summary>A hover's point on the soldier's trail (0 none) and the stamp it read there.</summary>
     public int Node { get; init; }
     public int NodeStamp { get; init; }
+    /// <summary>IMPROVED's memory and its own stream; null: none kept (a save from before format 12).</summary>
+    public RobotMemory? Memory { get; init; }
+}
+
+/// <summary>What IMPROVED remembers of the soldier and its own moves (<see cref="RobotSnapshot.Memory"/>):
+/// the last sighting and its timer, the search, the wander, the back-off and its generator's state.</summary>
+public readonly record struct RobotMemory(Vector3? LastSeen, float MemoryT, bool Searching, Vector3 SearchSpot, float SearchT,
+    Vector3 WanderTarget, float WanderT, float BackOffT, float BackOffYaw, ulong Rng)
+{
+    /// <summary>The fight: reaction, aim, token, cover (format 14; older: none, a new acquire).</summary>
+    public RobotCombat? Combat { get; init; }
+    /// <summary>The alert state and its timer (format 13; older: idle).</summary>
+    public RobotAlert Alert { get; init; }
+    public float AlertT { get; init; }
+    /// <summary>The post it patrols round and returns to (null: where it was placed).</summary>
+    public Vector3? Post { get; init; }
+    /// <summary>The spot it investigates or searches round.</summary>
+    public Vector3 Spot { get; init; }
+    /// <summary>The search's leads (format 15; older: his way unknown).</summary>
+    public RobotSearch? Search { get; init; }
+}
+
+/// <summary>What an IMPROVED robot hears (<see cref="Robots.Noise"/>); never the soldier's steps.</summary>
+public enum NoiseKind
+{
+    /// <summary>The soldier's gun, or where his bolt struck.</summary>
+    Shot,
+    /// <summary>A robot's gun.</summary>
+    RobotShot,
+    /// <summary>An explosion: a shell, a grenade, a robot going up.</summary>
+    Blast,
 }
 
 /// <summary>A robot's act on death: the marker's act byte, its file offset, and the robot.</summary>
@@ -57,6 +88,24 @@ public sealed class Robots
     private bool _spawnRunDone;
     private readonly List<Triangle> _surfaceTris = [];
     private MapFile? _map;
+    /// <summary>Hearing radii by <see cref="NoiseKind"/> (units); a noise behind the level is heard at half.</summary>
+    private static readonly float[] NoiseReach = [1500f, 600f, 2500f];
+    /// <summary>The last noises (a ring: a robot reads the ones since its last look).</summary>
+    private const int NoiseRing = 16;
+    private readonly (Vector3 At, float Reach)[] _noises = new (Vector3, float)[NoiseRing];
+    /// <summary>Noises made so far; wraps (indices and gaps are taken unsigned).</summary>
+    private int _noiseSeq;
+    /// <summary>The <see cref="WeaponSystem.Reported"/> kinds heard: a shell's burst, a shot's impact.</summary>
+    private const string BurstReport = "burst", ImpactReport = "impact", WallReport = "wall";
+    /// <summary>His last shot: where it left from and when (<see cref="Clock"/>); a hit this long after
+    /// (s: a rocket's flight, a grenade's fuse) is from there.</summary>
+    private Vector3? _shotFrom;
+    private double _shotClock;
+    private const float ShotMemory = 5f;
+    private readonly Action<int, Vector3, Vector3> _heardShot;
+    private readonly Action<ShotReport> _heardImpact;
+    /// <summary>The session generator's state when the map was entered: IMPROVED's per-robot streams start from it.</summary>
+    private readonly ulong _improvedSeed;
 
     public Robots(AisData ais, EnemyModels models, CollisionWorld world, WeaponSystem? weapons = null, int seed = 1, SimRandom? random = null)
     {
@@ -65,8 +114,16 @@ public sealed class Robots
         World = world;
         Weapons = weapons;
         Rng = random ?? new SimRandom((ulong)seed);
+        _improvedSeed = Rng.State;
         Difficulty = Difficulty.Medium;
         _partGone = PartExploded;
+        _heardShot = HeardShot;
+        _heardImpact = HeardImpact;
+        if (weapons != null)
+        {
+            weapons.Shot += _heardShot;
+            weapons.Reported += _heardImpact;
+        }
     }
 
     public AisData Ais { get; }
@@ -164,11 +221,24 @@ public sealed class Robots
     /// <summary>A brain's generator: the shared one (one stream for the whole simulation).</summary>
     internal SimRandom NewRng() => Rng;
 
+    /// <summary>IMPROVED's own stream for the robot built next (its index in <see cref="All"/>), so its
+    /// draws never shift <see cref="Rng"/> (CLASSIC's runs stay DOS's).</summary>
+    internal SimRandom NewImprovedRng() => new(Mix(_improvedSeed + (ulong)_all.Count));
+
+    /// <summary>SplitMix64's finaliser: neighbouring indices give unrelated seeds.</summary>
+    private static ulong Mix(ulong x)
+    {
+        x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ul;
+        x = (x ^ (x >> 27)) * 0x94D049BB133111EBul;
+        return x ^ (x >> 31);
+    }
+
     /// <summary>Places the robots of <paramref name="map"/>: start markers, then spawn sprites.</summary>
     public void Populate(MapFile map)
     {
         _map = map;
         Trail.Clear();
+        ForgetShot();
         var spawns = 0;
         foreach (var e in map.Entities)
         {
@@ -383,6 +453,12 @@ public sealed class Robots
     /// <summary>Takes every robot off the weapons' targets (the map is left).</summary>
     public void Detach()
     {
+        if (Weapons != null)
+        {
+            Weapons.Shot -= _heardShot;
+            Weapons.Reported -= _heardImpact;
+        }
+
         foreach (var r in _all)
         {
             RemoveTargets(r);
@@ -414,6 +490,7 @@ public sealed class Robots
         }
 
         _blasts.Clear();
+        ForgetShot();
         Wreckage.Clear();
         _spawnRunDone = true;                         // a saved map was run long ago
         for (var i = 0; i < robots.Count; i++)
@@ -496,6 +573,11 @@ public sealed class Robots
             cz = TickWindow.CellZ(c);
         }
 
+        if (Ai == RobotAi.Improved)
+        {
+            DealTokens(dt);
+        }
+
         var ticked = 0;
         for (var i = 0; i < _all.Count; i++)
         {
@@ -551,6 +633,57 @@ public sealed class Robots
         }
     }
 
+    /// <summary>IMPROVED: at most this many roaming robots fire at the soldier freely at once (the rest
+    /// at a reduced rate, <see cref="Enemy"/>'s combat).</summary>
+    internal const int MaxAttackers = 5;
+
+    /// <summary>The attack tokens, before the robots run: holders who lost him or died give theirs
+    /// back, and so do those whose burst is over while others wait (alone, a robot keeps firing);
+    /// the free ones go to those asking, lowest index first.</summary>
+    private void DealTokens(float dt)
+    {
+        var waiting = 0;
+        for (var i = 0; i < _all.Count; i++)
+        {
+            _all[i].AgeCombat(dt);
+            waiting += !_all[i].HoldsToken && _all[i].WantsToken ? 1 : 0;
+        }
+
+        var held = 0;
+        for (var i = 0; i < _all.Count; i++)
+        {
+            var r = _all[i];
+            if (!r.HoldsToken)
+            {
+                continue;
+            }
+
+            if (!r.KeepsToken || held >= MaxAttackers || (r.BurstOver && waiting > 0))
+            {
+                waiting -= r.BurstOver && waiting > 0 ? 1 : 0;
+                r.DropToken();
+                continue;
+            }
+
+            if (r.BurstOver)
+            {
+                r.TakeToken();   // nobody waits: a new burst
+            }
+
+            held++;
+        }
+
+        for (var i = 0; i < _all.Count && held < MaxAttackers; i++)
+        {
+            var r = _all[i];
+            if (!r.HoldsToken && r.WantsToken)
+            {
+                r.TakeToken();
+                held++;
+            }
+        }
+    }
+
     /// <summary>EnemyKill's blast (75) at <paramref name="at"/>: 115 − d to the soldier and to every
     /// robot and breakable map record in reach with a clear line, unscaled by the difficulty.</summary>
     public void DeathBlastAt(Vector3 at)
@@ -599,13 +732,17 @@ public sealed class Robots
 
     // ---------------------------------------------------------------- what the robots ask for
 
-    internal void Sound(int id, Vector3 at)
+    internal void Sound(int id, Vector3 at, AisSoundSource source)
     {
-        if (id >= 0)
+        if (id < 0)
         {
-            // DOS plays the AIS frame sounds at the id's own volume and pitch (FUN_0012f018).
-            Sounds?.PlayDos3D(id, at);
+            return;
         }
+
+        // DOS plays the AIS frame sounds at the id's own volume and pitch (FUN_0012f018); the kind
+        // lets the ENHANCED rules muffle them and cap the movement ones.
+        var kind = source == AisSoundSource.Frame ? PlacedSound.RobotMove : PlacedSound.Robot;
+        Sounds?.PlayDos3D(id, at, kind);
     }
 
     internal void HitSound(Vector3 at) => Sounds?.Play3D("HIT2.RAW", at, -4f);
@@ -621,7 +758,143 @@ public sealed class Robots
         }
 
         Weapons.EnemyFire(robot, AmmoOf(Weapons, ammoType), muzzle, dir, speed);
+        Noise(muzzle, NoiseKind.RobotShot);
     }
+
+    /// <summary>A noise IMPROVED robots may hear (CLASSIC: none listens). No allocation: a ring.</summary>
+    public void Noise(Vector3 at, NoiseKind kind)
+    {
+        if (Ai != RobotAi.Improved)
+        {
+            return;
+        }
+
+        _noises[(uint)_noiseSeq % NoiseRing] = (at, NoiseReach[(int)kind]);
+        _noiseSeq = unchecked(_noiseSeq + 1);
+    }
+
+    /// <summary>His shot (<see cref="WeaponSystem.Shot"/>): heard, and kept as the origin of what it strikes.</summary>
+    private void HeardShot(int record, Vector3 from, Vector3 way)
+    {
+        (_shotFrom, _shotClock) = (from, Clock);
+        Noise(from, NoiseKind.Shot);
+    }
+
+    /// <summary>A shell's burst or a shot's impact (<see cref="WeaponSystem.Reported"/>); his shot
+    /// striking near a robot is a shot at it.</summary>
+    private void HeardImpact(ShotReport r)
+    {
+        if (r.Weapon >= 0 && r.What is BurstReport or ImpactReport or WallReport)
+        {
+            NearMiss(r.Point);
+        }
+
+        if (r.What == BurstReport)
+        {
+            Noise(r.Point, NoiseKind.Blast);
+        }
+        else if (r.What == ImpactReport)
+        {
+            Noise(r.Point, NoiseKind.Shot);
+        }
+    }
+
+    /// <summary>The nearest noise since <paramref name="seq"/> heard at <paramref name="ear"/>
+    /// (half reach through the level); <paramref name="seq"/> moves past them all.</summary>
+    internal bool Heard(Vector3 ear, ref int seq, out Vector3 at)
+    {
+        at = default;
+        var best = float.MaxValue;
+        var pending = Math.Min(unchecked((uint)(_noiseSeq - seq)), (uint)NoiseRing);
+        for (var i = pending; i > 0; i--)
+        {
+            var (from, reach) = _noises[unchecked((uint)(_noiseSeq - (int)i)) % NoiseRing];
+            var d = Vector3.Distance(from, ear);
+            if (reach <= 0f || d > reach || d >= best)
+            {
+                continue;
+            }
+
+            if (d > reach * 0.5f && d >= 1f && World.Raycast(from, (ear - from) / d, d - 1f, out _))
+            {
+                continue;
+            }
+
+            (best, at) = (d, from);
+        }
+
+        seq = _noiseSeq;
+        return best < float.MaxValue;
+    }
+
+    /// <summary><paramref name="from"/> entered combat: the roaming robots round it investigate its spot
+    /// (not the soldier's live place).</summary>
+    internal void Alarm(Enemy from)
+    {
+        foreach (var r in _all)
+        {
+            if (r != from && r.Alive && !r.Hidden && r.DormantDistance <= 0f
+                && Vector3.DistanceSquared(r.Position, from.Position) <= Enemy.AlarmRadius * Enemy.AlarmRadius)
+            {
+                r.Alarmed(from.Position);
+            }
+        }
+    }
+
+    /// <summary><paramref name="victim"/> was hit: the roaming robots near it (<see cref="Enemy.WitnessNear"/>)
+    /// or watching it (<see cref="Enemy.WitnessSight"/>) go for his shot's origin at once.</summary>
+    internal void Witness(Enemy victim)
+    {
+        if (Ai != RobotAi.Improved)
+        {
+            return;
+        }
+
+        var origin = ShotOrigin(victim.Position);
+        for (var i = 0; i < _all.Count; i++)
+        {
+            var r = _all[i];
+            if (r == victim || !Listens(r))
+            {
+                continue;
+            }
+
+            var d = Vector3.Distance(r.Position, victim.Position);
+            if (d <= Enemy.WitnessNear || (d <= Enemy.WitnessSight && r.Watches(victim.Position)))
+            {
+                r.Witnessed(origin);
+            }
+        }
+    }
+
+    /// <summary>His shot struck at <paramref name="at"/>: the robots within <see cref="Enemy.NearMiss"/> were shot at.</summary>
+    private void NearMiss(Vector3 at)
+    {
+        if (Ai != RobotAi.Improved)
+        {
+            return;
+        }
+
+        var origin = ShotOrigin(at);
+        for (var i = 0; i < _all.Count; i++)
+        {
+            var r = _all[i];
+            if (Listens(r) && Vector3.DistanceSquared(r.Position, at) <= Enemy.NearMiss * Enemy.NearMiss)
+            {
+                r.Witnessed(origin);
+            }
+        }
+    }
+
+    /// <summary>Awake on the map: alive, shown, not dormant.</summary>
+    private static bool Listens(Enemy r) => r.Alive && !r.Hidden && r.DormantDistance <= 0f;
+
+    /// <summary>No shot of his known: a save does not keep it (its shots in flight are not kept
+    /// either), so a new map and a load start without one, the same whichever way it is reached.</summary>
+    private void ForgetShot() => (_shotFrom, _shotClock) = (null, 0d);
+
+    /// <summary>Where his last shot left from, if lately; else <paramref name="none"/>.</summary>
+    private Vector3 ShotOrigin(Vector3 none) => _shotFrom is { } from && Clock - _shotClock <= ShotMemory ? from : none;
 
     /// <summary>The ammo record a robot's ammo type fires (an unknown type: <see cref="FallbackAmmo"/>).</summary>
     private static AmmoRecord AmmoOf(WeaponSystem weapons, int ammoType)
@@ -640,6 +913,7 @@ public sealed class Robots
         var size = part.Model is { } m ? (m.Bounds.Max - m.Bounds.Min).Length() : 60f;
         Weapons?.Explosion(at, Enemy.DeathEffectBank, size * 0.55f);
         _blasts.Add((Enemy.DeathBlastDelay, at));
+        Noise(at, NoiseKind.Blast);
     }
 
     /// <summary>
@@ -683,8 +957,8 @@ public sealed class Robots
         var to = player - robot.Position;
         var at = robot.Position + (to.LengthSquared() > 0f ? Vector3.Normalize(to) * half : Vector3.Zero);
         Weapons?.Warp(at, Enemy.TrapEffectBank, robot.BodySize * 0.55f, half * WarpSize / WeaponSystem.DosScaleUnit);
-        Sound(Enemy.TrapSound, at);
-        Sound(Enemy.TrapSound, robot.Position);
+        Sound(Enemy.TrapSound, at, AisSoundSource.Script);
+        Sound(Enemy.TrapSound, robot.Position, AisSoundSource.Script);
     }
 
     private const float WarpSize = 20f;
@@ -713,6 +987,7 @@ public sealed class Robots
                 Sounds?.Play3D("EXPLO1.RAW", centre, -2f);
                 Weapons?.Explosion(centre, Enemy.DeathEffectBank, robot.BodySize * 0.55f);
                 _blasts.Add((Enemy.DeathBlastDelay, robot.Position));
+                Noise(robot.Position, NoiseKind.Blast);
             }
             else
             {
@@ -737,6 +1012,7 @@ public sealed class Robots
         var size = seg.Model is { } m ? (m.Bounds.Max - m.Bounds.Min).Length() : 60f;
         Weapons?.Explosion(at, Enemy.DeathEffectBank, size * 0.55f);
         _blasts.Add((Enemy.DeathBlastDelay, at));
+        Noise(at, NoiseKind.Blast);
     }
 
     /// <summary>EnemyKill (0x129f30) on one segment, not the root: its parts thrown and its

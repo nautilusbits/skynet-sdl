@@ -67,6 +67,11 @@ public sealed class DmServer
     /// <summary>The arena's jeeps and HKs (step 9), by key (1-based, DOS's vehicle index).</summary>
     public IReadOnlyDictionary<int, DmVehicle> Vehicles => _vehicles;
 
+    // The same, walked without boxing an enumerator (the bots look every tick).
+    internal Dictionary<int, DmPlayer>.ValueCollection AllPlayers => _players.Values;
+    internal Dictionary<int, DmPickup>.ValueCollection AllPickups => _pickups.Values;
+    internal Dictionary<int, DmVehicle>.ValueCollection AllVehicles => _vehicles.Values;
+
     // ---- events (DmHost sends them; a test watches them) ----
 
     public event Action<DmPlayer>? PlayerAdded;
@@ -88,6 +93,8 @@ public sealed class DmServer
     public event Action<int, DmClass>? ClassChanged;
     /// <summary>A vehicle's state changed (a seat, its place, its hull, a wreck, a new round).</summary>
     public event Action<DmVehicle, DmVehicleEvent>? VehicleChanged;
+    /// <summary>A hit landed, on foot or on the hull: (victim, attacker; 0 = the world).</summary>
+    internal event Action<int, int>? Hurt;
 
     public bool IsBot(int id) => id < 0;
 
@@ -425,9 +432,43 @@ public sealed class DmServer
             return false;
         }
 
+        // Bots hear the shot where it left and weigh the shooter's weapon: both must be real.
+        if (!Fireable(id, weapon) || (LimitTravel && Vector3.Distance(from, _players[id].Position) > FireReach(id)))
+        {
+            return false;
+        }
+
         _players[id].Weapon = weapon;
         return true;
     }
+
+    /// <summary>A shot leaves this far from the feet at most beyond the travel budget (the eye, the
+    /// muzzle, a vehicle's gun mount).</summary>
+    private const float FireSlack = 200f;
+
+    /// <summary>How far from the server's place of <paramref name="id"/> its shot may leave: what it
+    /// may travel in a burst, the margin, the slack.</summary>
+    private float FireReach(int id) => TopSpeed(id) * TravelBurst + TravelMargin + FireSlack;
+
+    /// <summary>A record <paramref name="id"/> can fire: any on-foot weapon, or its vehicle's guns
+    /// (the HK's second barrel and pod too).</summary>
+    private bool Fireable(int id, int weapon)
+    {
+        if (weapon is >= 0 and < Weapons.WeaponTable.FirstVehicle)
+        {
+            return true;
+        }
+
+        return VehicleOf(id)?.Kind switch
+        {
+            VehicleMode.Jeep => weapon is VehicleJeepGun or VehicleJeepPod,
+            VehicleMode.Hk => weapon is >= VehicleHkFirst and <= VehicleHkLast,
+            _ => false,
+        };
+    }
+
+    /// <summary>The vehicle records (VehicleGuns): the jeep's laser and pod, the HK's two barrels and two pods.</summary>
+    private const int VehicleJeepGun = 24, VehicleJeepPod = 25, VehicleHkFirst = 20, VehicleHkLast = 23;
 
     // ---- damage ----
 
@@ -480,6 +521,7 @@ public sealed class DmServer
         // DOS scores on the victim's machine (FUN_00121313): a hit that does not kill is worth
         // scoring_hit to the attacker, the killing blow scoring_kill and a kill instead (no hit).
         var scorer = attacker != victim && _players.TryGetValue(attacker, out var a) ? a : null;
+        Hurt?.Invoke(victim, attacker);
 
         // In a vehicle the hull takes the whole hit and the driver nothing (DOS 0x122b52 hands it
         // to 0x13114a, no armour); a wreck throws the driver out alive.

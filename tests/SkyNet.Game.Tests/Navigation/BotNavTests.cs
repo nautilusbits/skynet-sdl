@@ -91,6 +91,50 @@ public class BotNavTests(ITestOutputHelper output)
         Assert.True(pathed.Stuck < straight.Stuck, $"stuck {pathed.Stuck} on the mesh, {straight.Stuck} without");
     }
 
+    /// <summary>Twelve bots, a minute on MAP.601 (its HKs on pads no bot path reaches): the goals
+    /// off the spawns' mesh are never searched, a cut-off search is not repeated by every bot, a
+    /// pick's searches stay in their node budget and a tick makes two picks at most. Counts, not
+    /// times: the same in every run.</summary>
+    [BehaviourDataFact]
+    public void Twelve_bots_on_map_601_search_within_their_budget()
+    {
+        var session = new GameSession(BehaviourData.Data);
+        Assert.True(session.StartDeathmatch(601));
+        var arena = DmBots.Cleared(DmArena.Load(BehaviourData.Data, 601)!, session);
+        var net = new LoopbackNetwork();
+        var items = SkyNet.Formats.NetLevelList.For(SkyNet.Formats.NetLevelList.Load(BehaviourData.Data), 601).Items;
+        var settings = new DmSettings { Map = 601, Bots = 12, BotSkill = 1, Items = items };
+        using var host = new DmHost(new NetEndpoint(net.Listen(0, DmProtocol.MaxPeers)!), new DmServer(settings, new Random(11)), "HOST", DmClass.Human);
+        host.Server.SetArena(arena);
+        host.ReportLevelReady();
+        var bots = DmBots.Start(host, session.World, session.Weapons.Table, seed: 42, nav: DmNav.For(session),
+            rides: DmNav.Rides(session, host.Server.Vehicles.Values));
+
+        var most = 0;
+        for (var i = 0; i < 60 * 60; i++)
+        {
+            var before = bots.Brains.Values.Sum(b => b.Picks);
+            host.Update(Dt);
+            most = Math.Max(most, bots.Brains.Values.Sum(b => b.Picks) - before);
+        }
+
+        var picks = bots.Brains.Values.Sum(b => b.Picks);
+        var searches = bots.Brains.Values.Sum(b => b.PickSearches);
+        var cut = bots.Brains.Values.Sum(b => b.CutSearches);
+        var nodes = bots.Brains.Values.Max(b => b.MostPickNodes);
+        var stuck = bots.Brains.Values.Sum(b => b.Stuck);
+        output.WriteLine($"{picks} picks, {searches} searches, {cut} cut off, most nodes a pick {nodes}, most picks a tick {most}, stuck {stuck}");
+
+        Assert.True(cut <= MaxCutSearches, $"{cut} searches found their goal cut off");
+        Assert.True(nodes <= BotBrain.PickNodes, $"a pick expanded {nodes} nodes");
+        Assert.True(most <= MaxPicksPerUpdate, $"{most} picks in one update");
+        Assert.True(picks > 0 && searches > 0);
+    }
+
+    /// <summary>The 601 minute's cut-off searches at most (1 now; 17 without the flood and the
+    /// shared skips); an update runs one bot tick of two picks, two ticks on the clock's drift.</summary>
+    private const int MaxCutSearches = 5, MaxPicksPerUpdate = 4;
+
     private (int Stuck, float Walked, int Pickups, int Frags) Match(bool nav)
     {
         var session = new GameSession(BehaviourData.Data);

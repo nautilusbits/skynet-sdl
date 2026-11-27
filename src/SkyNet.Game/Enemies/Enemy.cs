@@ -21,7 +21,6 @@ public sealed partial class Enemy : IDamageable
     public const float AimHeight = 60f;
     public const float EyeHeight = 60f;
     public const float FlyerSinkSpeed = 250f, FlyerClimbSpeed = 300f, FlyerMinAlt = 250f, FlyerLookahead = 400f;
-    public const float WanderRadius = 1200f;
     public const float SlopeTerminator = 0.79f, SlopeOther = 0.47f;
     public const float StepTerminator = 40f, StepOther = 20f;
     public const float MaxDropTerminator = 96f, MaxDropOther = 60f;
@@ -90,10 +89,11 @@ public sealed partial class Enemy : IDamageable
     public Enemy(Robots ctx, int type, Vector3 position, float yaw, int markerOffset = -1)
     {
         _ctx = ctx;
+        _improvedRng = ctx.NewImprovedRng();
         var ais = ctx.Ais;
         TypeIndex = type;
         Type = type >= 0 && type < ais.Types.Length ? ais.Types[type] : null;
-        Position = position;
+        Position = _post = position;
         Yaw = _rootRestYaw = yaw;
         _rootTilt = Tilt(Type);
         MarkerOffset = markerOffset;
@@ -377,7 +377,8 @@ public sealed partial class Enemy : IDamageable
     /// turrets' aim start again on load.</summary>
     internal RobotSnapshot Snapshot() =>
         new(MarkerOffset, SpawnSource, Position, Yaw, Hp, Dead, Hidden, DormantDistance, DeathAct, _initDone, _alert,
-            _senseCount, _perceived) { Parts = PartsHp(), Gone = PartsGone(), Senses = PartsSenses(), Node = _node, NodeStamp = _nodeStamp };
+            _senseCount, _perceived) { Parts = PartsHp(), Gone = PartsGone(), Senses = PartsSenses(), Node = _node, NodeStamp = _nodeStamp,
+                Memory = SaveMemory() };
 
     private const int SensePerceived = 4, SenseAlerted = 8, SenseSwapped = 16;
 
@@ -462,6 +463,7 @@ public sealed partial class Enemy : IDamageable
         _senseCount = s.SenseCount & 3;
         _perceived = s.Perceived;
         (_node, _nodeStamp) = (s.Node is > 0 and < PlayerTrail.Length ? s.Node : 0, s.NodeStamp);
+        LoadMemory(s.Memory);
         UpdateTransforms();
         KeepPose();
         return died;
@@ -518,7 +520,7 @@ public sealed partial class Enemy : IDamageable
         Sees = senses.See;
         if (Improved)
         {
-            Remember(senses, player);
+            Remember(dt, senses, player);
         }
 
         if (Brain != null)
@@ -533,15 +535,20 @@ public sealed partial class Enemy : IDamageable
                 CycleStrip(m.Frames, dt);
             }
 
-            foreach (var id in Brain.Sounds)
+            for (var i = 0; i < Brain.Sounds.Count; i++)
             {
-                _ctx.Sound(id, Position + new Vector3(0f, 40f, 0f));
+                _ctx.Sound(Brain.Sounds[i], Position + new Vector3(0f, 40f, 0f), Brain.SoundSources[i]);
             }
         }
 
         if (IsPassive || player is not { } feet)
         {
             return;
+        }
+
+        if (Improved && !IsKamikaze)
+        {
+            UpdateCombat(dt, senses, feet);
         }
 
         if (State == 6 && IsKamikaze && senses.See
@@ -589,6 +596,20 @@ public sealed partial class Enemy : IDamageable
                 TryFire(Root, fire, dt, feet);
             }
         }
+    }
+
+    /// <summary>A turret segment perceived him on its last look.</summary>
+    private bool GunSees()
+    {
+        foreach (var seg in _turrets)
+        {
+            if (seg != Root && !seg.Gone && seg.Perceived)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void CycleStrip(int frames, float dt)
@@ -651,7 +672,7 @@ public sealed partial class Enemy : IDamageable
             return _perceived = true;
         }
 
-        return _perceived = DosDistance(p - Position) <= PerceptionRange && LineOfSight(p);
+        return _perceived = DosDistance(p - Position) <= PerceptionRange && InCone(p) && LineOfSight(p);
     }
 
     /// <summary>FUN_00137965 on the root's own actor: the soldier within its engage range (dw8).</summary>
@@ -740,15 +761,13 @@ public sealed partial class Enemy : IDamageable
             return;
         }
 
-        Vector3 target;
-        if (see)
+        // DOS never roams (#57): an HK steers at the soldier unseen too (0x13cb5e), a tank
+        // by its script alone (0x13d100), a walker by its trail point (0x13c600).
+        var target = player;
+        var walk = WalkerGait.Follow;
+        if (State == 7)
         {
-            target = player;
-            _wanderT = 0f;
-        }
-        else
-        {
-            target = Wander(dt);
+            (walk, target) = WalkerGoal(see, player);
         }
 
         var to = target - Position;
@@ -756,14 +775,10 @@ public sealed partial class Enemy : IDamageable
         var dist = to.Length();
         var speed = MoveSpeed;
         var wantYaw = dist > 1f ? MathF.Atan2(-to.X, -to.Z) : Yaw;
-        if (State == 13 && Brain != null)
+        if (State == 13)
         {
-            if (Brain.HasVar(44))
-            {
-                wantYaw = Brain.Var(44, 0) / 2048f * MathF.Tau;
-            }
-
-            speed = Brain.Var(48, Type?.Speed ?? 0);
+            wantYaw = Brain is { } b && b.HasVar(44) ? b.Var(44, 0) / 2048f * MathF.Tau : Yaw;
+            speed = Brain?.Var(48, Type?.Speed ?? 0) ?? speed;
         }
         else if (State == 9 && Brain != null)
         {
@@ -783,6 +798,10 @@ public sealed partial class Enemy : IDamageable
         {
             moving = true;                       // hovers never park: they overfly
         }
+        else if (State == 7)
+        {
+            moving &= walk == WalkerGait.Follow;   // its near test is to the soldier (0x13c62b)
+        }
         else if (dist <= near)
         {
             moving = false;
@@ -801,9 +820,9 @@ public sealed partial class Enemy : IDamageable
                 {
                     Yaw = Wrap(Yaw + 1.2f * dt);
                 }
-                else if (!see)
+                else if (State == 7)
                 {
-                    _wanderT = 0f;
+                    TrailBlocked();
                 }
             }
             else
@@ -855,19 +874,67 @@ public sealed partial class Enemy : IDamageable
         _bob = -p[BobStep] * BobFps * (1f - MathF.Cos(_bobPhase)) / w;
     }
 
-    private Vector3 Wander(float dt)
+    /// <summary>Whether a CLASSIC walker steps this tick.</summary>
+    private enum WalkerGait { Stand, Follow }
+
+    /// <summary>
+    /// CLASSIC walker (state 7, v1.01 0x13c600): where it heads and whether it steps.
+    /// <code>
+    ///   within dw6 of him (0x13c62b) ─► newest trail point held (0x13c7f9), stand, face him
+    ///   no point held, unseen (0x13c663) ─► stand, face him (0x13c810)
+    ///   no point held, seen ─► take the newest (0x13b7b6; none: stand, face him)
+    ///   point held ─► walk at it, no sight test; within 25 the next (0x13b817)
+    /// </code>
+    /// Deviation: the 25 is flat here; DOS measures 3D from its origin to the point lifted by dw5's y.
+    /// </summary>
+    private (WalkerGait, Vector3) WalkerGoal(bool see, Vector3 player)
     {
-        _wanderT -= dt;
-        if (_wanderT <= 0f || _wanderTarget == Vector3.Zero)
+        var trail = _ctx.Trail;
+        if (Vector3.Distance(player + new Vector3(0f, DosEye, 0f), Position) <= (Type?.Near ?? 0))
         {
-            var rng = _ctx.Rng;
-            _wanderT = 4f + 5f * rng.NextSingle();
-            var a = rng.NextSingle() * MathF.Tau;
-            _wanderTarget = Position + new Vector3(MathF.Cos(a), 0f, MathF.Sin(a)) * (300f + (WanderRadius - 300f) * rng.NextSingle());
+            if (trail.Ready && trail.Head != 0)
+            {
+                (_node, _nodeStamp) = (trail.Head, trail.Stamp(trail.Head));
+            }
+
+            return (WalkerGait.Stand, player);
         }
 
-        return _wanderTarget;
+        if (_node == 0)
+        {
+            if (!see)
+            {
+                return (WalkerGait.Stand, player);
+            }
+
+            if (!trail.Ready || trail.Head == 0)
+            {
+                return (WalkerGait.Stand, player);   // 0x13c685: DOS turns to a stale register; the port to him
+            }
+
+            (_node, _nodeStamp) = (trail.Head, trail.Stamp(trail.Head));
+        }
+
+        var flat = (trail.At(_node) - Position) with { Y = 0f };
+        if (flat.Length() <= WalkerReach && trail.Ahead(_node, _nodeStamp, 1) is >= 0 and var next)
+        {
+            _node = next;
+        }
+
+        _nodeStamp = trail.Stamp(_node);   // 0x13c826
+        return (WalkerGait.Follow, trail.At(_node));
     }
+
+    /// <summary>A blocked walker (0x13c766): none held, the newest; else 3 points back (0x13b7d8),
+    /// none: it lets go. Not ported: the slide's contact codes 4/5 (0x13c7ac).</summary>
+    private void TrailBlocked()
+    {
+        var trail = _ctx.Trail;
+        _node = _node == 0 ? trail.Head : Math.Max(trail.Back(_node, _nodeStamp, 3), 0);
+        _nodeStamp = _node != 0 ? trail.Stamp(_node) : 0;
+    }
+
+    private const float WalkerReach = 25f;
 
     /// <summary>A segment cast: the first surface from <paramref name="from"/> to <paramref name="to"/>.</summary>
     private bool Cast(Vector3 from, Vector3 to, out RetroEng.Physics.Hit hit)
@@ -1196,9 +1263,9 @@ public sealed partial class Enemy : IDamageable
             m.Frame = ClampFrame(m, brain.Frame);
         }
 
-        foreach (var id in brain.Sounds)
+        for (var i = 0; i < brain.Sounds.Count; i++)
         {
-            _ctx.Sound(id, m.World.Translation);
+            _ctx.Sound(brain.Sounds[i], m.World.Translation, brain.SoundSources[i]);
         }
 
         if (m.Model is not { } model)
@@ -1240,11 +1307,23 @@ public sealed partial class Enemy : IDamageable
             return;
         }
 
+        // IMPROVED: reacted, its turn (a token), its aim swung onto him.
+        if (Improved && !Ready(aim))
+        {
+            return;
+        }
+
         var x = part.MuzzleSwapped != fire.Speed < 0 ? -fire.MuzzleX : fire.MuzzleX;
         var muzzle = Vector3.Transform(new Vector3(x, -fire.MuzzleY, -fire.MuzzleZ), part.World);
+        if (Improved && (aim - muzzle).LengthSquared() < 1e-6f)
+        {
+            return;   // the muzzle on the aim: no way to fire along
+        }
 
-        // IMPROVED: no shot into a wall, turrets included (the eye's line and the muzzle's).
-        if (Improved && !ClearShot(part, muzzle, aim, player))
+        // IMPROVED: no shot into a wall, turrets included (the eye's line and the bolt's, from where
+        // it starts: the muzzle of a gun standing on the floor is in it).
+        var r = ((int)(part.BlastPad * 256f) + 0x80) >> 8;   // 0x13c2d1: the model radius, rounded
+        if (Improved && !ClearShot(part, muzzle + Vector3.Normalize(aim - muzzle) * (r + (r >> 4)), aim, player))
         {
             return;
         }
@@ -1256,8 +1335,7 @@ public sealed partial class Enemy : IDamageable
         }
 
         part.MuzzleSwapped ^= fire.Speed < 0;
-        var dir = Vector3.Normalize(aim - muzzle);
-        var r = ((int)(part.BlastPad * 256f) + 0x80) >> 8;   // 0x13c2d1: the model radius, rounded
+        var dir = Improved ? Aimed(muzzle, aim) : Vector3.Normalize(aim - muzzle);
         ShotsFired++;
         _ctx.Shoot(this, fire.Ammo, muzzle + dir * (r + (r >> 4)), dir, MathF.Abs(fire.Speed));
     }
@@ -1290,6 +1368,7 @@ public sealed partial class Enemy : IDamageable
 
         Hp -= MathF.Max(damage.Points, 0f);
         _ctx.HitSound(Position + new Vector3(0f, 40f, 0f));
+        Flinch();
 
         // FUN_00139819 (0x1398e6) sets the alert bit 0x8000 on the actor and its children: the next
         // perception test (Sense) counts as seen, and that answer holds until the test after it.
@@ -1298,6 +1377,8 @@ public sealed partial class Enemy : IDamageable
         {
             Alert(c);
         }
+
+        WitnessHit();
         if (Hp <= 0f)
         {
             Die();
@@ -1322,7 +1403,9 @@ public sealed partial class Enemy : IDamageable
 
         part.Hp -= MathF.Max(damage.Points, 0f);
         _ctx.HitSound(part.World.Translation);
+        Flinch();
         Alert(part);
+        WitnessHit();
         if (part.Hp <= 0f)
         {
             _ctx.PartDestroyed(this, part);

@@ -87,6 +87,60 @@ public class NavMeshTests(ITestOutputHelper output)
         Assert.False(query.Raycast(new(0, 0, 700), new(500, 0, 1200), out _));
     }
 
+    /// <summary>Two floors with a pit between: the far one off the flood from the near one.</summary>
+    private static NavQuery PitQuery()
+    {
+        var near = Quad(new(-1000, 0, 0), new(1000, 0, 0), new(1000, 0, 1500), new(-1000, 0, 1500));
+        var far = Quad(new(-1000, 0, -2000), new(1000, 0, -2000), new(1000, 0, -600), new(-1000, 0, -600));
+        return new NavQuery(NavMesh.Build(World(near.Concat(far)), Agent, Cells));
+    }
+
+    [Fact]
+    public void The_flood_from_a_spot_reaches_its_floor_not_the_one_over_a_pit()
+    {
+        var query = PitQuery();
+        var reached = query.Flood([new Vector3(0, 0, 700)]);
+
+        Assert.Contains(query.EndPoly(new(800, 0, 100)), reached);
+        Assert.DoesNotContain(query.EndPoly(new(0, 0, -1200)), reached);
+    }
+
+    [Fact]
+    public void A_search_stops_at_its_node_cap_and_says_so()
+    {
+        var query = PitQuery();
+        var corners = new List<Vector3>();
+
+        query.FindPath(new(0, 0, 700), new(0, 0, -1200), corners, null, maxNodes: 100_000);
+        var all = query.Nodes;
+        Assert.False(query.OutOfNodes);
+        Assert.True(all > 2, $"{all} nodes");
+
+        query.FindPath(new(0, 0, 700), new(0, 0, -1200), corners, null, maxNodes: 2);
+        Assert.True(query.OutOfNodes);
+        Assert.Equal(2, query.Nodes);
+    }
+
+    [Fact]
+    public void Searches_and_snaps_allocate_nothing()
+    {
+        var query = PitQuery();
+        var corners = new List<Vector3>(64);
+        var blocked = new List<long>();
+        query.FindPath(new(0, 0, 700), new(0, 0, -1200), corners, blocked, 100);
+        query.FindPath(new(0, 0, 700), new(800, 0, 1200), corners, blocked, 100);
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var i = 0; i < 10; i++)
+        {
+            query.FindPath(new(0, 0, 700), new(0, 0, -1200), corners, blocked, 100);
+            query.FindPath(new(0, 0, 700), new(800, 0, 1200), corners, blocked, 100);
+            query.EndPoly(new(0, 0, -1200));
+        }
+
+        Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
+    }
+
     [Fact]
     public void Nearest_snaps_a_point_in_the_air_onto_the_floor()
     {

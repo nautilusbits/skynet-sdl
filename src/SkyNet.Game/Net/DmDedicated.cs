@@ -196,6 +196,7 @@ public sealed class DmDedicated : IDisposable
     {
         EndDemo();
         _roundOver = null;
+        Host.Bots?.Reseed(Random.Shared.Next()); // every round plays out its own way
         if (!Config.RecordDemos)
         {
             return;
@@ -205,6 +206,11 @@ public sealed class DmDedicated : IDisposable
         var name = string.Create(c, $"round-{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Rounds + 1:000}-MAP.{Server.Settings.Map:000}{Demos.CampaignDemo.Extension}");
         var path = Path.Combine(Config.Resolve(Config.DemoFolder), name);
         _demo = new Demos.NetDemoRecorder(Demos.NetDemo.Create(_data, Demos.NetDemoRole.Dedicated, 0, "", Server.Settings), path) { Clock = Uptime };
+        if (Host.Bots is { } bots)
+        {
+            _demo.Demo.SetField(Demos.NetDemo.KeyBotSeed, bots.Seed.ToString(c));
+        }
+
         _demo.Keyframe(Keyframe());
         Write($"recording the round to {path}");
     }

@@ -3,6 +3,45 @@
 Version in `Directory.Build.props`. Each batch of changes raises it: a fix
 the patch number, a feature the minor. Releases on GitHub start at 1.0.0.
 
+## 1.8.0 (2026-11-27)
+
+Smarter robots and deathmatch bots (#57).
+
+Robots
+- ROBOT AI CLASSIC matches DOS: robots no longer roam. A walker stands
+  until it sees you, then follows your trail; the HK always steers at
+  you (#57).
+- ROBOT AI IMPROVED: robots see in a cone in front of them, hear shots
+  and explosions (not footsteps) and alert their neighbours. They
+  patrol with pauses, investigate a noise, search where they last saw
+  you, give up and go back to their post.
+- A robot that sees or stands near a robot you hit or destroy comes to
+  where your shot came from.
+- IMPROVED robots react after a short delay and aim less precisely when
+  you move; at most five fire at full rate at once. Hits are close to
+  1.7.1, as the maps rely on numbers. Hurt small walkers and drones
+  take cover; T-800s never do.
+- The flying mine no longer stops short of you; a floor plasma turret
+  fires in IMPROVED.
+
+Sound
+- In the ENHANCED look robots behind a wall or on another floor sound
+  quieter, and at most three robots' movement sounds play at once, the
+  nearest first. ORIGINAL stays DOS (#57).
+
+Deathmatch
+- Bots pick up items, fight, chase, retreat, and take free jeeps and
+  HKs. They turn on whoever hits them, hear shots and have their own
+  traits per name.
+- Bots climb ledges and drop off roofs; on Highway City they reach the
+  overpass HKs.
+- Parked jeeps and HKs block the soldier again; you can no longer walk
+  into an HK.
+- A host with bots no longer stutters now and then.
+
+Saves from 1.7.1 load. Campaign demos recorded with ROBOT AI IMPROVED
+in 1.7.1 no longer replay the same.
+
 ## 1.7.1 (2026-11-26)
 
 macOS fixes, RetroEng 0.67.1.

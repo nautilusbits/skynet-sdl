@@ -384,6 +384,11 @@ public sealed class GameSession
         Sounds = sounds;
         Transfrm = BehaviourModel.LoadTransfrm(data);
         World = new CollisionWorld().Add(_source);
+        if (sounds != null)
+        {
+            sounds.Occluded = Walled;
+        }
+
         _robotBlock = new RobotColliders(() => Robots);
         PlayerWorld = new CollisionWorld().Add(_source).Add(_robotBlock);
         Player = new PlayerController(PlayerWorld);
@@ -1141,6 +1146,14 @@ public sealed class GameSession
         _leftFull.Clear();
         Weapons.Clear();
         _pendingExit = null;
+    }
+
+    /// <summary>Whether the map's walls stand between two points (the sound bank's muffling; read-only).</summary>
+    private bool Walled(Vector3 from, Vector3 to)
+    {
+        var d = to - from;
+        var len = d.Length();
+        return len >= 1f && World.Raycast(from, d / len, len - 1f, out _);
     }
 
     /// <summary>An ambient loop (a 0xEE node, a burning sprite) by DOS's 3D rules (handler 0x12a97a).</summary>

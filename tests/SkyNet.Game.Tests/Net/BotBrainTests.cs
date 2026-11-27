@@ -78,16 +78,22 @@ public class BotBrainTests(ITestOutputHelper output)
     [Fact]
     public void It_hunts_the_nearest_player_it_can_see()
     {
-        // Player 2 is nearer but behind the wall; player 3 stands in the open.
-        var (server, bot, rec) = Setup(World(wall: true), 1, new Vector3(0, 0, -900), new Vector3(1500, 0, 0));
+        // Player 2 is nearer but behind the wall; player 3 stands in the open, 45° to the right
+        // (in the view cone since phase 3: a new face is seen ahead, not all round).
+        var (server, bot, rec) = Setup(World(wall: true), 1, new Vector3(0, 0, -900), new Vector3(1500, 0, -1500));
         bot.Think(server, rec);
         Assert.Equal(3, bot.Target);
         Assert.True(bot.TargetVisible);
 
         // Without the wall the nearer one is the target.
-        (server, bot, rec) = Setup(World(wall: false), 1, new Vector3(0, 0, -900), new Vector3(1500, 0, 0));
+        (server, bot, rec) = Setup(World(wall: false), 1, new Vector3(0, 0, -900), new Vector3(1500, 0, -1500));
         bot.Think(server, rec);
         Assert.Equal(2, bot.Target);
+
+        // Somebody behind it, not near, is not seen.
+        (server, bot, rec) = Setup(World(wall: false), 1, new Vector3(0, 0, 1500));
+        bot.Think(server, rec);
+        Assert.Null(bot.Target);
 
         // Nobody beyond the see range, nobody dead.
         (server, bot, rec) = Setup(World(wall: false), 1, new Vector3(0, 0, -(BotBrain.SeeRange + 100)), new Vector3(300, 0, 0));
@@ -105,6 +111,15 @@ public class BotBrainTests(ITestOutputHelper output)
         Assert.Empty(rec.Shots);
         Assert.False(bot.CanSee(BotBrain.EyeOf(new Vector3(0, 0, 0)), BotBrain.EyeOf(new Vector3(0, 0, -900))));
         Assert.True(bot.CanSee(BotBrain.EyeOf(new Vector3(0, 0, 0)), BotBrain.EyeOf(new Vector3(1000, 0, -900))));
+    }
+
+    /// <summary>The ray stops at the target: a wall behind him does not hide him (an unnormalised
+    /// direction reached past him).</summary>
+    [Fact]
+    public void A_wall_behind_the_target_does_not_hide_it()
+    {
+        var (_, bot, _) = Setup(World(wall: true), 1);
+        Assert.True(bot.CanSee(BotBrain.EyeOf(new Vector3(0, 0, 0)), BotBrain.EyeOf(new Vector3(0, 0, -300))));
     }
 
     [Fact]
@@ -261,7 +276,8 @@ public class BotBrainTests(ITestOutputHelper output)
 
         foreach (var (id, b) in bots.Brains)
         {
-            Assert.True(b.Walked > 500f, $"bot {id} walked only {b.Walked:0}");
+            // On foot or in one of the arena's vehicles (phase 3: bots seek them as goals).
+            Assert.True(b.Walked > 500f || b.RideSeconds > 10f, $"bot {id} walked only {b.Walked:0}, drove {b.RideSeconds:0} s");
             Assert.True(float.IsFinite(b.Body.Position.Y) && b.Body.Position.Y > -5000f, $"bot {id} fell out at {b.Body.Position}");
         }
 

@@ -15,7 +15,8 @@ namespace SkyNet.Game.Net;
 /// triangles (<see cref="LevelCollision.Faces"/>) where <see cref="AvatarRenderer"/> draws it, for
 /// every vehicle with no driver that is not wrecked. A driven vehicle is its driver's avatar.
 /// (The four corners at 0x51F54 / 0x51FFE, jeep ±57 × ±72 at 45 down, HK ±50 × ±115 at 125 down, are
-/// the ground probes 0x126d00 / 0x126f1f set its height and tilt with, not a collision box.)
+/// the ground probes 0x126d00 / 0x126f1f set its height and tilt with; the HK's also bound the block
+/// under its belly.)
 /// </summary>
 public sealed class ParkedVehicleColliders(Func<IEnumerable<DmVehicle>> vehicles, EnemyModels models) : ITriangleSource
 {
@@ -111,9 +112,34 @@ public sealed class ParkedVehicleColliders(Func<IEnumerable<DmVehicle>> vehicles
                 ? (AvatarRenderer.ParkedHk, AvatarRenderer.DrivenHk)
                 : (AvatarRenderer.ParkedJeep, AvatarRenderer.DrivenJeep);
             var model = models.Get(first) ?? models.Get(second);
-            _shapes[kind] = shape = model != null ? (LevelCollision.Faces(model.Model), model.FootY) : null;
+            _shapes[kind] = shape = model != null ? (WithBelly(kind, LevelCollision.Faces(model.Model), model.FootY), model.FootY) : null;
         }
 
         return shape;
+    }
+
+    /// <summary>The HK's half width and half length about its marker (its ground probes, 0x51FFE).</summary>
+    private const float HkHalfWidth = 50f, HkHalfLength = 115f;
+
+    /// <summary>How high the block under the HK reaches over its feet: its belly rises from 46 to
+    /// 135 towards the tail, so the gap left over the block (≤ 55) is lower than the soldier.</summary>
+    private const float HkBellyTop = 80f;
+
+    /// <summary>The HK's mesh stands on its skids with a belly the soldier walked under (MAP.601):
+    /// a solid box under it, ±50 × ±115 from the feet up to <see cref="HkBellyTop"/>.</summary>
+    private static Vector3[][] WithBelly(VehicleMode kind, Vector3[][] faces, float footY)
+    {
+        if (kind != VehicleMode.Hk)
+        {
+            return faces;
+        }
+
+        var (lo, hi) = (new Vector3(-HkHalfWidth, footY, -HkHalfLength), new Vector3(HkHalfWidth, footY + HkBellyTop, HkHalfLength));
+        Vector3 C(int i) => new((i & 1) == 0 ? lo.X : hi.X, (i & 2) == 0 ? lo.Y : hi.Y, (i & 4) == 0 ? lo.Z : hi.Z);
+
+        // The box's six sides as quads of corner indices (bit 0 x, bit 1 y, bit 2 z), two triangles each.
+        int[][] quads = [[0, 1, 3, 2], [4, 6, 7, 5], [0, 2, 6, 4], [1, 5, 7, 3], [0, 4, 5, 1], [2, 3, 7, 6]];
+        var box = quads.SelectMany(q => new[] { new[] { C(q[0]), C(q[1]), C(q[2]) }, new[] { C(q[0]), C(q[2]), C(q[3]) } });
+        return [.. faces, .. box];
     }
 }

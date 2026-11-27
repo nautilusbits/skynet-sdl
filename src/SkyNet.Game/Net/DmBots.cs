@@ -17,13 +17,22 @@ public sealed class DmBots : IBotOutput
 {
     public const float Tick = 1f / 60f;
 
+    /// <summary>Goal picks a tick for all bots: a round's start spreads its picks over ticks.</summary>
+    private const int PicksPerTick = 2;
+
+    /// <summary>Ticks a slow frame is caught up at most: more would make the next frame slow too.</summary>
+    private const int MaxCatchUp = 4;
+
     private readonly DmHost _host;
     private readonly CollisionWorld _world;
     private readonly WeaponTable _table;
-    private readonly int _seed;
+    private int _seed;
     private readonly Navigation.NavMesh? _nav;
     private readonly BotRides _rides;
+    private readonly BotClaims _claims = new() { PicksPerTick = PicksPerTick };
     private readonly SortedDictionary<int, BotBrain> _brains = new(Comparer<int>.Create((a, b) => b.CompareTo(a)));
+    /// <summary>The brains in <see cref="_brains"/>' order, walked every tick (a sorted dictionary's walk allocates).</summary>
+    private readonly List<BotBrain> _order = [];
     private double _accum;
 
     /// <param name="seed">Seeds every brain (with its id); null = a random game.</param>
@@ -53,13 +62,28 @@ public sealed class DmBots : IBotOutput
                 Brain(p.Id);
             }
         };
-        server.PlayerRemoved += id => _brains.Remove(id);
+        server.PlayerRemoved += id =>
+        {
+            _brains.Remove(id);
+            _claims.Release(id);
+            Reorder();
+        };
+        // A dead bot heads for no vehicle.
+        server.Died += (victim, _, _) => _claims.Release(victim);
+        // A hit turns the bot it struck round (the attacker's place, after its reaction).
+        server.Hurt += (victim, attacker) =>
+        {
+            if (_brains.TryGetValue(victim, out var b))
+            {
+                b.Hurt(attacker, server);
+            }
+        };
         // A weapon item a bot takes goes in its hand.
         server.PickupTaken += (key, by) =>
         {
             if (server.IsBot(by) && _brains.TryGetValue(by, out var b) && server.Pickups.TryGetValue(key, out var item))
             {
-                b.Took(item.Sprite);
+                b.Took(item, server.Now);
             }
         };
         server.Respawned += (id, sp) =>
@@ -82,6 +106,28 @@ public sealed class DmBots : IBotOutput
     }
 
     public int Skill { get; }
+
+    /// <summary>The seed every brain's stream derives from: the one given, else one drawn once and
+    /// kept (written into a host's network demo, so the match can be played again).</summary>
+    internal int Seed => _seed;
+
+    /// <summary>A new seed for every brain's stream (a dedicated server's next round).</summary>
+    internal void Reseed(int seed)
+    {
+        _seed = seed;
+        foreach (var b in _order)
+        {
+            b.Reseed(Stream(b.Id));
+        }
+    }
+
+    private Random Stream(int id) => new(unchecked(_seed * 7919 + id));
+
+    private void Reorder()
+    {
+        _order.Clear();
+        _order.AddRange(_brains.Values);
+    }
 
     public IReadOnlyDictionary<int, BotBrain> Brains => _brains;
 
@@ -129,7 +175,7 @@ public sealed class DmBots : IBotOutput
     /// <summary>The host's clock moved on by <paramref name="dt"/>: the brains' fixed ticks.</summary>
     public void Step(double dt)
     {
-        _accum = Math.Min(_accum + dt, 0.25);
+        _accum = Math.Min(_accum + dt, MaxCatchUp * Tick);
         var server = _host.Server;
         while (_accum >= Tick)
         {
@@ -139,7 +185,10 @@ public sealed class DmBots : IBotOutput
                 continue;
             }
 
-            foreach (var b in _brains.Values)
+            Flood(server);
+            _claims.NewTick();
+
+            foreach (var b in _order)
             {
                 if (server.Players.TryGetValue(b.Id, out var p) && p.Alive)
                 {
@@ -152,17 +201,47 @@ public sealed class DmBots : IBotOutput
         }
     }
 
+    /// <summary>Once the arena is up: the mesh its spawns reach, so no bot searches its way to a
+    /// goal off it (a failed search floods the whole mesh).</summary>
+    private void Flood(DmServer server)
+    {
+        if (_claims.Reach != null || _nav == null || server.Spawns.Count == 0)
+        {
+            return;
+        }
+
+        var spawns = new Vector3[server.Spawns.Count];
+        for (var i = 0; i < spawns.Length; i++)
+        {
+            spawns[i] = server.Spawns[i].Feet;
+        }
+
+        _claims.Reach = new Navigation.NavQuery(_nav).Flood(spawns);
+    }
+
     private BotBrain Brain(int id)
     {
         if (!_brains.TryGetValue(id, out var b))
         {
-            b = new BotBrain(id, Skill, _world, _table, new Random(unchecked(_seed * 7919 + id)), _nav, _rides);
+            var name = _host.Server.Players.TryGetValue(id, out var p) ? p.Name : "";
+            b = new BotBrain(id, Skill, _world, _table, Stream(id), _nav, _rides, BotTraits.For(name), _claims);
             // The class's pace (BALANCED's TERMINATOR runs at 0.9), as a player's own body.
             b.Body.ClassSpeed = _host.Server.SpeedOf(id);
             _brains[id] = b;
+            Reorder();
         }
 
         return b;
+    }
+
+    /// <summary>A gun fired or a blast went off at <paramref name="at"/> (<paramref name="source"/>
+    /// the player): every brain within earshot hears it.</summary>
+    internal void Noise(int source, Vector3 at, Enemies.NoiseKind kind)
+    {
+        foreach (var b in _order)
+        {
+            b.Hear(source, at, kind);
+        }
     }
 
     // ---- IBotOutput: the host's calls, as its own player makes them ----
@@ -178,4 +257,70 @@ public sealed class DmBots : IBotOutput
     void IBotOutput.SelfHit(int id, float points, int weapon) => _host.Hit(id, points, weapon, id);
 
     void IBotOutput.Pickup(int id, int key) => _host.RequestPickup(key, id);
+
+    void IBotOutput.Blast(int id, Vector3 at) => Noise(id, at, Enemies.NoiseKind.Blast);
+}
+
+/// <summary>What the server's bots share: which bot is on its way to which vehicle (one bot a
+/// vehicle, so they do not all rush the same jeep), the goals found cut off, the mesh the spawns
+/// reach and the tick's goal picks.</summary>
+internal sealed class BotClaims
+{
+    /// <summary>Picks a tick for all bots together (<see cref="DmBots"/>); a brain on its own: no cap.</summary>
+    internal int PicksPerTick { get; init; } = int.MaxValue;
+
+    private int _picksLeft = int.MaxValue;
+
+    /// <summary>The polygons reachable from the arena's spawns (<see cref="Navigation.NavQuery.Flood"/>); null: unknown.</summary>
+    internal HashSet<long>? Reach { get; set; }
+
+    /// <summary>A new tick: its picks are free again.</summary>
+    public void NewTick() => _picksLeft = PicksPerTick;
+
+    /// <summary>One of the tick's picks; false when they are spent.</summary>
+    public bool TakePick()
+    {
+        if (_picksLeft <= 0)
+        {
+            return false;
+        }
+
+        _picksLeft--;
+        return true;
+    }
+
+    private readonly Dictionary<int, int> _byVehicle = [];
+
+    /// <summary>Goals (kind, key) a bot's path search found cut off, until when: the other bots
+    /// skip the search (a failed one floods the mesh).</summary>
+    private readonly Dictionary<(int Kind, int Key), double> _unreached = [];
+
+    /// <summary>Goal <paramref name="key"/> of <paramref name="kind"/> was found cut off lately.</summary>
+    public bool Unreached(int kind, int key, double now) => _unreached.TryGetValue((kind, key), out var until) && until > now;
+
+    /// <summary>A search found goal <paramref name="key"/> cut off: skipped by all bots until <paramref name="until"/>.</summary>
+    public void MarkUnreached(int kind, int key, double until) => _unreached[(kind, key)] = until;
+
+    /// <summary>Somebody but <paramref name="bot"/> is on the way to <paramref name="vehicle"/>.</summary>
+    public bool TakenByOther(int vehicle, int bot) => _byVehicle.TryGetValue(vehicle, out var by) && by != bot;
+
+    /// <summary><paramref name="bot"/> heads for <paramref name="vehicle"/> (and for nothing else).</summary>
+    public void Claim(int vehicle, int bot)
+    {
+        Release(bot);
+        _byVehicle[vehicle] = bot;
+    }
+
+    /// <summary><paramref name="bot"/> heads for no vehicle.</summary>
+    public void Release(int bot)
+    {
+        foreach (var (vehicle, by) in _byVehicle)
+        {
+            if (by == bot)
+            {
+                _byVehicle.Remove(vehicle);
+                return;
+            }
+        }
+    }
 }

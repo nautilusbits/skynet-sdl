@@ -19,7 +19,7 @@ public sealed class NavMesh
 {
     /// <summary>"NAVM" and the layout's version: a change of either makes old files stale.</summary>
     private const int Magic = 0x4D56414E;
-    private const int Version = 2;
+    private const int Version = 13;
     /// <summary>FNV-1a 64-bit.</summary>
     private const ulong HashStart = 14695981039346656037UL, HashPrime = 1099511628211UL;
 
@@ -74,7 +74,7 @@ public sealed class NavMesh
 
         Array.Resize(ref verts, n * 9);
         Array.Resize(ref faces, n * 3);
-        var detour = NavRecast.Bake(verts, faces, box.Min, box.Max, agent, settings);
+        var detour = NavRecast.Bake(verts, faces, box.Min, box.Max, agent, settings, world);
         return new NavMesh(detour, agent, settings, source);
     }
 
@@ -107,6 +107,7 @@ public sealed class NavMesh
         w.Write(Agent.Height);
         w.Write(Agent.StepHeight);
         w.Write(Agent.MaxSlopeDegrees);
+        w.Write(Agent.MaxDrop);
         w.Write(Settings.CellSize);
         w.Write(Settings.CellHeight);
         WriteArea(w, Settings.AreaMin);
@@ -125,11 +126,83 @@ public sealed class NavMesh
             return null;
         }
 
-        var agent = new NavAgent(r.ReadSingle(), r.ReadSingle(), r.ReadSingle(), r.ReadSingle());
+        var agent = new NavAgent(r.ReadSingle(), r.ReadSingle(), r.ReadSingle(), r.ReadSingle()) { MaxDrop = r.ReadSingle() };
         var settings = ReadSpots(r, new NavBuild(r.ReadSingle(), r.ReadSingle(), ReadArea(r), ReadArea(r)));
         var source = r.ReadUInt64();
         var detour = new DtMeshSetReader().Read(r, NavRecast.VertsPerPolygon);
+        NavJoins.Cut(detour, agent.StepHeight); // the reader links the tiles again
         return new NavMesh(detour, agent, settings, source);
+    }
+
+    /// <summary>The drop links by their start's cell (<see cref="DropCell"/> across), built on first use.</summary>
+    private Dictionary<(int, int), List<(Vector3 From, Vector3 To)>>? _dropsByCell;
+    private const float DropCell = 64f;
+
+    /// <summary>A baked link (a drop, a climb) runs from within <paramref name="slack"/> of <paramref name="from"/>
+    /// to within it of <paramref name="to"/> (a path's leg off a ledge).</summary>
+    internal bool IsLink(Vector3 from, Vector3 to, float slack)
+    {
+        _dropsByCell ??= DropsByCell();
+        var cx = (int)MathF.Floor(from.X / DropCell);
+        var cz = (int)MathF.Floor(from.Z / DropCell);
+        for (var x = cx - 1; x <= cx + 1; x++)
+        {
+            for (var z = cz - 1; z <= cz + 1; z++)
+            {
+                if (!_dropsByCell.TryGetValue((x, z), out var list))
+                {
+                    continue;
+                }
+
+                foreach (var (a, b) in list)
+                {
+                    if (Vector3.Distance(a, from) <= slack && Vector3.Distance(b, to) <= slack)
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private Dictionary<(int, int), List<(Vector3 From, Vector3 To)>> DropsByCell()
+    {
+        var map = new Dictionary<(int, int), List<(Vector3 From, Vector3 To)>>();
+        foreach (var d in Drops())
+        {
+            var key = ((int)MathF.Floor(d.From.X / DropCell), (int)MathF.Floor(d.From.Z / DropCell));
+            if (!map.TryGetValue(key, out var list))
+            {
+                map[key] = list = [];
+            }
+
+            list.Add(d);
+        }
+
+        return map;
+    }
+    /// <summary>The one-way links baked in (drops off ledges, climbs onto them).</summary>
+    internal IEnumerable<(Vector3 From, Vector3 To)> Drops()
+    {
+        for (var i = 0; i < Detour.GetMaxTiles(); i++)
+        {
+            if (Detour.GetTile(i)?.data?.offMeshCons is not { } cons)
+            {
+                continue;
+            }
+
+            foreach (var c in cons)
+            {
+                if (c.pos[0] == c.pos[1])
+                {
+                    continue; // a spare (link slots for a neighbour's landing), not a way
+                }
+
+                yield return (NavRecast.Num(c.pos[0]), NavRecast.Num(c.pos[1]));
+            }
+        }
     }
 
     /// <summary>Every polygon's corners, for a debug view.</summary>

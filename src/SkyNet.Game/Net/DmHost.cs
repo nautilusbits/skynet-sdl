@@ -667,6 +667,7 @@ public sealed class DmHost : IDisposable
         if (Server.Players.TryGetValue(id, out var p))
         {
             p.Weapon = weapon;
+            Bots?.Noise(id, p.Position, Enemies.NoiseKind.Shot); // heard where the server has the shooter, not where it says
         }
 
         All(_w.Begin(DmMsg.FireOf).I32(id).I32(weapon).Vec3(from).Vec3(dir), Channel.Reliable, except: id);

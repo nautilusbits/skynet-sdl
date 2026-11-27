@@ -1,5 +1,6 @@
 using RetroEng.Loop;
 using SkyNet.Game.Campaign;
+using SkyNet.Game.Enemies;
 
 namespace SkyNet.Game.Demos;
 
@@ -90,6 +91,12 @@ public static class SessionHash
                 h.Add(r.SenseCount);
                 h.Add(r.Perceived);
                 h.Add(r.Alerted);
+                if (robots.Ai == RobotAi.Improved)
+                {
+                    h.Add(r.ImprovedRngState);   // CLASSIC never draws it: its hashes stay DOS's
+                    h.Add((int)r.Alertness);
+                }
+
                 h.Add(r.ShotsFired);
                 h.Add(r.DormantDistance);
                 h.Add(r.Root.Yaw);

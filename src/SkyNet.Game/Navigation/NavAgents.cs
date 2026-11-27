@@ -10,6 +10,19 @@ public static class NavAgents
     public static readonly NavAgent Soldier = new(PlayerController.BodyRadius, PlayerController.BodyHeight,
         PlayerController.StepHeight, PlayerController.FootMaxSlopeDegrees);
 
+    /// <summary>A deathmatch bot on foot: the soldier with room to spare (the other bodies block it
+    /// at <see cref="Net.BodyBlock.Radius"/>, and on MAP.605 a soldier-sized mesh runs under the
+    /// overpass's edge, where his stacked spheres touch the slab, and hugs posts he catches on).</summary>
+    internal static readonly NavAgent Bot = new(BotRadius, BotHeight, PlayerController.StepHeight, PlayerController.FootMaxSlopeDegrees)
+    {
+        MaxDrop = SafeDrop,
+    };
+
+    /// <summary>The highest walk-off that lands unhurt: DOS hurts a landing over 396 u/s, reached
+    /// after (396² / 2·392) = 200 u of fall; 10 u spare.</summary>
+    internal const float SafeDrop = PlayerController.FallSafeSpeed * PlayerController.FallSafeSpeed / (2f * PlayerController.Gravity) - 10f;
+    internal const float BotRadius = 22f, BotHeight = 96f;
+
     /// <summary>Half the soldier's radius across, a 20th of his step up.</summary>
     public static readonly NavBuild SoldierCells = new(8f, 4f);
 
